@@ -1,0 +1,1 @@
+Service-Component: OSGI-INF/WM_HandlingUnitDocEvent.xml,OSGI-INF/WM_HandlingUnitModelFactory.xml

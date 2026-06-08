@@ -1,0 +1,6 @@
+<extension id="org.my.process.BulkBreakup"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.my.process.BulkBreakup">
+	</process>
+</extension>

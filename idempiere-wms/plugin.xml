@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.4"?>
+<plugin>
+<extension id="org.my.process.GenerateLocators"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.wms.process.GenerateLocators">
+	</process>
+</extension>
+<extension id="org.my.process.GenerateEmptyStorage"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.wms.process.GenerateEmptyStorage">
+	</process>
+</extension>
+<extension id="org.my.process.CreateDeliverySchedule"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.wms.process.CreateDeliverySchedule">
+	</process>
+</extension>
+<extension id="org.my.process.SetTypes"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.wms.process.SetTypes">
+	</process>
+</extension>
+<extension id="org.my.process.SetTypeString"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.wms.process.SetTypeString">
+	</process>
+</extension>
+<extension id="org.my.process.SetPreferredProduct"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.wms.process.SetPreferredProduct">
+	</process>
+</extension> 
+<extension id="org.my.process.CreatePutawayList"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.wms.process.CreatePutawayList">
+	</process>
+</extension>
+<extension id="org.my.process.SetProductPackFactor"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.wms.process.SetProductPackFactor">
+	</process>
+</extension>
+<extension id="org.my.process.ReportPutawayPickingList"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.wms.process.ReportPutawayPickingList">
+	</process>
+</extension>
+<extension id="org.my.process.BlockUnblockLocator"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.wms.process.BlockUnblockLocator">
+	</process>
+</extension>
+<extension id="org.my.process.AssignHandlingUnit"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.wms.process.AssignHandlingUnit">
+	</process>
+</extension>
+<extension id="org.my.process.ExpiredStock"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.wms.process.ExpiredStock">
+	</process>
+</extension>
+<extension id="org.my.process.StockMovement"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.wms.process.StockMovement">
+	</process>
+</extension>
+<extension id="org.my.process.ReportStorageMovement"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.wms.process.ReportStorageMovement">
+	</process>
+</extension>
+<extension id="org.my.process.ChangeLocator"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.wms.process.ChangeLocator">
+	</process>
+</extension>
+<extension id="org.my.process.MigrateProcess"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.wms.process.MigrateProcess">
+	</process>
+</extension>
+<extension id="org.my.process.GenerateHandlingUnit"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.wms.process.GenerateHandlingUnit">
+	</process>
+</extension>
+<extension id="org.wms.process.TransitMovement"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.wms.process.TransitMovement">
+	</process>
+</extension>
+<extension id="org.wms.process.SetGatePromisedDate"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.wms.process.SetGatePromisedDate">
+	</process>
+</extension>
+<extension id="org.wms.process.DivideByPalletSize"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.wms.process.DivideByPalletSize">
+	</process>
+</extension><extension id="org.my.process.CheckUp"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.wms.process.CheckUp">
+	</process>
+</extension><extension id="org.my.process.CheckAvailability"
+  point="org.adempiere.base.Process">
+	<process
+		class="org.wms.process.CheckAvailability">
+	</process>
+</extension>
+</plugin>
