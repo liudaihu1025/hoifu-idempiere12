@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>  
+<scr:component xmlns:scr="http://www.osgi.org/xmlns/scr/v1.1.0"  
+               name="com.hoifu.factory.BaseEditorFactory"  
+               immediate="true">  
+   <implementation class="com.hoifu.factory.BaseEditorFactory"/>  
+   <service>  
+      <provide interface="org.adempiere.webui.factory.IEditorFactory"/>  
+   </service>  
+   <property name="service.ranking" type="Integer" value="1"/>  
+</scr:component>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>  
+<scr:component xmlns:scr="http://www.osgi.org/xmlns/scr/v1.3.0"  
+               name="org.libero.process.WFNodeMoveUpAction"  
+               immediate="true">  
+    <implementation class="org.libero.process.WFNodeMoveUpAction"/>  
+    <service>  
+        <provide interface="org.adempiere.webui.action.IAction"/>  
+    </service>  
+    <property name="actionClassName" value="org.libero.process.WFNodeMoveUpAction"/>  
+</scr:component>

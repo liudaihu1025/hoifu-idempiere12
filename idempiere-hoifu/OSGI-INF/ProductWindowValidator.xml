@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>  
+<scr:component xmlns:scr="http://www.osgi.org/xmlns/scr/v1.1.0"  
+    name="com.hoifu.window.ProductWindowValidator">  
+    <implementation class="com.hoifu.window.ProductWindowValidator"/>  
+    <service>  
+        <provide interface="org.adempiere.webui.adwindow.validator.WindowValidator"/>  
+    </service>  
+    <property name="AD_Window_UU" value="a939f56d-2fac-4d31-9580-650c9db31864"/>  
+    <property name="events" value="beforeSave"/>  
+</scr:component>

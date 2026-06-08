@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>  
+<component name="claim.qty.parameter.listener">  
+    <implementation class="com.hoifu.validator.ClaimQtyParameterListener"/>  
+    <service>  
+        <provide interface="org.adempiere.webui.apps.IProcessParameterListener"/>  
+    </service>  
+    <property name="ProcessClass" value="com.hoifu.process.OfficeRequisitionClaimStatusProcess"/>  
+</component>

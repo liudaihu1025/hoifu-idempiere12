@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scr:component xmlns:scr="http://www.osgi.org/xmlns/scr/v1.1.0" immediate="true" name="com.hoifu.window.ApproveWorkflowAction">
+   <service>
+      <provide interface="org.adempiere.webui.action.IAction"/>
+   </service>
+   <implementation class="com.hoifu.window.ApproveWorkflowAction"/>
+</scr:component>
