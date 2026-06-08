@@ -1,0 +1,38 @@
+# docker-compose-prod.yml
+version: '3.8'
+
+services:
+  idempiere:
+    image: ${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHORT_SHA}
+    environment:
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      IDEMPIERE_HOME: /opt/idempiere
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    volumes:
+      - idempiere_data_prod:/opt/idempiere_docker/data
+      - idempiere_logs_prod:/opt/idempiere_docker/logs
+    networks:
+      - idempiere-prod-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
+volumes:
+  idempiere_data_prod:
+    driver: local
+  idempiere_logs_prod:
+    driver: local
+
+networks:
+  idempiere-prod-network:
+    driver: bridge

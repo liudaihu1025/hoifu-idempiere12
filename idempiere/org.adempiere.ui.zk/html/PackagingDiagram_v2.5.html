@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>箱盒示意图生成器（俯视 / 刀模 / 立体）</title>
+    <style>
+        body { font-family: "Microsoft YaHei", Arial, sans-serif; background: #f4f6f9; display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0; }
+        .container { background: white; padding: 20px 30px; border-radius: 12px; box-shadow: 0 8px 20px rgba(0,0,0,0.1); margin-bottom: 20px; width: 750px; }
+        .row { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; margin-bottom: 12px; }
+        label { font-weight: bold; margin-right: 2px; }
+        input, select { padding: 7px 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; width: 105px; }
+        select { width: auto; }
+        button { padding: 10px 28px; font-size: 16px; font-weight: bold; color: white; background: #2d6ff7; border: none; border-radius: 8px; cursor: pointer; transition: background 0.2s; margin-top: 8px; }
+        button:hover { background: #1b53c5; }
+        .btn-formula { background: #f0ad4e; margin-left: 10px; }
+        .btn-formula:hover { background: #ec971f; }
+        canvas { border: 1px solid #d0d7de; border-radius: 10px; background: white; box-shadow: 0 4px 15px rgba(0,0,0,0.08); }
+        .info { margin-top: 10px; color: #555; font-size: 13px; text-align: center; }
+        #diecutParams { background: #f9fafb; padding: 10px 15px; border-radius: 8px; margin-top: 6px; }
+        .param-block { margin-top: 8px; }
+        input[type="range"] { width: 130px; }
+        span.val-display { display: inline-block; min-width: 30px; font-weight: bold; }
+        #areaDisplay { margin-top: 15px; padding: 10px; background: #e8f0fe; border-radius: 8px; font-weight: bold; color: #1e2b3c; display: none; }
+        .material-row { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; padding: 10px; background: #f0f4ff; border-radius: 8px; }
+        .material-row input { width: 180px; }
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); justify-content: center; align-items: center; }
+        .modal-content { background: white; padding: 25px 30px; border-radius: 12px; max-width: 900px; width: 90%; max-height: 85vh; overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .modal-header h3 { margin: 0; color: #2c3e50; }
+        .close-btn { font-size: 24px; cursor: pointer; color: #777; }
+        .close-btn:hover { color: #333; }
+        table.formula-grid { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px; }
+        table.formula-grid th, table.formula-grid td { border: 1px solid #d0d7de; padding: 8px 10px; text-align: center; }
+        table.formula-grid th { background: #f4f6f9; font-weight: bold; color: #2c3e50; }
+        table.formula-grid td input { width: 160px; padding: 4px 6px; font-family: monospace; border: 1px solid #ccc; border-radius: 4px; }
+        table.formula-grid td .custom-val { font-weight: bold; color: #27ae60; }
+        .error-text { color: red; font-weight: bold; font-size: 12px; }
+        table.formula-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        table.formula-table th, table.formula-table td { border: 1px solid #d0d7de; padding: 8px 12px; text-align: left; font-size: 14px; }
+        table.formula-table th { background: #f4f6f9; font-weight: bold; color: #2c3e50; width: 35%; }
+        .result-highlight { font-size: 15px; font-weight: bold; color: #27ae60; text-align: center; padding: 10px; background: #e8f8f0; border-radius: 8px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+<h2>📦 箱盒示意图生成器</h2>
+<div class="container">
+    <div class="material-row">
+        <label>物料编码：</label>
+        <input type="text" id="materialCode" placeholder="输入物料编码">
+        <button onclick="fetchMaterialInfo()">🔍 获取物料信息</button>
+        <span id="fetchStatus" style="color:#2d6ff7; margin-left:10px;"></span>
+    </div>
+    <div class="row">
+        <label>图示类型：</label>
+        <select id="diagramType" onchange="onTypeChange()">
+            <option value="topview">俯视平面图</option>
+            <option value="diecut">刀模展开图</option>
+            <option value="stereo">三维立体图</option>
+        </select>
+    </div>
+    <div class="row">
+        <label>长 L：</label>
+        <input type="number" id="length" value="2303" step="any" min="1" required oninput="updateAreaDisplay()">
+        <label>宽 W：</label>
+        <input type="number" id="width" value="1118" step="any" min="1" required oninput="updateAreaDisplay()">
+        <label>高 H：</label>
+        <input type="number" id="height" value="1110" step="any" min="1" required oninput="updateAreaDisplay()">
+        <label>单位：</label>
+        <select id="unit" onchange="updateAreaDisplay()">
+            <option value="mm" selected>mm</option>
+            <option value="cm">cm</option>
+            <option value="m">m</option>
+        </select>
+    </div>
+
+    <div id="diecutParams" style="display: none;">
+        <div class="row">
+            <label>箱型：</label>
+            <select id="boxType" onchange="onBoxTypeChange()">
+                <option value="0201">0201 平口箱</option>
+                <option value="enclosure_double">围框（双片）</option>
+                <option value="enclosure_single">围框（一片）</option>
+                <option value="cover_base">天地盖</option>
+                <option value="airplane">飞机盒</option>
+                <option value="pizza">披萨盒</option>
+            </select>
+            <button class="btn-formula" onclick="openFormulaModal()">📐 查看计算公式</button>
+        </div>
+
+        <div id="params_0201" class="param-block">
+            <div class="row">
+                <label>糊口宽：</label>
+                <input type="range" id="glueWidth" min="20" max="60" value="35" step="1" oninput="updateAreaDisplay(); document.getElementById('glueVal').innerText = this.value">
+                <span id="glueVal" class="val-display">35</span> mm
+            </div>
+            <div class="row">
+                <label>摇盖系数：</label>
+                <input type="range" id="flapRatio" min="0.4" max="0.6" value="0.5" step="0.01" oninput="updateAreaDisplay(); document.getElementById('flapVal').innerText = this.value">
+                <span id="flapVal" class="val-display">0.5</span>
+            </div>
+        </div>
+        <div id="params_enclosure_double" class="param-block" style="display:none;">
+            <div class="row">
+                <label>搭接宽度：</label>
+                <input type="range" id="overlapDouble" min="20" max="60" value="40" step="1" oninput="updateAreaDisplay(); document.getElementById('overlapDoubleVal').innerText = this.value">
+                <span id="overlapDoubleVal" class="val-display">40</span> mm
+            </div>
+            <div class="info">每片为搭接 + 宽面 + 长面的 L 形纸板，两片对称。</div>
+        </div>
+        <div id="params_enclosure_single" class="param-block" style="display:none;">
+            <div class="row">
+                <label>搭接宽度：</label>
+                <input type="range" id="overlapSingle" min="20" max="60" value="40" step="1" oninput="updateAreaDisplay(); document.getElementById('overlapSingleVal').innerText = this.value">
+                <span id="overlapSingleVal" class="val-display">40</span> mm
+            </div>
+            <div class="info">单片围成三个面（如 长+宽+长），端部搭接。</div>
+        </div>
+        <div id="params_cover_base" class="param-block" style="display:none;">
+            <div class="row">
+                <label>天盖内高：</label>
+                <input type="number" id="topHeight" value="50" step="any" min="1" style="width:80px;" oninput="updateAreaDisplay()"> mm
+                <label>地盖内高：</label>
+                <input type="number" id="bottomHeight" value="50" step="any" min="1" style="width:80px;" oninput="updateAreaDisplay()"> mm
+            </div>
+            <div class="row">
+                <label>配合间隙：</label>
+                <input type="number" id="gap" value="1.5" step="0.1" min="0" style="width:80px;" oninput="updateAreaDisplay()"> mm
+            </div>
+            <div class="info">当前展示天盖展开图，尺寸已加入间隙。</div>
+        </div>
+        <div id="params_airplane" class="param-block" style="display:none;">
+            <div class="row">
+                <label>锁翼比例 (相对于高度H)：</label>
+                <input type="range" id="wingRatio" min="0.4" max="0.7" value="0.5" step="0.05" oninput="updateWingDisplay(); updateAreaDisplay()">
+                <span id="wingRatioVal" class="val-display">0.5</span>
+                <span style="margin-left:10px;">锁翼长 ≈ <span id="wingLenDisplay">0</span> mm</span>
+            </div>
+            <div class="info">飞机盒自带自锁翼（三角形），无需糊口。</div>
+        </div>
+        <div id="params_pizza" class="param-block" style="display:none;">
+            <div class="row">
+                <label>盖板延伸宽度：</label>
+                <input type="range" id="lidExtend" min="0" max="20" value="5" step="0.5" oninput="updateAreaDisplay(); document.getElementById('lidExtendVal').innerText = this.value">
+                <span id="lidExtendVal" class="val-display">5</span> mm
+            </div>
+            <div class="row">
+                <label>插舌长度：</label>
+                <input type="range" id="tabLen" min="10" max="30" value="15" step="1" oninput="updateAreaDisplay(); document.getElementById('tabLenVal').innerText = this.value">
+                <span id="tabLenVal" class="val-display">15</span> mm
+            </div>
+            <div class="info">披萨盒：底板 + 前/后壁 + 盖板（后壁延伸）+ 左右带支撑翼的侧壁。</div>
+        </div>
+
+        <div id="areaDisplay">
+            📏 所需纸板面积：<span id="areaValue">---</span>
+        </div>
+    </div>
+
+    <button onclick="generate()">🖼️ 生成示意图</button>
+</div>
+
+<canvas id="canvas" width="850" height="700"></canvas>
+
+<div id="formulaModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="modalTitle">📐 纸板面积计算公式</h3>
+            <span class="close-btn" onclick="closeFormulaModal()">&times;</span>
+        </div>
+        <div id="modalBody"></div>
+    </div>
+</div>
+
+<script>
+    // ==================== 全局变量 ====================
+    let customFormulaLength = '';
+    let customFormulaHeight = '';
+    let customFormulaArea = '';
+    let customTotalW = null;
+    let customTotalH = null;
+    let customArea = null;
+
+    // ==================== API 配置 ====================
+    const API_CONFIG = {
+        baseURL: 'https://erp-dev.hoifu.com.cn:8084',
+        authEndpoint: '/api/v1/auth/tokens',
+        materialEndpoint: '/api/v2/product/material',
+        username: 'API_OA',
+        password: 'API_OA1',
+        clientId: 1000024,
+        organizationId: 0,
+        language: 'zh_CN'
+    };
+
+    // ==================== UI 控制 ====================
+    function onTypeChange() {
+        const type = document.getElementById('diagramType').value;
+        document.getElementById('diecutParams').style.display = (type === 'diecut') ? 'block' : 'none';
+        if (type === 'diecut') { onBoxTypeChange(); updateAreaDisplay(); }
+    }
+    function onBoxTypeChange() {
+        const box = document.getElementById('boxType').value;
+        document.querySelectorAll('#diecutParams .param-block').forEach(b => b.style.display = 'none');
+        const target = document.getElementById('params_' + box);
+        if (target) target.style.display = 'block';
+        if (box === 'airplane') updateWingDisplay();
+        customTotalW = customTotalH = customArea = null;
+        updateAreaDisplay();
+    }
+    function updateWingDisplay() {
+        const ratio = parseFloat(document.getElementById('wingRatio').value);
+        document.getElementById('wingRatioVal').innerText = ratio.toFixed(2);
+        const H = parseFloat(document.getElementById('height').value);
+        if (!isNaN(H) && H > 0) {
+            document.getElementById('wingLenDisplay').innerText = (H * ratio).toFixed(1);
+        } else {
+            document.getElementById('wingLenDisplay').innerText = '?';
+        }
+    }
+
+    // ==================== 真实 API 调用 ====================
+    async function getAuthToken() {
+        const url = API_CONFIG.baseURL + API_CONFIG.authEndpoint;
+        const body = {
+            userName: API_CONFIG.username,
+            password: API_CONFIG.password,
+            parameters: {
+                clientId: API_CONFIG.clientId,
+                organizationId: API_CONFIG.organizationId,
+                language: API_CONFIG.language
+            }
+        };
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        if (!response.ok) throw new Error(`Token 获取失败: ${response.status}`);
+        const data = await response.json();
+        const token = data.token || data.access_token || data.data?.token;
+        if (!token) throw new Error('Token 未在响应中找到');
+        return token;
+    }
+
+    async function fetchProductInfo(materialCode, token) {
+        const url = API_CONFIG.baseURL + API_CONFIG.materialEndpoint;
+        const fullUrl = `${url}?materialCode=${encodeURIComponent(materialCode)}`;
+        const response = await fetch(fullUrl, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        if (!response.ok) throw new Error(`产品信息获取失败: ${response.status}`);
+        const data = await response.json();
+        // 映射API返回字段，并提取自定义公式
+        return {
+            type: data.boxType || data.type,
+            length: data.length,
+            width: data.width,
+            height: data.height,
+            unit: data.unit || 'mm',
+            glueWidth: data.glueWidth,
+            flapRatio: data.flapRatio,
+            overlapDouble: data.overlapDouble,
+            overlapSingle: data.overlapSingle,
+            topHeight: data.topHeight,
+            bottomHeight: data.bottomHeight,
+            gap: data.gap,
+            wingRatio: data.wingRatio,
+            lidExtend: data.lidExtend,
+            tabLen: data.tabLen,
+            // 新增自定义公式字段
+            formulaLength: data.formulaLength || data.customFormulaLength,
+            formulaHeight: data.formulaHeight || data.customFormulaHeight,
+            formulaArea: data.formulaArea || data.customFormulaArea
+        };
+    }
+
+    // ==================== 物料信息获取主流程 ====================
+    async function fetchMaterialInfo() {
+        const code = document.getElementById('materialCode').value.trim();
+        if (!code) { alert('请输入物料编码'); return; }
+
+        const statusEl = document.getElementById('fetchStatus');
+        statusEl.textContent = '正在获取 Token...';
+        statusEl.style.color = '#2d6ff7';
+
+        try {
+            const token = await getAuthToken();
+            statusEl.textContent = '正在获取产品信息...';
+            const data = await fetchProductInfo(code, token);
+
+            // 填充基础尺寸
+            if (data.length) document.getElementById('length').value = data.length;
+            if (data.width) document.getElementById('width').value = data.width;
+            if (data.height) document.getElementById('height').value = data.height;
+            if (data.unit) document.getElementById('unit').value = data.unit;
+
+            // 切换箱型并填充专有参数
+            if (data.type) {
+                document.getElementById('boxType').value = data.type;
+                onBoxTypeChange();
+                fillSpecificParams(data);
+            }
+
+            // 填充自定义公式（从API返回数据中提取）
+            if (data.formulaLength) customFormulaLength = data.formulaLength;
+            if (data.formulaHeight) customFormulaHeight = data.formulaHeight;
+            if (data.formulaArea) customFormulaArea = data.formulaArea;
+            // 若有自定义公式，立即计算对应的自定义值
+            if (customFormulaLength || customFormulaHeight || customFormulaArea) {
+                const extra = getExtraParams();
+                const lenRes = safeEval(customFormulaLength, extra);
+                const heiRes = safeEval(customFormulaHeight, extra);
+                customTotalW = (lenRes.value !== null && !lenRes.error) ? lenRes.value : null;
+                customTotalH = (heiRes.value !== null && !heiRes.error) ? heiRes.value : null;
+                if (customFormulaArea) {
+                    const areaRes = safeEval(customFormulaArea, extra);
+                    customArea = (areaRes.value !== null && !areaRes.error) ? areaRes.value : null;
+                } else if (customTotalW !== null && customTotalH !== null) {
+                    customArea = customTotalW * customTotalH;
+                }
+            }
+
+            // 自动切换到刀模展开图
+            document.getElementById('diagramType').value = 'diecut';
+            onTypeChange();
+
+            updateAreaDisplay();
+            generate();
+            statusEl.textContent = '✅ 获取成功';
+            statusEl.style.color = 'green';
+        } catch (error) {
+            statusEl.textContent = '❌ 获取失败: ' + error.message;
+            statusEl.style.color = 'red';
+            console.error(error);
+        }
+    }
+
+    function fillSpecificParams(data) {
+        // 重置所有专有参数为默认值
+        document.getElementById('glueWidth').value = 35;
+        document.getElementById('flapRatio').value = 0.5;
+        document.getElementById('overlapDouble').value = 40;
+        document.getElementById('overlapSingle').value = 40;
+        document.getElementById('topHeight').value = 50;
+        document.getElementById('bottomHeight').value = 50;
+        document.getElementById('gap').value = 1.5;
+        document.getElementById('wingRatio').value = 0.5;
+        document.getElementById('lidExtend').value = 5;
+        document.getElementById('tabLen').value = 15;
+
+        const boxType = data.type;
+        if (boxType === '0201') {
+            if (data.glueWidth !== undefined) document.getElementById('glueWidth').value = data.glueWidth;
+            if (data.flapRatio !== undefined) document.getElementById('flapRatio').value = data.flapRatio;
+        } else if (boxType === 'enclosure_double') {
+            if (data.overlapDouble !== undefined) document.getElementById('overlapDouble').value = data.overlapDouble;
+        } else if (boxType === 'enclosure_single') {
+            if (data.overlapSingle !== undefined) document.getElementById('overlapSingle').value = data.overlapSingle;
+        } else if (boxType === 'cover_base') {
+            if (data.topHeight !== undefined) document.getElementById('topHeight').value = data.topHeight;
+            if (data.bottomHeight !== undefined) document.getElementById('bottomHeight').value = data.bottomHeight;
+            if (data.gap !== undefined) document.getElementById('gap').value = data.gap;
+        } else if (boxType === 'airplane') {
+            if (data.wingRatio !== undefined) document.getElementById('wingRatio').value = data.wingRatio;
+        } else if (boxType === 'pizza') {
+            if (data.lidExtend !== undefined) document.getElementById('lidExtend').value = data.lidExtend;
+            if (data.tabLen !== undefined) document.getElementById('tabLen').value = data.tabLen;
+        }
+
+        // 更新界面显示值
+        document.getElementById('glueVal').innerText = document.getElementById('glueWidth').value;
+        document.getElementById('flapVal').innerText = document.getElementById('flapRatio').value;
+        document.getElementById('overlapDoubleVal').innerText = document.getElementById('overlapDouble').value;
+        document.getElementById('overlapSingleVal').innerText = document.getElementById('overlapSingle').value;
+        document.getElementById('lidExtendVal').innerText = document.getElementById('lidExtend').value;
+        document.getElementById('tabLenVal').innerText = document.getElementById('tabLen').value;
+        if (boxType === 'airplane') updateWingDisplay();
+    }
+
+    // ==================== 系统默认值计算 ====================
+    function getSystemValues() {
+        const boxType = document.getElementById('boxType').value;
+        const L = parseFloat(document.getElementById('length').value) || 0;
+        const W = parseFloat(document.getElementById('width').value) || 0;
+        const H = parseFloat(document.getElementById('height').value) || 0;
+        let totalW = 0, totalH = 0, area = 0;
+
+        if (boxType === '0201') {
+            const glue = parseInt(document.getElementById('glueWidth').value, 10) || 0;
+            const flapRatio = parseFloat(document.getElementById('flapRatio').value) || 0;
+            const flap = W * flapRatio;
+            totalW = glue + W + L + W + L;
+            totalH = H + 2 * flap;
+            area = totalW * totalH;
+        } else if (boxType === 'enclosure_double') {
+            const overlap = parseInt(document.getElementById('overlapDouble').value, 10) || 0;
+            totalW = overlap + W + L;
+            totalH = H;
+            area = 2 * totalW * totalH;
+        } else if (boxType === 'enclosure_single') {
+            const overlap = parseInt(document.getElementById('overlapSingle').value, 10) || 0;
+            totalW = overlap + W + L + W;
+            totalH = H;
+            area = totalW * totalH;
+        } else if (boxType === 'cover_base') {
+            const topH = parseFloat(document.getElementById('topHeight').value) || 0;
+            const gap = parseFloat(document.getElementById('gap').value) || 0;
+            const innerL = L + 2 * gap;
+            const innerW = W + 2 * gap;
+            const sideH = topH;
+            totalW = innerL + 2 * sideH;
+            totalH = innerW + 2 * sideH;
+            area = totalW * totalH;
+        } else if (boxType === 'airplane') {
+            const wingRatio = parseFloat(document.getElementById('wingRatio').value) || 0;
+            const flapLen = H * wingRatio;
+            totalW = L + 2 * H + 2 * flapLen;
+            totalH = W + 2 * H + 2 * flapLen;
+            area = totalW * totalH;
+        } else if (boxType === 'pizza') {
+            const lidExt = parseFloat(document.getElementById('lidExtend').value) || 0;
+            const tabLen = parseInt(document.getElementById('tabLen').value, 10) || 0;
+            totalW = L + 2 * H + 30;
+            totalH = H + lidExt + W + H + tabLen + 40;
+            area = totalW * totalH;
+        }
+        return { totalW, totalH, area };
+    }
+
+    function getExtraParams() {
+        const boxType = document.getElementById('boxType').value;
+        const params = {};
+        const L = parseFloat(document.getElementById('length').value) || 0;
+        const W = parseFloat(document.getElementById('width').value) || 0;
+        const H = parseFloat(document.getElementById('height').value) || 0;
+        params['L'] = L; params['W'] = W; params['H'] = H;
+        if (boxType === '0201') {
+            params['G'] = parseInt(document.getElementById('glueWidth').value, 10) || 0;
+            params['r'] = parseFloat(document.getElementById('flapRatio').value) || 0;
+            params['flap'] = W * params['r'];
+        } else if (boxType === 'enclosure_double' || boxType === 'enclosure_single') {
+            params['O'] = (boxType === 'enclosure_double') 
+                ? parseInt(document.getElementById('overlapDouble').value, 10) || 0 
+                : parseInt(document.getElementById('overlapSingle').value, 10) || 0;
+        } else if (boxType === 'cover_base') {
+            params['topH'] = parseFloat(document.getElementById('topHeight').value) || 0;
+            params['gap'] = parseFloat(document.getElementById('gap').value) || 0;
+            params['innerL'] = L + 2 * params['gap'];
+            params['innerW'] = W + 2 * params['gap'];
+        } else if (boxType === 'airplane') {
+            params['r'] = parseFloat(document.getElementById('wingRatio').value) || 0;
+            params['wingLen'] = H * params['r'];
+        } else if (boxType === 'pizza') {
+            params['E'] = parseFloat(document.getElementById('lidExtend').value) || 0;
+            params['T'] = parseInt(document.getElementById('tabLen').value, 10) || 0;
+        }
+        return params;
+    }
+
+    function getParamTableData() {
+        const boxType = document.getElementById('boxType').value;
+        const unit = document.getElementById('unit').value;
+        const L = parseFloat(document.getElementById('length').value) || 0;
+        const W = parseFloat(document.getElementById('width').value) || 0;
+        const H = parseFloat(document.getElementById('height').value) || 0;
+        const data = [
+            { symbol: 'L', desc: '长', value: L + ' ' + unit },
+            { symbol: 'W', desc: '宽', value: W + ' ' + unit },
+            { symbol: 'H', desc: '高', value: H + ' ' + unit }
+        ];
+        if (boxType === '0201') {
+            const glue = parseInt(document.getElementById('glueWidth').value, 10) || 0;
+            const flapRatio = parseFloat(document.getElementById('flapRatio').value) || 0;
+            data.push({ symbol: 'G', desc: '糊口宽度', value: glue + ' ' + unit });
+            data.push({ symbol: 'r', desc: '摇盖系数', value: flapRatio });
+            data.push({ symbol: '摇盖深', desc: 'W × r', value: (W * flapRatio).toFixed(2) + ' ' + unit });
+        } else if (boxType === 'enclosure_double' || boxType === 'enclosure_single') {
+            const overlap = (boxType === 'enclosure_double') 
+                ? parseInt(document.getElementById('overlapDouble').value, 10) || 0 
+                : parseInt(document.getElementById('overlapSingle').value, 10) || 0;
+            data.push({ symbol: 'O', desc: '搭接宽度', value: overlap + ' ' + unit });
+        } else if (boxType === 'cover_base') {
+            data.push({ symbol: 'h_top', desc: '天盖内高', value: document.getElementById('topHeight').value + ' ' + unit });
+            data.push({ symbol: 'δ', desc: '配合间隙', value: document.getElementById('gap').value + ' ' + unit });
+        } else if (boxType === 'airplane') {
+            const wingRatio = parseFloat(document.getElementById('wingRatio').value) || 0;
+            data.push({ symbol: 'r', desc: '锁翼比例', value: wingRatio });
+            data.push({ symbol: '锁翼长', desc: 'H × r', value: (H * wingRatio).toFixed(2) + ' ' + unit });
+        } else if (boxType === 'pizza') {
+            data.push({ symbol: 'E', desc: '盖板延伸宽度', value: document.getElementById('lidExtend').value + ' ' + unit });
+            data.push({ symbol: 'T', desc: '插舌长度', value: document.getElementById('tabLen').value + ' ' + unit });
+        }
+        return data;
+    }
+
+    // ==================== 安全公式求值 ====================
+    function safeEval(formula, extraParams = {}) {
+        if (!formula || !formula.trim()) return { value: null, error: null };
+        let expr = formula;
+        const vars = Object.entries(extraParams).sort((a,b) => b[0].length - a[0].length);
+        for (const [key, val] of vars) {
+            const regex = new RegExp('\\b' + key + '\\b', 'g');
+            expr = expr.replace(regex, val);
+        }
+        try {
+            const result = new Function('return (' + expr + ')')();
+            if (typeof result === 'number' && isFinite(result) && !isNaN(result)) {
+                return { value: result, error: null };
+            } else {
+                return { value: null, error: '计算结果无效' };
+            }
+        } catch (e) {
+            return { value: null, error: '公式语法错误' };
+        }
+    }
+
+    function updateModalCustomRows() {
+        const lenInput = document.getElementById('custLength');
+        const heiInput = document.getElementById('custHeight');
+        const areaInput = document.getElementById('custArea');
+        const lenValSpan = document.getElementById('custLenVal');
+        const heiValSpan = document.getElementById('custHeiVal');
+        const areaValSpan = document.getElementById('custAreaVal');
+        if (!lenInput || !heiInput || !areaInput || !lenValSpan || !heiValSpan || !areaValSpan) return;
+        const extra = getExtraParams();
+        const lenRes = safeEval(lenInput.value.trim(), extra);
+        const heiRes = safeEval(heiInput.value.trim(), extra);
+        lenValSpan.innerHTML = lenRes.error ? `<span class="error-text">${lenRes.error}</span>` : (lenRes.value !== null ? lenRes.value.toFixed(2) : '---');
+        heiValSpan.innerHTML = heiRes.error ? `<span class="error-text">${heiRes.error}</span>` : (heiRes.value !== null ? heiRes.value.toFixed(2) : '---');
+        let areaRes = { value: null, error: null };
+        const areaFormula = areaInput.value.trim();
+        if (areaFormula) {
+            areaRes = safeEval(areaFormula, extra);
+        } else if (lenRes.value !== null && heiRes.value !== null && !lenRes.error && !heiRes.error) {
+            areaRes.value = lenRes.value * heiRes.value;
+        }
+        areaValSpan.innerHTML = areaRes.error ? `<span class="error-text">${areaRes.error}</span>` : (areaRes.value !== null ? areaRes.value.toFixed(2) : '---');
+    }
+
+    // ==================== 公式弹窗 ====================
+    function openFormulaModal() {
+        const boxType = document.getElementById('boxType').value;
+        const boxName = document.getElementById('boxType').selectedOptions[0].text;
+        document.getElementById('modalTitle').innerText = '📐 ' + boxName + ' - 计算公式与自定义';
+        const sys = getSystemValues();
+        const unit = document.getElementById('unit').value;
+        let defaultLenFormula = '', defaultHeiFormula = '', defaultAreaFormula = '';
+        if (boxType === '0201') {
+            defaultLenFormula = '2L + 2W + G'; defaultHeiFormula = 'H + 2×(W×r)'; defaultAreaFormula = '总长 × 总高';
+        } else if (boxType === 'enclosure_double') {
+            defaultLenFormula = 'O + W + L'; defaultHeiFormula = 'H'; defaultAreaFormula = '2 × 单片宽 × 单片高';
+        } else if (boxType === 'enclosure_single') {
+            defaultLenFormula = 'O + W + L + W'; defaultHeiFormula = 'H'; defaultAreaFormula = '单片宽 × 单片高';
+        } else if (boxType === 'cover_base') {
+            defaultLenFormula = 'innerL + 2*topH'; defaultHeiFormula = 'innerW + 2*topH'; defaultAreaFormula = '总宽 × 总高';
+        } else if (boxType === 'airplane') {
+            defaultLenFormula = 'L + 2*H + 2*wingLen'; defaultHeiFormula = 'W + 2*H + 2*wingLen'; defaultAreaFormula = '总宽 × 总高';
+        } else if (boxType === 'pizza') {
+            defaultLenFormula = 'L + 2*H + 30'; defaultHeiFormula = 'H + E + W + H + T + 40'; defaultAreaFormula = '总宽 × 总高';
+        }
+        const paramData = getParamTableData();
+        let paramRows = '';
+        paramData.forEach(p => paramRows += `<tr><td><b>${p.symbol}</b></td><td>${p.desc}</td><td>${p.value}</td></tr>`);
+        const modalHTML = `
+            <table class="formula-grid">
+                <thead><tr><th>公式名称</th><th>默认公式</th><th>值 (${unit})</th><th>自定义公式</th><th>新值 (${unit})</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td>展开总长</td><td>${defaultLenFormula}</td><td>${sys.totalW.toFixed(2)}</td>
+                        <td><input type="text" id="custLength" value="${customFormulaLength.replace(/"/g, '&quot;')}" placeholder="${defaultLenFormula}" oninput="updateModalCustomRows()"></td>
+                        <td><span id="custLenVal" class="custom-val">---</span></td>
+                    </tr>
+                    <tr>
+                        <td>展开总高</td><td>${defaultHeiFormula}</td><td>${sys.totalH.toFixed(2)}</td>
+                        <td><input type="text" id="custHeight" value="${customFormulaHeight.replace(/"/g, '&quot;')}" placeholder="${defaultHeiFormula}" oninput="updateModalCustomRows()"></td>
+                        <td><span id="custHeiVal" class="custom-val">---</span></td>
+                    </tr>
+                    <tr>
+                        <td>纸板面积</td><td>${defaultAreaFormula}</td><td>${sys.area.toFixed(2)}</td>
+                        <td><input type="text" id="custArea" value="${customFormulaArea.replace(/"/g, '&quot;')}" placeholder="${defaultAreaFormula}" oninput="updateModalCustomRows()"></td>
+                        <td><span id="custAreaVal" class="custom-val">---</span></td>
+                    </tr>
+                </tbody>
+            </table>
+            <h4>📋 参数明细</h4>
+            <table class="formula-table"><thead><tr><th>符号</th><th>参数说明</th><th>当前数值</th></tr></thead><tbody>${paramRows}</tbody></table>
+            <div class="result-highlight">输入自定义公式后新值将自动计算，关闭弹窗后图纸标注与面积将同步更新。</div>
+        `;
+        document.getElementById('modalBody').innerHTML = modalHTML;
+        document.getElementById('formulaModal').style.display = 'flex';
+        setTimeout(updateModalCustomRows, 20);
+    }
+
+    function closeFormulaModal() {
+        const lenInput = document.getElementById('custLength');
+        const heiInput = document.getElementById('custHeight');
+        const areaInput = document.getElementById('custArea');
+        if (lenInput) customFormulaLength = lenInput.value;
+        if (heiInput) customFormulaHeight = heiInput.value;
+        if (areaInput) customFormulaArea = areaInput.value;
+        const extra = getExtraParams();
+        const lenRes = safeEval(customFormulaLength, extra);
+        const heiRes = safeEval(customFormulaHeight, extra);
+        customTotalW = (lenRes.value !== null && !lenRes.error) ? lenRes.value : null;
+        customTotalH = (heiRes.value !== null && !heiRes.error) ? heiRes.value : null;
+        const areaFormula = customFormulaArea.trim();
+        if (areaFormula) {
+            const areaRes = safeEval(areaFormula, extra);
+            customArea = (areaRes.value !== null && !areaRes.error) ? areaRes.value : null;
+        } else if (customTotalW !== null && customTotalH !== null) {
+            customArea = customTotalW * customTotalH;
+        } else {
+            customArea = null;
+        }
+        document.getElementById('formulaModal').style.display = 'none';
+        updateAreaDisplay();
+        generate();
+    }
+
+    window.onclick = function(event) {
+        const modal = document.getElementById('formulaModal');
+        if (event.target === modal) closeFormulaModal();
+    }
+
+    function updateAreaDisplay() {
+        const type = document.getElementById('diagramType').value;
+        const areaDiv = document.getElementById('areaDisplay');
+        if (type !== 'diecut') { areaDiv.style.display = 'none'; return; }
+        areaDiv.style.display = 'block';
+        const L = parseFloat(document.getElementById('length').value);
+        const W = parseFloat(document.getElementById('width').value);
+        const H = parseFloat(document.getElementById('height').value);
+        if (isNaN(L) || isNaN(W) || isNaN(H) || L <= 0 || W <= 0 || H <= 0) {
+            document.getElementById('areaValue').innerHTML = '请先输入有效长宽高'; return;
+        }
+        let areaMM2;
+        if (customArea !== null && customArea !== undefined && !isNaN(customArea)) {
+            areaMM2 = customArea;
+        } else {
+            areaMM2 = getSystemValues().area;
+        }
+        const areaCM2 = areaMM2 / 100;
+        const areaM2 = areaMM2 / 1000000;
+        document.getElementById('areaValue').innerHTML = `${areaMM2.toFixed(2)} mm²  |  ${areaCM2.toFixed(2)} cm²  |  ${areaM2.toFixed(6)} m²`;
+    }
+
+    // ==================== 绘图入口 ====================
+    function generate() {
+        const length = parseFloat(document.getElementById('length').value);
+        const width = parseFloat(document.getElementById('width').value);
+        const height = parseFloat(document.getElementById('height').value);
+        const unit = document.getElementById('unit').value;
+        const type = document.getElementById('diagramType').value;
+        if (isNaN(length) || isNaN(width) || isNaN(height) || length <= 0 || width <= 0 || height <= 0) {
+            alert('请输入有效的正数长、宽、高'); return;
+        }
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        if (type === 'topview') {
+            drawTopView(ctx, length, width, height, unit);
+        } else if (type === 'stereo') {
+            drawStereogram(ctx, length, width, height, unit);
+        } else if (type === 'diecut') {
+            const boxType = document.getElementById('boxType').value;
+            const usedW = (customTotalW !== null && !isNaN(customTotalW)) ? customTotalW : null;
+            const usedH = (customTotalH !== null && !isNaN(customTotalH)) ? customTotalH : null;
+            if (boxType === '0201') {
+                const glue = parseInt(document.getElementById('glueWidth').value, 10);
+                const flapRatio = parseFloat(document.getElementById('flapRatio').value);
+                drawDieCut0201(ctx, length, width, height, unit, glue, flapRatio, usedW, usedH);
+            } else if (boxType === 'enclosure_double') {
+                const overlap = parseInt(document.getElementById('overlapDouble').value, 10);
+                drawEnclosureDouble(ctx, length, width, height, unit, overlap, usedW, usedH);
+            } else if (boxType === 'enclosure_single') {
+                const overlap = parseInt(document.getElementById('overlapSingle').value, 10);
+                drawEnclosureSingle(ctx, length, width, height, unit, overlap, usedW, usedH);
+            } else if (boxType === 'cover_base') {
+                const topH = parseFloat(document.getElementById('topHeight').value);
+                const bottomH = parseFloat(document.getElementById('bottomHeight').value);
+                const gap = parseFloat(document.getElementById('gap').value);
+                drawCoverBase(ctx, length, width, height, unit, topH, bottomH, gap, usedW, usedH);
+            } else if (boxType === 'airplane') {
+                const wingRatio = parseFloat(document.getElementById('wingRatio').value);
+                drawAirplaneBox(ctx, length, width, height, unit, wingRatio, usedW, usedH);
+            } else if (boxType === 'pizza') {
+                const lidExt = parseFloat(document.getElementById('lidExtend').value);
+                const tabLen = parseInt(document.getElementById('tabLen').value, 10);
+                drawPizzaBox(ctx, length, width, height, unit, lidExt, tabLen, usedW, usedH);
+            }
+        }
+    }
+
+    // ==================== 绘图辅助函数 ====================
+    function annotateDim(ctx, x, y, text, direction = 'down', color = '#c0392b') {
+        ctx.save();
+        ctx.font = '11px "Microsoft YaHei"'; ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        let tx = x, ty = y;
+        if (direction === 'left') { ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; tx -= 6; }
+        else if (direction === 'right') { ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; tx += 6; }
+        else if (direction === 'up') { ctx.textBaseline = 'bottom'; ty -= 6; }
+        else { ty += 6; }
+        ctx.fillText(text, tx, ty);
+        ctx.restore();
+    }
+
+    function drawTopView(ctx, L, W, H, unit) {
+        const cw = ctx.canvas.width, ch = ctx.canvas.height;
+        const margin = 85;
+        const drawW = cw - 2 * margin, drawH = ch - 2 * margin;
+        const scale = Math.min(drawW / L, drawH / W);
+        const rw = L * scale, rh = W * scale;
+        const rx = margin + (drawW - rw) / 2, ry = margin + (drawH - rh) / 2;
+        ctx.fillStyle = '#e1f0ff'; ctx.fillRect(rx, ry, rw, rh);
+        ctx.strokeStyle = '#1f2a3a'; ctx.lineWidth = 2.2; ctx.strokeRect(rx, ry, rw, rh);
+        drawDim(ctx, rx, ry + rh, rx + rw, ry + rh, formatNum(L) + ' ' + unit, -1, 35);
+        drawDim(ctx, rx + rw, ry, rx + rw, ry + rh, formatNum(W) + ' ' + unit, 1, 35);
+        ctx.font = 'bold 15px "Microsoft YaHei"'; ctx.fillStyle = '#2c3e50';
+        ctx.fillText('高度 H = ' + formatNum(H) + ' ' + unit, rx + 8, ry - 12);
+        ctx.font = '12px "Microsoft YaHei"'; ctx.fillStyle = '#7f8c8d';
+        ctx.fillText('(俯视图)', rx + rw/2 - 22, ry + rh/2 + 5);
+    }
+
+    function drawDim(ctx, x1, y1, x2, y2, text, side, offset) {
+        const horiz = (y1 === y2);
+        const dx = horiz ? 0 : offset * side;
+        const dy = horiz ? offset * side : 0;
+        const x1o = x1 + dx, y1o = y1 + dy;
+        const x2o = x2 + dx, y2o = y2 + dy;
+        ctx.save();
+        ctx.strokeStyle = '#555'; ctx.lineWidth = 1; ctx.setLineDash([5, 4]);
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x1o, y1o); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(x2o, y2o); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.beginPath(); ctx.strokeStyle = '#1f2a3a'; ctx.lineWidth = 1.8;
+        ctx.moveTo(x1o, y1o); ctx.lineTo(x2o, y2o); ctx.stroke();
+        const slash = 8; ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        if (horiz) {
+            ctx.moveTo(x1o, y1o); ctx.lineTo(x1o - slash, y1o - slash);
+            ctx.moveTo(x2o, y2o); ctx.lineTo(x2o + slash, y2o - slash);
+        } else {
+            ctx.moveTo(x1o, y1o); ctx.lineTo(x1o - slash, y1o - slash);
+            ctx.moveTo(x2o, y2o); ctx.lineTo(x2o - slash, y2o + slash);
+        }
+        ctx.stroke();
+        ctx.font = '13px "Microsoft YaHei"'; ctx.fillStyle = '#1e2b3c'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        const tx = (x1o + x2o) / 2;
+        const ty = horiz ? (y1o + 15) : ((y1o + y2o) / 2);
+        ctx.fillText(text, tx, ty);
+        ctx.restore();
+    }
+
+    function drawStereogram(ctx, L, W, H, unit) {
+        const cw = ctx.canvas.width, ch = ctx.canvas.height;
+        const cos30 = 0.866, sin30 = 0.5;
+        const scale = Math.min(cw / (L + W) * 0.7, ch / (W + H) * 0.7);
+        const ox = cw / 2 - (L - W) * cos30 * scale / 2;
+        const oy = ch / 2 + (L + W) * sin30 * scale / 2 - 20;
+        function project(x, y, z) { return [ox + (x - y) * cos30 * scale, oy - (x + y) * sin30 * scale + z * scale]; }
+        const pts = [
+            project(0,0,0), project(L,0,0), project(L,W,0), project(0,W,0),
+            project(0,0,H), project(L,0,H), project(L,W,H), project(0,W,H)
+        ];
+        function fillFace(a,b,c,d,color) {
+            ctx.beginPath();
+            ctx.moveTo(pts[a][0], pts[a][1]); ctx.lineTo(pts[b][0], pts[b][1]);
+            ctx.lineTo(pts[c][0], pts[c][1]); ctx.lineTo(pts[d][0], pts[d][1]);
+            ctx.closePath();
+            ctx.fillStyle = color; ctx.fill();
+            ctx.strokeStyle = '#1f2a3a'; ctx.lineWidth = 2; ctx.stroke();
+        }
+        fillFace(4,5,6,7,'#d4e6ff'); fillFace(0,1,5,4,'#b8d4f0'); fillFace(1,2,6,5,'#9fc0e0');
+        ctx.font = 'bold 14px "Microsoft YaHei"'; ctx.fillStyle = '#1e2b3c'; ctx.textAlign = 'center';
+        ctx.fillText('L='+formatNum(L), (pts[1][0]+pts[2][0])/2, (pts[1][1]+pts[2][1])/2+20);
+        ctx.fillText('W='+formatNum(W), (pts[0][0]+pts[1][0])/2-10, (pts[0][1]+pts[1][1])/2+25);
+        ctx.fillText('H='+formatNum(H), pts[5][0]-25, (pts[5][1]+pts[1][1])/2);
+    }
+
+    // ==================== 各箱型展开图 ====================
+    function drawDieCut0201(ctx, L, W, H, unit, glue, flapRatio, custW = null, custH = null) {
+        const cw = ctx.canvas.width, ch = ctx.canvas.height;
+        const flap = W * flapRatio;
+        const origW = glue + W + L + W + L;
+        const origH = H + 2 * flap;
+        const showW = (custW !== null && !isNaN(custW)) ? custW : origW;
+        const showH = (custH !== null && !isNaN(custH)) ? custH : origH;
+        const margin = 70;
+        const scale = Math.min((cw - 2 * margin) / origW, (ch - 2 * margin) / origH);
+        const ox = margin + (cw - 2 * margin - origW * scale) / 2;
+        const oy = margin + (ch - 2 * margin - origH * scale) / 2;
+        function x(d) { return ox + d * scale; } function y(d) { return oy + d * scale; }
+        const x0=0, x1=glue, x2=glue+W, x3=glue+W+L, x4=glue+W+L+W, x5=glue+W+L+W+L;
+        const y0=0, y1=flap, y2=flap+H, y3=flap+H+flap;
+        ctx.fillStyle = '#fef9e7'; ctx.fillRect(x(x0), y(y0), x(x5)-x(x0), y(y3)-y(y0));
+        ctx.strokeStyle = '#1f2a3a'; ctx.lineWidth = 2.2; ctx.strokeRect(x(x0), y(y0), x(x5)-x(x0), y(y3)-y(y0));
+        ctx.save();
+        ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 1.8; ctx.setLineDash([8,5]);
+        [x1,x2,x3,x4].forEach(v => { ctx.beginPath(); ctx.moveTo(x(v), y(y0)); ctx.lineTo(x(v), y(y3)); ctx.stroke(); });
+        ctx.beginPath(); ctx.moveTo(x(x0), y(y1)); ctx.lineTo(x(x5), y(y1)); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x(x0), y(y2)); ctx.lineTo(x(x5), y(y2)); ctx.stroke();
+        ctx.restore();
+        ctx.fillStyle = 'rgba(180,180,180,0.3)'; ctx.fillRect(x(x0), y(y0), x(x1)-x(x0), y(y3)-y(y0));
+        const valsX = [glue, W, L, W, L];
+        [x1,x2,x3,x4,x5].forEach((v,i) => annotateDim(ctx, x(v), y(y0)-5, formatNum(valsX[i])+' '+unit, 'up'));
+        annotateDim(ctx, x(x0)-25, y((y0+y1)/2), formatNum(flap)+' '+unit, 'left');
+        annotateDim(ctx, x(x0)-25, y((y2+y3)/2), formatNum(flap)+' '+unit, 'left');
+        annotateDim(ctx, x((x0+x5)/2), y(y1)-8, formatNum(flap)+' '+unit, 'up');
+        annotateDim(ctx, x((x0+x5)/2), y(y2)+8, formatNum(flap)+' '+unit, 'down');
+        ctx.font = 'bold 13px "Microsoft YaHei"'; ctx.fillStyle = '#2c3e50'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        const lbls = [{x1:x0,x2:x1,t:'糊口'},{x1:x1,x2:x2,t:'宽面'},{x1:x2,x2:x3,t:'长面'},{x1:x3,x2:x4,t:'宽面'},{x1:x4,x2:x5,t:'长面'}];
+        lbls.forEach(o => ctx.fillText(o.t, x((o.x1+o.x2)/2), y(y1+H/2)));
+        ctx.fillText('摇盖', x(x1+W/2), y(y1/2)); ctx.fillText('摇盖', x(x3+L/2), y(y1/2));
+        ctx.fillText('摇盖', x(x1+W/2), y(y2+flap/2)); ctx.fillText('摇盖', x(x3+L/2), y(y2+flap/2));
+        ctx.font = '12px "Microsoft YaHei"'; ctx.fillStyle = '#555';
+        const lenLabel = (custW !== null) ? '自定义总长 ' : '展开总长 ';
+        const heiLabel = (custH !== null) ? '自定义总高 ' : '总高 ';
+        ctx.fillText(lenLabel + formatNum(showW) + ' ' + unit, x(showW/2), y(y3)+25);
+        ctx.save(); ctx.translate(x(x5)+20, y(showH/2)); ctx.rotate(-Math.PI/2);
+        ctx.fillText(heiLabel + formatNum(showH) + ' ' + unit, 0, 0); ctx.restore();
+    }
+
+    function drawEnclosureDouble(ctx, L, W, H, unit, overlap, custW = null, custH = null) {
+        const pieceWtotal = overlap + W + L; const pieceH = H;
+        const showW = (custW !== null) ? custW : pieceWtotal; const showH = (custH !== null) ? custH : pieceH;
+        const margin = 80;
+        const cw = ctx.canvas.width, ch = ctx.canvas.height;
+        const scale = Math.min((cw - 2*margin) / pieceWtotal, (ch - 2*margin) / pieceH);
+        const ox = margin + (cw - 2*margin - pieceWtotal * scale) / 2;
+        const oy = margin + (ch - 2*margin - pieceH * scale) / 2;
+        function x(d) { return ox + d * scale; } function y(d) { return oy + d * scale; }
+        const x0=0, x1=overlap, x2=overlap+W, x3=overlap+W+L, y0=0, y1=H;
+        ctx.fillStyle = '#fef9e7'; ctx.fillRect(x(x0), y(y0), x(x3)-x(x0), y(y1)-y(y0));
+        ctx.strokeStyle = '#1f2a3a'; ctx.lineWidth = 2.2; ctx.strokeRect(x(x0), y(y0), x(x3)-x(x0), y(y1)-y(y0));
+        ctx.save(); ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 1.8; ctx.setLineDash([8,5]);
+        ctx.beginPath(); ctx.moveTo(x(x1), y(y0)); ctx.lineTo(x(x1), y(y1)); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x(x2), y(y0)); ctx.lineTo(x(x2), y(y1)); ctx.stroke(); ctx.restore();
+        ctx.fillStyle = 'rgba(180,180,180,0.3)'; ctx.fillRect(x(x0), y(y0), x(x1)-x(x0), y(y1)-y(y0));
+        ctx.font = 'bold 13px "Microsoft YaHei"'; ctx.fillStyle = '#2c3e50'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('搭接', x((x0+x1)/2), y(H/2)); ctx.fillText('宽面', x((x1+x2)/2), y(H/2)); ctx.fillText('长面', x((x2+x3)/2), y(H/2));
+        ctx.font = '12px "Microsoft YaHei"'; ctx.fillStyle = '#555';
+        ctx.fillText('纸板尺寸 ' + formatNum(showW) + '×' + formatNum(showH) + ' ' + unit, x(showW/2), y(H)+30);
+        ctx.fillText('（双片对称，共两片）', x(showW/2), y(H)+50);
+    }
+
+    function drawEnclosureSingle(ctx, L, W, H, unit, overlap, custW = null, custH = null) {
+        const pieceWtotal = overlap + W + L + W; const pieceH = H;
+        const showW = (custW !== null) ? custW : pieceWtotal; const showH = (custH !== null) ? custH : pieceH;
+        const margin = 80;
+        const cw = ctx.canvas.width, ch = ctx.canvas.height;
+        const scale = Math.min((cw - 2*margin) / pieceWtotal, (ch - 2*margin) / pieceH);
+        const ox = margin + (cw - 2*margin - pieceWtotal * scale) / 2;
+        const oy = margin + (ch - 2*margin - pieceH * scale) / 2;
+        function x(d) { return ox + d * scale; } function y(d) { return oy + d * scale; }
+        const x0=0, x1=overlap, x2=overlap+W, x3=overlap+W+L, x4=overlap+W+L+W, y0=0, y1=H;
+        ctx.fillStyle = '#fef9e7'; ctx.fillRect(x(x0), y(y0), x(x4)-x(x0), y(y1)-y(y0));
+        ctx.strokeStyle = '#1f2a3a'; ctx.lineWidth = 2.2; ctx.strokeRect(x(x0), y(y0), x(x4)-x(x0), y(y1)-y(y0));
+        ctx.save(); ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 1.8; ctx.setLineDash([8,5]);
+        [x1,x2,x3].forEach(v => { ctx.beginPath(); ctx.moveTo(x(v), y(y0)); ctx.lineTo(x(v), y(y1)); ctx.stroke(); });
+        ctx.restore();
+        ctx.fillStyle = 'rgba(180,180,180,0.3)'; ctx.fillRect(x(x0), y(y0), x(x1)-x(x0), y(y1)-y(y0));
+        ctx.font = 'bold 13px "Microsoft YaHei"'; ctx.fillStyle = '#2c3e50'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('搭接', x((x0+x1)/2), y(H/2)); ctx.fillText('宽面', x((x1+x2)/2), y(H/2)); ctx.fillText('长面', x((x2+x3)/2), y(H/2)); ctx.fillText('宽面', x((x3+x4)/2), y(H/2));
+        ctx.font = '12px "Microsoft YaHei"'; ctx.fillStyle = '#555';
+        ctx.fillText('纸板尺寸 ' + formatNum(showW) + '×' + formatNum(showH) + ' ' + unit, x(showW/2), y(H)+25);
+    }
+
+    function drawCoverBase(ctx, L, W, H, unit, topH, bottomH, gap, custW = null, custH = null) {
+        const innerL = L + 2 * gap, innerW = W + 2 * gap, sideH = topH;
+        const totalW = innerL + 2 * sideH, totalH = innerW + 2 * sideH;
+        const showW = (custW !== null) ? custW : totalW; const showH = (custH !== null) ? custH : totalH;
+        const margin = 80;
+        const cw = ctx.canvas.width, ch = ctx.canvas.height;
+        const scale = Math.min((cw - 2*margin) / totalW, (ch - 2*margin) / totalH);
+        const ox = margin + (cw - 2*margin - totalW * scale) / 2;
+        const oy = margin + (ch - 2*margin - totalH * scale) / 2;
+        function x(d) { return ox + d * scale; } function y(d) { return oy + d * scale; }
+        const bx = sideH, by = sideH, bw = innerL, bh = innerW;
+        ctx.fillStyle = '#e8f0fe'; ctx.fillRect(x(bx), y(by), x(bw), y(bh));
+        ctx.fillStyle = '#fef9e7';
+        [[bx-sideH,by,sideH,bh],[bx+bw,by,sideH,bh],[bx,by-sideH,bw,sideH],[bx,by+bh,bw,sideH]].forEach(r => {
+            ctx.fillRect(x(r[0]), y(r[1]), x(r[2]), y(r[3]));
+            ctx.strokeStyle = '#1f2a3a'; ctx.lineWidth = 2.2; ctx.strokeRect(x(r[0]), y(r[1]), x(r[2]), y(r[3]));
+        });
+        ctx.strokeStyle = '#1f2a3a'; ctx.lineWidth = 2.2; ctx.strokeRect(x(bx), y(by), x(bw), y(bh));
+        ctx.font = 'bold 13px "Microsoft YaHei"'; ctx.fillStyle = '#2c3e50'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('天盖底板', x(bx+bw/2), y(by+bh/2));
+        ctx.fillText('侧板', x(bx-sideH/2), y(by+bh/2)); ctx.fillText('侧板', x(bx+bw+sideH/2), y(by+bh/2));
+        ctx.fillText('侧板', x(bx+bw/2), y(by-sideH/2)); ctx.fillText('侧板', x(bx+bw/2), y(by+bh+sideH/2));
+        ctx.font = '12px "Microsoft YaHei"'; ctx.fillStyle = '#555';
+        ctx.fillText('天盖展开尺寸 ' + formatNum(showW) + '×' + formatNum(showH) + ' ' + unit, x(showW/2), y(totalH)+25);
+        ctx.fillText('地盖可单独生成 (内高 ' + formatNum(bottomH) + ' mm)', x(showW/2), y(totalH)+45);
+    }
+
+    function drawAirplaneBox(ctx, L, W, H, unit, wingRatio, custW = null, custH = null) {
+        const flapLen = H * wingRatio;
+        const totalW = L + 2 * H + 2 * flapLen, totalH = W + 2 * H + 2 * flapLen;
+        const showW = (custW !== null) ? custW : totalW; const showH = (custH !== null) ? custH : totalH;
+        const margin = 60;
+        const cw = ctx.canvas.width, ch = ctx.canvas.height;
+        const scale = Math.min((cw - 2*margin) / totalW, (ch - 2*margin) / totalH);
+        const ox = margin + (cw - 2*margin - totalW * scale) / 2 + (H + flapLen) * scale;
+        const oy = margin + (ch - 2*margin - totalH * scale) / 2 + (H + flapLen) * scale;
+        function x(d) { return ox + d * scale; } function y(d) { return oy + d * scale; }
+        const bx=0, by=0, bw=L, bh=W, Hpx=H, flapPx=flapLen;
+        ctx.fillStyle = '#e1f0ff'; ctx.fillRect(x(bx), y(by), x(bw), y(bh));
+        ctx.strokeStyle = '#1f2a3a'; ctx.lineWidth = 2.2; ctx.strokeRect(x(bx), y(by), x(bw), y(bh));
+        ctx.fillStyle = '#fef9e7';
+        ctx.fillRect(x(0), y(-Hpx), x(bw), y(Hpx)); ctx.strokeRect(x(0), y(-Hpx), x(bw), y(Hpx));
+        ctx.fillRect(x(0), y(bh), x(bw), y(Hpx)); ctx.strokeRect(x(0), y(bh), x(bw), y(Hpx));
+        ctx.fillRect(x(-Hpx), y(0), x(Hpx), y(bh)); ctx.strokeRect(x(-Hpx), y(0), x(Hpx), y(bh));
+        ctx.fillRect(x(bw), y(0), x(Hpx), y(bh)); ctx.strokeRect(x(bw), y(0), x(Hpx), y(bh));
+        ctx.fillStyle = '#f0e6d2'; ctx.strokeStyle = '#1f2a3a'; ctx.lineWidth = 1.5;
+        function tri(x1,y1,x2,y2,x3,y3){ ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.lineTo(x3,y3); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+        tri(ctx, x(0), y(-Hpx), x(-flapPx), y(-Hpx+flapPx), x(0), y(-Hpx+flapPx));
+        tri(ctx, x(bw), y(-Hpx), x(bw+flapPx), y(-Hpx+flapPx), x(bw), y(-Hpx+flapPx));
+        tri(ctx, x(0), y(bh+Hpx), x(-flapPx), y(bh+Hpx-flapPx), x(0), y(bh+Hpx-flapPx));
+        tri(ctx, x(bw), y(bh+Hpx), x(bw+flapPx), y(bh+Hpx-flapPx), x(bw), y(bh+Hpx-flapPx));
+        tri(ctx, x(-Hpx), y(0), x(-Hpx+flapPx), y(-flapPx), x(-Hpx+flapPx), y(0));
+        tri(ctx, x(-Hpx), y(bh), x(-Hpx+flapPx), y(bh+flapPx), x(-Hpx+flapPx), y(bh));
+        tri(ctx, x(bw+Hpx), y(0), x(bw+Hpx-flapPx), y(-flapPx), x(bw+Hpx-flapPx), y(0));
+        tri(ctx, x(bw+Hpx), y(bh), x(bw+Hpx-flapPx), y(bh+flapPx), x(bw+Hpx-flapPx), y(bh));
+        ctx.save(); ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 1.8; ctx.setLineDash([6,4]);
+        ctx.beginPath(); ctx.moveTo(x(0),y(0)); ctx.lineTo(x(bw),y(0)); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x(0),y(bh)); ctx.lineTo(x(bw),y(bh)); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x(0),y(0)); ctx.lineTo(x(0),y(bh)); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x(bw),y(0)); ctx.lineTo(x(bw),y(bh)); ctx.stroke(); ctx.restore();
+        ctx.font = 'bold 13px "Microsoft YaHei"'; ctx.fillStyle = '#2c3e50'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('后壁', x(bw/2), y(-Hpx/2)); ctx.fillText('前壁', x(bw/2), y(bh+Hpx/2));
+        ctx.fillText('左壁', x(-Hpx/2), y(bh/2)); ctx.fillText('右壁', x(bw+Hpx/2), y(bh/2));
+        ctx.font = '12px "Microsoft YaHei"'; ctx.fillStyle = '#555';
+        ctx.fillText('飞机盒展开 ' + formatNum(showW) + '×' + formatNum(showH) + ' ' + unit, ox+totalW*scale/2-ox, oy+totalH*scale+35);
+    }
+
+    function drawPizzaBox(ctx, L, W, H, unit, lidExtend, tabLen, custW = null, custH = null) {
+        const margin = 80;
+        const totalW = L + 2 * H + 30, totalH = H + lidExtend + W + H + tabLen + 40;
+        const showW = (custW !== null) ? custW : totalW; const showH = (custH !== null) ? custH : totalH;
+        const cw = ctx.canvas.width, ch = ctx.canvas.height;
+        const scale = Math.min((cw - 2*margin) / totalW, (ch - 2*margin) / totalH);
+        const ox = margin + (cw - 2*margin - totalW * scale) / 2;
+        const oy = margin + (ch - 2*margin - totalH * scale) / 2 + (H + lidExtend + tabLen) * scale;
+        function x(d) { return ox + d * scale; } function y(d) { return oy + d * scale; }
+        const bx=0, by=0, bw=L, bh=W, Hpx=H;
+        ctx.fillStyle = '#e1f0ff'; ctx.fillRect(x(bx), y(by), x(bw), y(bh));
+        ctx.strokeStyle = '#1f2a3a'; ctx.lineWidth = 2.2; ctx.strokeRect(x(bx), y(by), x(bw), y(bh));
+        ctx.fillStyle = '#fef9e7';
+        ctx.fillRect(x(0), y(-Hpx), x(bw), y(Hpx)); ctx.strokeRect(x(0), y(-Hpx), x(bw), y(Hpx));
+        const lidY = -Hpx - lidExtend - W;
+        ctx.fillRect(x(0), y(lidY), x(bw), y(W)); ctx.strokeRect(x(0), y(lidY), x(bw), y(W));
+        const tabW = tabLen, tabX = (L - tabW) / 2;
+        ctx.fillRect(x(tabX), y(lidY - tabLen), x(tabW), y(tabLen)); ctx.strokeRect(x(tabX), y(lidY - tabLen), x(tabW), y(tabLen));
+        ctx.fillRect(x(0), y(bh), x(bw), y(Hpx)); ctx.strokeRect(x(0), y(bh), x(bw), y(Hpx));
+        ctx.fillRect(x(-Hpx), y(0), x(Hpx), y(bh)); ctx.strokeRect(x(-Hpx), y(0), x(Hpx), y(bh));
+        ctx.fillRect(x(bw), y(0), x(Hpx), y(bh)); ctx.strokeRect(x(bw), y(0), x(Hpx), y(bh));
+        ctx.fillStyle = '#f0e6d2'; const wingH = H * 0.5;
+        function tri(x1,y1,x2,y2,x3,y3){ ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.lineTo(x3,y3); ctx.closePath(); ctx.fill(); ctx.strokeStyle='#1f2a3a'; ctx.stroke(); }
+        tri(ctx, x(-Hpx), y(0), x(-Hpx-wingH), y(-wingH), x(-Hpx), y(-wingH));
+        tri(ctx, x(-Hpx), y(bh), x(-Hpx-wingH), y(bh+wingH), x(-Hpx), y(bh+wingH));
+        tri(ctx, x(bw+Hpx), y(0), x(bw+Hpx+wingH), y(-wingH), x(bw+Hpx), y(-wingH));
+        tri(ctx, x(bw+Hpx), y(bh), x(bw+Hpx+wingH), y(bh+wingH), x(bw+Hpx), y(bh+wingH));
+        ctx.save(); ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 1.8; ctx.setLineDash([6,4]);
+        ctx.beginPath(); ctx.moveTo(x(0),y(0)); ctx.lineTo(x(bw),y(0)); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x(0),y(bh)); ctx.lineTo(x(bw),y(bh)); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x(0),y(0)); ctx.lineTo(x(0),y(bh)); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x(bw),y(0)); ctx.lineTo(x(bw),y(bh)); ctx.stroke(); ctx.restore();
+        ctx.font = 'bold 12px "Microsoft YaHei"'; ctx.fillStyle = '#2c3e50'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('后壁', x(bw/2), y(-Hpx/2)); ctx.fillText('盖板', x(bw/2), y(lidY+W/2));
+        ctx.fillText('插舌', x(bw/2), y(lidY-tabLen/2)); ctx.fillText('前壁', x(bw/2), y(bh+Hpx/2));
+        ctx.fillText('左壁', x(-Hpx/2), y(bh/2)); ctx.fillText('右壁', x(bw+Hpx/2), y(bh/2));
+        ctx.font = '12px "Microsoft YaHei"'; ctx.fillStyle = '#555';
+        ctx.fillText('披萨盒展开 ' + formatNum(showW) + '×' + formatNum(showH) + ' ' + unit, ox+totalW*scale/2-ox, oy+totalH*scale+35);
+    }
+
+    function formatNum(num) {
+        if (Number.isInteger(num)) return num.toString();
+        return parseFloat(num.toFixed(2)).toString();
+    }
+
+    // ==================== 页面初始化 ====================
+    window.onload = function() {
+        document.getElementById('diagramType').value = 'stereo';
+        onTypeChange();
+        generate();
+    };
+</script>
+</body>
+</html>

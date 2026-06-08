@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>包装印刷拼版设计试算工具</title>
+    <!-- 引入 jsPDF 用于导出 PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <!-- 引入 html2canvas 辅助 Canvas 转 PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none; /* 提升拖拽体验，但输入框不受影响 */
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #e9ecef;
+        }
+        .app-container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            overflow: hidden;
+            display: flex;
+            flex-direction: row;
+            flex-wrap: wrap;
+        }
+        /* 左侧控制面板 */
+        .control-panel {
+            width: 320px;
+            background: #f8f9fa;
+            border-right: 1px solid #dee2e6;
+            padding: 20px;
+            overflow-y: auto;
+            max-height: 90vh;
+        }
+        .control-panel h3 {
+            margin-top: 0;
+            font-size: 1.2rem;
+            border-left: 4px solid #0d6efd;
+            padding-left: 12px;
+            color: #1e293b;
+        }
+        .param-group {
+            background: white;
+            border-radius: 12px;
+            padding: 12px 16px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        .param-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            align-items: center;
+        }
+        .param-row label {
+            font-weight: 500;
+            color: #334155;
+            font-size: 0.85rem;
+        }
+        .param-row input {
+            width: 110px;
+            padding: 6px 10px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 0.85rem;
+        }
+        .job-list {
+            max-height: 280px;
+            overflow-y: auto;
+            margin-bottom: 16px;
+        }
+        .job-item {
+            background: white;
+            border-radius: 10px;
+            padding: 10px;
+            margin-bottom: 8px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+            border: 1px solid #e2e8f0;
+            transition: 0.1s;
+        }
+        .job-item input {
+            width: 65px;
+            padding: 4px;
+            border-radius: 6px;
+            border: 1px solid #cbd5e1;
+            text-align: center;
+            font-size: 0.75rem;
+        }
+        .job-id {
+            font-weight: bold;
+            background: #0d6efd;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 20px;
+            font-size: 0.7rem;
+        }
+        .btn-icon {
+            background: #e9ecef;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            padding: 4px 8px;
+            font-size: 0.7rem;
+        }
+        .btn-icon.danger {
+            color: #dc2626;
+        }
+        button {
+            background: #0d6efd;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            padding: 8px 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+            width: 100%;
+            margin-top: 8px;
+        }
+        button.secondary {
+            background: #6c757d;
+        }
+        button:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+        .right-canvas {
+            flex: 1;
+            min-width: 500px;
+            padding: 20px;
+            background: #f1f3f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .canvas-wrapper {
+            background: white;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            border-radius: 8px;
+            overflow: auto;
+            max-width: 100%;
+            max-height: 70vh;
+        }
+        canvas {
+            display: block;
+            background: #fff;
+            box-shadow: inset 0 0 0 1px #ccc;
+            cursor: crosshair;
+        }
+        .info-bar {
+            margin-top: 15px;
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .stats {
+            background: #e9ecef;
+            border-radius: 20px;
+            padding: 6px 14px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+        .export-btn {
+            background: #198754;
+            width: auto;
+            display: inline-block;
+            margin: 0 5px;
+        }
+        hr {
+            margin: 12px 0;
+        }
+        .note {
+            font-size: 0.7rem;
+            color: #6c757d;
+            text-align: center;
+            margin-top: 12px;
+        }
+        .rotate-check {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .rotate-check label {
+            font-size: 0.7rem;
+        }
+    </style>
+</head>
+<body>
+<div class="app-container">
+    <div class="control-panel">
+        <h3>📐 印张 & 工艺参数</h3>
+        <div class="param-group">
+            <div class="param-row">
+                <label>印张宽度 (mm)</label>
+                <input type="number" id="sheetWidth" value="1030" step="5">
+            </div>
+            <div class="param-row">
+                <label>印张高度 (mm)</label>
+                <input type="number" id="sheetHeight" value="790" step="5">
+            </div>
+            <div class="param-row">
+                <label>出血 (mm / 每边)</label>
+                <input type="number" id="bleed" value="3" step="0.5">
+            </div>
+            <div class="param-row">
+                <label>裁切间距 (mm)</label>
+                <input type="number" id="gap" value="2" step="0.5">
+            </div>
+            <div class="param-row">
+                <label>允许旋转</label>
+                <input type="checkbox" id="allowRotate" checked style="width: auto;">
+            </div>
+        </div>
+
+        <h3>📦 作业列表 (成品尺寸+数量)</h3>
+        <div id="jobListContainer" class="job-list"></div>
+        <div style="display: flex; gap: 8px;">
+            <button id="addJobBtn" style="background:#2c3e66;">➕ 添加作业</button>
+            <button id="resetDemoBtn" class="secondary">📋 重置演示数据</button>
+        </div>
+
+        <button id="packBtn" style="background:#0d6efd; margin-top: 20px;">✨ 智能自动拼版</button>
+        <hr>
+        <div class="note">
+            💡 提示: 自动排样采用启发式(BLF+排序+旋转)<br>
+            🖱️ 可在Canvas上拖拽移动已放置的矩形 (单击选中后拖动)
+        </div>
+    </div>
+
+    <div class="right-canvas">
+        <div class="canvas-wrapper" id="canvasWrapper">
+            <canvas id="impositionCanvas" width="800" height="600"></canvas>
+        </div>
+        <div class="info-bar">
+            <div class="stats" id="utilizationInfo">利用率: -</div>
+            <div class="stats" id="sheetsInfo">当前印张: 1</div>
+            <button id="exportPdfBtn" class="export-btn">📄 导出 PDF (含标记)</button>
+        </div>
+        <div class="note">
+            🎨 每个色块代表一个作业 (含出血外框, 内部虚线为成品框) | 十字为裁切角线
+        </div>
+    </div>
+</div>
+
+<script>
+    // ---------- 数据结构 ----------
+    let jobs = [];          // 存储作业 { id, width, height, quantity, rotateAllowed }
+    let currentLayout = {   // 当前排样结果
+        placements: [],     // [{ jobId, x, y, w, h, rotated, originalW, originalH }]
+        sheetW: 1030,
+        sheetH: 790,
+        bleed: 3,
+        gap: 2
+    };
+
+    // 辅助: 生成唯一ID
+    let nextId = 100;
+    function genJobId() { return `J${nextId++}`; }
+
+    // 演示数据
+    const demoJobs = [
+        { id: "A1", width: 210, height: 297, quantity: 8, rotateAllowed: true },
+        { id: "B2", width: 150, height: 200, quantity: 12, rotateAllowed: true },
+        { id: "C3", width: 100, height: 150, quantity: 20, rotateAllowed: true },
+        { id: "D4", width: 280, height: 180, quantity: 5, rotateAllowed: false }
+    ];
+
+    function loadDemoData() {
+        jobs = JSON.parse(JSON.stringify(demoJobs));
+        renderJobList();
+        // 自动执行一次拼版展示效果
+        setTimeout(() => { autoPack(); }, 100);
+    }
+
+    // 渲染作业列表DOM
+    function renderJobList() {
+        const container = document.getElementById('jobListContainer');
+        if (!container) return;
+        container.innerHTML = '';
+        jobs.forEach((job, idx) => {
+            const div = document.createElement('div');
+            div.className = 'job-item';
+            div.innerHTML = `
+                <span class="job-id">${job.id}</span>
+                <input type="number" value="${job.width}" step="5" placeholder="宽" class="job-w" data-idx="${idx}" data-field="width">
+                <span>x</span>
+                <input type="number" value="${job.height}" step="5" placeholder="高" class="job-h" data-idx="${idx}" data-field="height">
+                <input type="number" value="${job.quantity}" step="1" min="1" placeholder="数量" style="width:70px;" class="job-qty" data-idx="${idx}" data-field="quantity">
+                <div class="rotate-check">
+                    <input type="checkbox" ${job.rotateAllowed ? 'checked' : ''} class="job-rotate" data-idx="${idx}">
+                    <label>🔁旋转</label>
+                </div>
+                <button class="btn-icon danger" data-idx="${idx}" data-action="del">🗑️</button>
+            `;
+            container.appendChild(div);
+        });
+        // 绑定输入事件
+        document.querySelectorAll('.job-w, .job-h, .job-qty').forEach(el => {
+            el.addEventListener('change', (e) => {
+                const idx = parseInt(el.dataset.idx);
+                const field = el.dataset.field;
+                if (!isNaN(idx) && jobs[idx]) {
+                    let val = parseFloat(el.value);
+                    if (field === 'quantity') val = Math.max(1, parseInt(val) || 1);
+                    else val = Math.max(5, val || 50);
+                    jobs[idx][field] = val;
+                    renderJobList(); // 刷新保持ID映射, 重新绑定
+                }
+            });
+        });
+        document.querySelectorAll('.job-rotate').forEach(cb => {
+            cb.addEventListener('change', (e) => {
+                const idx = parseInt(cb.dataset.idx);
+                if (!isNaN(idx) && jobs[idx]) jobs[idx].rotateAllowed = cb.checked;
+            });
+        });
+        document.querySelectorAll('.btn-icon.danger').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const idx = parseInt(btn.dataset.idx);
+                if (!isNaN(idx) && jobs[idx]) {
+                    jobs.splice(idx, 1);
+                    renderJobList();
+                }
+            });
+        });
+    }
+
+    // 添加新作业
+    function addJob() {
+        jobs.push({
+            id: genJobId(),
+            width: 120,
+            height: 80,
+            quantity: 5,
+            rotateAllowed: true
+        });
+        renderJobList();
+    }
+
+    // ---------- 核心排样算法 (基于BLF + 极点集简化版本) ----------
+    // 需求: 根据作业列表 (需复制为多个实例按数量), 进行矩形排样, 返回 placements (相对 sheet 坐标)
+    function packSheets(jobsList, sheetWidth, sheetHeight, bleedVal, gapVal, allowRotateGlobal) {
+        // 1. 展开作业数量: 每个作业根据 quantity 生成多个矩形实体 (带出血+间距补偿)
+        // 实际拼版中, 每个实体尺寸 = (width + bleed*2 + gap) , (height + bleed*2 + gap), 但边界处不额外加间距? 传统算法矩形之间共享gap
+        // 简便处理: 每个矩形增加单边间距 bleed+gap/2 不对称, 更精确: 在放置时相邻间隙通过固定gap隔开, 我们对每个实体尺寸 = (成品宽+2*bleed) + gap, 高同
+        // 最后放置后所有矩形之间自然有 gap 缝隙, 且边缘也留出 gap/2 避免切到出血? 这里演示采用标准方式: 扩展尺寸 = 成品宽+2*bleed; 放置时用实际矩形+gap作为占位间隔。
+        // 为简化且视觉清晰: 实际布局中rect的宽高 = 成品宽+2*bleed; 放置坐标之间通过预留 gap 距离。
+        // 算法中每个矩形尺寸记作 rectW = w + 2*bleed , rectH = h + 2*bleed; 放置时寻找空闲位置, 并且在检查碰撞时考虑gap作为间隙。
+        // 实现 BLF: 维护所有已放置矩形, 每次放置时扫描最低最左可用点 (需要与现有矩形保持 gap 距离)
+        let items = [];
+        for (let job of jobsList) {
+            for (let i = 0; i < job.quantity; i++) {
+                items.push({
+                    id: job.id,
+                    originalW: job.width,
+                    originalH: job.height,
+                    w: job.width + bleedVal * 2,
+                    h: job.height + bleedVal * 2,
+                    rotateAllowed: job.rotateAllowed && allowRotateGlobal,
+                });
+            }
+        }
+        if (items.length === 0) return { placements: [], sheetW: sheetWidth, sheetH: sheetHeight };
+
+        // 按面积递减排序
+        items.sort((a,b) => (b.w*b.h) - (a.w*a.h));
+
+        // 存放已放置矩形 (包含间隙占位)
+        let placed = []; // { x, y, w, h, id, originalW, originalH, rotated }
+
+        // 辅助: 检测新矩形 (x,y,w,h) 是否与已放置矩形碰撞 (考虑 gap 间距)
+        function collides(x, y, w, h, excludeIdx = -1) {
+            for (let i = 0; i < placed.length; i++) {
+                if (i === excludeIdx) continue;
+                const p = placed[i];
+                // 添加间隙: 两个矩形之间必须至少保持 gap 距离
+                if (x + w + gapVal > p.x && x < p.x + p.w + gapVal &&
+                    y + h + gapVal > p.y && y < p.y + p.h + gapVal) {
+                    return true;
+                }
+            }
+            // 边界检测: 不能超出印张边界 (边缘留出 gap/2 或出血不强制, 但需在内部)
+            if (x < 0 || y < 0 || x + w > sheetWidth + gapVal || y + h > sheetHeight + gapVal) {
+                return true;
+            }
+            return false;
+        }
+
+        // 获取候选放置点 (基于现有矩形右下/左下角启发)
+        function getAllCandidatePoints() {
+            let points = [{x: 0, y: 0}];
+            for (let p of placed) {
+                // 矩形右侧点
+                points.push({x: p.x + p.w + gapVal, y: p.y});
+                points.push({x: p.x + p.w + gapVal, y: p.y + p.h + gapVal});
+                // 矩形下侧点
+                points.push({x: p.x, y: p.y + p.h + gapVal});
+                points.push({x: p.x + p.w + gapVal, y: p.y + p.h + gapVal});
+            }
+            // 过滤超出边界的点
+            points = points.filter(pt => pt.x <= sheetWidth && pt.y <= sheetHeight);
+            // 去重排序 (x+y)
+            points.sort((a,b) => (a.x+a.y) - (b.x+b.y));
+            return points;
+        }
+
+        // 尝试放置每个item
+        for (let item of items) {
+            let bestPlace = null;
+            let bestRotated = false;
+            let bestW = item.w, bestH = item.h;
+
+            // 尝试两种方向
+            const orientations = item.rotateAllowed ? [[item.w, item.h, false], [item.h, item.w, true]] : [[item.w, item.h, false]];
+            for (let [w, h, rotated] of orientations) {
+                if (w > sheetWidth + gapVal || h > sheetHeight + gapVal) continue;
+                // 获取候选点
+                let points = getAllCandidatePoints();
+                for (let pt of points) {
+                    if (!collides(pt.x, pt.y, w, h)) {
+                        // 评分: 左下优先且紧密
+                        const score = pt.x + pt.y;
+                        if (!bestPlace || score < (bestPlace.x + bestPlace.y)) {
+                            bestPlace = { x: pt.x, y: pt.y };
+                            bestRotated = rotated;
+                            bestW = w;
+                            bestH = h;
+                        }
+                        break; // 因为候选点已经排序, 第一个有效点就是最佳左下
+                    }
+                }
+                if (bestPlace) break;
+            }
+
+            if (bestPlace) {
+                placed.push({
+                    ...bestPlace,
+                    w: bestW,
+                    h: bestH,
+                    id: item.id,
+                    originalW: item.originalW,
+                    originalH: item.originalH,
+                    rotated: bestRotated,
+                    bleed: bleedVal
+                });
+            } else {
+                // 放不下则忽略 (实际生产中可加新印张, 本演示只做一个印张, 显示警告)
+                console.warn(`作业 ${item.id} 无法排入当前印张`);
+            }
+        }
+
+        // 转换为前端渲染 placements
+        const placements = placed.map(p => ({
+            jobId: p.id,
+            x: p.x,
+            y: p.y,
+            w: p.w,          // 含出血的宽度
+            h: p.h,
+            rotated: p.rotated,
+            originalW: p.originalW,
+            originalH: p.originalH,
+            bleed: bleedVal
+        }));
+        return { placements, sheetW: sheetWidth, sheetH: sheetHeight };
+    }
+
+    // 自动拼版 (读取界面参数)
+    function autoPack() {
+        // 获取参数
+        const sheetW = parseFloat(document.getElementById('sheetWidth').value) || 1030;
+        const sheetH = parseFloat(document.getElementById('sheetHeight').value) || 790;
+        const bleed = parseFloat(document.getElementById('bleed').value) || 3;
+        const gap = parseFloat(document.getElementById('gap').value) || 2;
+        const allowRotate = document.getElementById('allowRotate').checked;
+
+        // 收集有效作业 (宽高>0, 数量>0)
+        const validJobs = jobs.filter(j => j.width > 0 && j.height > 0 && j.quantity > 0);
+        if (validJobs.length === 0) {
+            alert("请至少添加一个有效作业");
+            return;
+        }
+
+        // 执行排样算法
+        const packResult = packSheets(validJobs, sheetW, sheetH, bleed, gap, allowRotate);
+        currentLayout = {
+            placements: packResult.placements,
+            sheetW: packResult.sheetW,
+            sheetH: packResult.sheetH,
+            bleed: bleed,
+            gap: gap
+        };
+        renderCanvas(currentLayout);
+        updateStats(currentLayout);
+    }
+
+    // 绘制canvas + 裁切标记
+    let canvas = document.getElementById('impositionCanvas');
+    let ctx = canvas.getContext('2d');
+    let selectedRectIndex = -1;
+    let dragOffset = { x: 0, y: 0 };
+    let isDragging = false;
+
+    function renderCanvas(layout) {
+        if (!canvas || !ctx) return;
+        const w = layout.sheetW;
+        const h = layout.sheetH;
+        // 设置canvas显示尺寸 (按比例缩放显示, 保持实际毫米数值映射到像素)
+        // 为了预览舒适, 将1mm映射为2px? 自适应缩放至合适大小
+        const maxWidth = Math.min(900, window.innerWidth - 400);
+        const scale = Math.min(maxWidth / w, 600 / h, 2.5);
+        canvas.width = w * scale;
+        canvas.height = h * scale;
+        canvas.style.width = `${canvas.width}px`;
+        canvas.style.height = `${canvas.height}px`;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.save();
+        ctx.scale(scale, scale);
+
+        // 绘制印张背景
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.strokeStyle = '#aaa';
+        ctx.lineWidth = 0.5;
+        ctx.strokeRect(0, 0, w, h);
+
+        // 绘制每个作业
+        layout.placements.forEach((p, idx) => {
+            const x = p.x, y = p.y;
+            const bleed = p.bleed || layout.bleed;
+            // 外框 (出血框)
+            ctx.fillStyle = getJobColor(p.jobId, 0.4);
+            ctx.fillRect(x, y, p.w, p.h);
+            ctx.strokeStyle = '#2c3e66';
+            ctx.lineWidth = 0.8;
+            ctx.strokeRect(x, y, p.w, p.h);
+
+            // 成品内框 (虚线)
+            const innerX = x + bleed;
+            const innerY = y + bleed;
+            const innerW = p.originalW;
+            const innerH = p.originalH;
+            ctx.save();
+            ctx.beginPath();
+            ctx.setLineDash([3, 4]);
+            ctx.strokeStyle = '#e67e22';
+            ctx.lineWidth = 0.6;
+            ctx.strokeRect(innerX, innerY, innerW, innerH);
+            ctx.setLineDash([]);
+            ctx.restore();
+
+            // 绘制裁切角线 (十字短线)
+            drawCropMarks(ctx, x, y, p.w, p.h);
+
+            // 显示作业ID
+            ctx.font = `bold ${Math.min(12, p.w/5)}px "Segoe UI"`;
+            ctx.fillStyle = '#1e293b';
+            ctx.shadowBlur = 0;
+            ctx.fillText(p.jobId, x + 4, y + 14);
+            if(p.rotated) {
+                ctx.font = `8px monospace`;
+                ctx.fillStyle = '#e74c3c';
+                ctx.fillText("↻", x + p.w - 12, y + 12);
+            }
+        });
+
+        // 高亮选中的矩形 (如果有)
+        if (selectedRectIndex >= 0 && selectedRectIndex < layout.placements.length) {
+            const p = layout.placements[selectedRectIndex];
+            ctx.strokeStyle = '#f00';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(p.x, p.y, p.w, p.h);
+        }
+        ctx.restore();
+    }
+
+    function drawCropMarks(ctx, x, y, w, h) {
+        const len = 4;
+        ctx.save();
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 0.5;
+        ctx.setLineDash([]);
+        // 左上角
+        ctx.beginPath(); ctx.moveTo(x, y+len); ctx.lineTo(x, y); ctx.lineTo(x+len, y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x+w, y+len); ctx.lineTo(x+w, y); ctx.lineTo(x+w-len, y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x, y+h-len); ctx.lineTo(x, y+h); ctx.lineTo(x+len, y+h); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x+w, y+h-len); ctx.lineTo(x+w, y+h); ctx.lineTo(x+w-len, y+h); ctx.stroke();
+        ctx.restore();
+    }
+
+    function getJobColor(id, alpha = 0.7) {
+        let hash = 0;
+        for(let i=0;i<id.length;i++) hash = ((hash<<5)-hash)+id.charCodeAt(i);
+        const hue = Math.abs(hash % 360);
+        return `hsla(${hue}, 65%, 65%, ${alpha})`;
+    }
+
+    function updateStats(layout) {
+        const areaUsed = layout.placements.reduce((sum, p) => sum + (p.w * p.h), 0);
+        const totalArea = layout.sheetW * layout.sheetH;
+        const ratio = totalArea > 0 ? ((areaUsed / totalArea)*100).toFixed(1) : 0;
+        document.getElementById('utilizationInfo').innerHTML = `利用率: ${ratio}%`;
+        document.getElementById('sheetsInfo').innerHTML = `当前印张: 1 (可容纳 ${layout.placements.length} 个作业)`;
+    }
+
+    // ---------- 拖拽移动支持 (简单实现鼠标移动更新placement) ----------
+    function setupCanvasDrag() {
+        let mouseDown = false;
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const mouseX = (e.clientX - rect.left) * scaleX / (canvas.width/currentLayout.sheetW);
+            const mouseY = (e.clientY - rect.top) * scaleY / (canvas.height/currentLayout.sheetH);
+            // 查找点击的矩形
+            let hitIndex = -1;
+            for (let i=0; i<currentLayout.placements.length; i++) {
+                const p = currentLayout.placements[i];
+                if (mouseX >= p.x && mouseX <= p.x+p.w && mouseY >= p.y && mouseY <= p.y+p.h) {
+                    hitIndex = i;
+                    break;
+                }
+            }
+            if (hitIndex !== -1) {
+                selectedRectIndex = hitIndex;
+                const p = currentLayout.placements[hitIndex];
+                dragOffset = { dx: mouseX - p.x, dy: mouseY - p.y };
+                isDragging = true;
+                renderCanvas(currentLayout);
+                e.preventDefault();
+            } else {
+                selectedRectIndex = -1;
+                renderCanvas(currentLayout);
+            }
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging || selectedRectIndex === -1) return;
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            let mouseX = (e.clientX - rect.left) * scaleX / (canvas.width/currentLayout.sheetW);
+            let mouseY = (e.clientY - rect.top) * scaleY / (canvas.height/currentLayout.sheetH);
+            let newX = mouseX - dragOffset.dx;
+            let newY = mouseY - dragOffset.dy;
+            // 边界约束
+            const p = currentLayout.placements[selectedRectIndex];
+            newX = Math.min(Math.max(0, newX), currentLayout.sheetW - p.w);
+            newY = Math.min(Math.max(0, newY), currentLayout.sheetH - p.h);
+            // 简易碰撞检测 (移动时防止与其它矩形重叠，利用碰撞函数)
+            let collision = false;
+            for (let i=0; i<currentLayout.placements.length; i++) {
+                if (i === selectedRectIndex) continue;
+                const other = currentLayout.placements[i];
+                if (newX + p.w + currentLayout.gap > other.x && newX < other.x + other.w + currentLayout.gap &&
+                    newY + p.h + currentLayout.gap > other.y && newY < other.y + other.h + currentLayout.gap) {
+                    collision = true;
+                    break;
+                }
+            }
+            if (!collision) {
+                currentLayout.placements[selectedRectIndex].x = newX;
+                currentLayout.placements[selectedRectIndex].y = newY;
+                renderCanvas(currentLayout);
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (isDragging) {
+                isDragging = false;
+                updateStats(currentLayout);
+            }
+        });
+    }
+
+    // 导出PDF (使用html2canvas + jspdf)
+    async function exportToPDF() {
+        const canvasElem = document.getElementById('impositionCanvas');
+        if (!canvasElem) return;
+        try {
+            const imgData = canvasElem.toDataURL('image/png');
+            const { jsPDF } = window.jspdf;
+            const orientation = currentLayout.sheetW > currentLayout.sheetH ? 'l' : 'p';
+            const pdf = new jsPDF({
+                orientation: orientation,
+                unit: 'mm',
+                format: [currentLayout.sheetW, currentLayout.sheetH] // 自定义尺寸
+            });
+            const pdfWidth = currentLayout.sheetW;
+            const pdfHeight = currentLayout.sheetH;
+            pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST');
+            pdf.save(`imposition_${new Date().toISOString().slice(0,19)}.pdf`);
+        } catch(e) { alert("导出失败: "+e.message); }
+    }
+
+    // 初始化UI事件
+    document.getElementById('addJobBtn').addEventListener('click', addJob);
+    document.getElementById('resetDemoBtn').addEventListener('click', () => { loadDemoData(); });
+    document.getElementById('packBtn').addEventListener('click', autoPack);
+    document.getElementById('exportPdfBtn').addEventListener('click', exportToPDF);
+    loadDemoData();
+    setupCanvasDrag();
+    // 窗口resize调整画布
+    window.addEventListener('resize', () => { if(currentLayout.placements) renderCanvas(currentLayout); });
+</script>
+</body>
+</html>

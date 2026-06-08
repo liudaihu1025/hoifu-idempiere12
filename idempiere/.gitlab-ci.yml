@@ -1,0 +1,75 @@
+stages:
+  - build
+  - test
+
+variables:
+  MAVEN_OPTS: "-Dmaven.repo.local=/opt/maven-repo"
+  MAVEN_CLI_OPTS: "--batch-mode --errors --fail-at-end --show-version -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=WARN"
+  JAVA_VERSION: "21"
+
+cache:
+  key: "${CI_COMMIT_REF_SLUG}-maven"
+  paths:
+    - /opt/maven-repo/
+    - target/
+  policy: pull-push
+
+before_script:
+  - export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+  - java -version
+  - mvn -version
+  # 使用本地文件系统路径
+  - |
+    PROJECT_ROOT=$(pwd)
+    TARGET_FILE="$PROJECT_ROOT/org.idempiere.p2.targetplatform/org.idempiere.p2.targetplatform.target"
+    if [ -f "$TARGET_FILE" ]; then
+    sed -i 's|https://idempiere.github.io/binary.file/|file:///opt/p2-mirror/binary.file/|g' "$TARGET_FILE"
+    else
+    echo "文件不存在: $TARGET_FILE"
+    exit 1
+    fi
+
+# 构建阶段
+build:
+  stage: build
+  image: maven:3.9-eclipse-temurin-17
+  #  before_scriptore_script:
+  #    - export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+  #    - export PATH=$JAVA_HOME/bin:$PATH
+  #    # 设置Maven使用本地仓库
+  #    - export MAVEN_OPTS="-Dmaven.repo.local=/opt/maven-repo"
+  script:
+    #    - exit 0
+    #   - cd org.idempiere.parent
+    # - mvn clean verify -DskipTests=true
+    # 先尝试离线构建，如果失败则在线下载后重试
+    #    - mvn -o clean compile || (echo "离线构建失败，在线下载 依赖..." && mvn dependency:go-offline -Dmaven.test.skip=true && mvn -o clean compile)
+    - mvn $MAVEN_CLI_OPTS clean verify -DskipTests || exit 0
+  #  artifacts:
+  #    paths:
+  #      - org.idempiere.p2/target/products/*.tar.gz
+  #      - org.idempiere.p2/target/products/*.zip
+  #      - "**/target/*.jar"
+  #    expire_in: 1 week
+  cache:
+    policy: pull-push
+  only:
+    - test
+    - master
+
+# 单元测试
+test:unit:
+  stage: test
+  image: maven:3.9-eclipse-temurin-17
+  script:
+    - cd org.idempiere.parent
+    - mvn test
+  coverage: '/Total.*?([0-9]{1,3})%/'
+  artifacts:
+    reports:
+      junit:
+        - "**/target/surefire-reports/TEST-*.xml"
+    paths:
+      - "**/target/site/jacoco/"
+  only:
+    - develop

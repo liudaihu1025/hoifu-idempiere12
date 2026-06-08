@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component name="optaplanner.service">
+    <implementation class="com.optaplanner.service.OptaPlannerService"/>
+    <service>
+        <provide interface="com.optaplanner.service.IOptaPlannerService"/>
+    </service>
+    <reference name="adempiereService" interface="org.adempiere.base.IService" cardinality="1..n" policy="dynamic"/>
+</component>
