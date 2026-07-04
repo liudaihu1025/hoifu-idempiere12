@@ -17,14 +17,12 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.logging.Level;
 
-import org.adempiere.exceptions.AdempiereException;
 import org.compiere.model.MBPartner;
 import org.compiere.model.MInOutLine;
 import org.compiere.model.MSequence;
 import org.compiere.util.CLogger;
 import org.compiere.util.DB;
 import org.compiere.util.Env;
-import org.compiere.util.ValueNamePair;
 
 
 public class ReconciliationGenerateService {  
@@ -46,213 +44,137 @@ public class ReconciliationGenerateService {
         this.userID = userID;
     }  
     
-    public GenerateResult generate(int p_C_BPartner_ID, String p_ReconPeroid, int p_AD_Org_ID, boolean p_IsSOTrx) throws Exception {
-        // 禁用RecentItems
-        String originalDisableRecentItems = Env.getContext(ctx, "#DisableRecentItems");
-        Env.setContext(ctx, "#DisableRecentItems", "Y");
-        
-        try {
-            // 统计数据
-            int totalBPartners = 0;
-            int successBPartners = 0;
-            int errorBPartners = 0;
-            int totalLinesCreated = 0;
-            int totalLinesSkipped = 0;
-            int totalDocumentsCreated = 0;
-            
-            List<String> successMessages = new ArrayList<>();
-            List<String> errorMessages = new ArrayList<>();
-            List<String> warningMessages = new ArrayList<>();
-            
-            // 使用Set来跟踪已处理的业务伙伴，避免重复处理
-            Set<Integer> processedBPartnerIds = new HashSet<>();
-            
-            // 获取业务伙伴列表
-            List<ValueNamePair> bpartnerList = new ArrayList<>();
-            
-            if (p_C_BPartner_ID > 0) {
-                // 单个业务伙伴
-                String sql = "SELECT C_BPartner_ID, Name FROM C_BPartner " +
-                           "WHERE C_BPartner_ID=? AND AD_Client_ID=? " +
-                           "AND IsActive='Y' AND AD_Org_ID IN (0, ?)";
-                PreparedStatement pstmt = DB.prepareStatement(sql, trxName);
-                pstmt.setInt(1, p_C_BPartner_ID);
-                pstmt.setInt(2, clientID);
-                pstmt.setInt(3, p_AD_Org_ID);
-                ResultSet rs = pstmt.executeQuery();
-                
-                if (rs.next()) {
-                    bpartnerList.add(new ValueNamePair(
-                        String.valueOf(rs.getInt("C_BPartner_ID")), 
-                        rs.getString("Name")
-                    ));
-                }
-                DB.close(rs, pstmt);
-                
-                if (bpartnerList.isEmpty()) {
-                    throw new AdempiereException("未找到指定的业务伙伴，ID=" + p_C_BPartner_ID);
-                }
-            } else {
-                // 获取该组织下所有有效的业务伙伴（按客户/供应商过滤）  
-                String sql = "SELECT DISTINCT bp.C_BPartner_ID, bp.Name " +  
-                    "FROM C_BPartner bp " +  
-                    "WHERE bp.AD_Client_ID=? " +  
-                    "AND bp.IsActive='Y' " +  
-                    "AND bp.AD_Org_ID IN (0, ?) " +  
-                    "AND " + (p_IsSOTrx ? "bp.IsCustomer='Y'" : "bp.IsVendor='Y'") +  
-                    " AND EXISTS (SELECT 1 FROM M_InOutLine iol " +  
-                    "INNER JOIN M_InOut io ON iol.M_InOut_ID=io.M_InOut_ID " +  
-                    "WHERE io.C_BPartner_ID=bp.C_BPartner_ID " +  
-                    "AND io.DocStatus IN ('CO','CL') " + 
-                    "AND io.IsSOTrx=? " +
-                    "AND iol.ReconciliationMonth=? " +  
-                    "AND io.AD_Org_ID=? ) " +  
-                    "ORDER BY bp.Name";  
-                PreparedStatement pstmt = DB.prepareStatement(sql, trxName);  
-                pstmt.setInt(1, clientID);  
-                pstmt.setInt(2, p_AD_Org_ID);  
-                pstmt.setString(3, p_IsSOTrx ? "Y" : "N"); 
-                pstmt.setString(4, p_ReconPeroid);  
-                pstmt.setInt(5, p_AD_Org_ID);  
-                ResultSet rs = pstmt.executeQuery();  
-                while (rs.next()) {  
-                    int bpartnerId = rs.getInt("C_BPartner_ID");  
-                    String bpartnerName = rs.getString("Name");  
-                    
-                    // 检查是否已处理过此业务伙伴
-                    if (!processedBPartnerIds.contains(bpartnerId)) {  
-                        bpartnerList.add(new ValueNamePair(  
-                            String.valueOf(bpartnerId),   
-                            bpartnerName  
-                        ));  
-                        processedBPartnerIds.add(bpartnerId);  
-                    }  
-                }  
-                DB.close(rs, pstmt);  
-            }
-            
-            totalBPartners = bpartnerList.size();
-            if (totalBPartners == 0) {
-            	return new GenerateResult("没有找到符合条件的业务伙伴", new ArrayList<>(logMessages));
-            }
-            
-            // 清空processedBPartnerIds，用于处理过程中的去重
-            processedBPartnerIds.clear();
-            
-            // 处理每个业务伙伴
-            for (ValueNamePair vnp : bpartnerList) {
-                int bpartnerId = Integer.parseInt(vnp.getValue());
-                String bpartnerName = vnp.getName();
-                
-                // 再次检查是否已处理（双重保险）
-                if (processedBPartnerIds.contains(bpartnerId)) {
-                    log.warning("跳过已处理的业务伙伴: " + bpartnerName + " (ID: " + bpartnerId + ")");
-                    continue;
-                }
-                processedBPartnerIds.add(bpartnerId);
-                
-                try {
-                    // 处理单个业务伙伴
-                    ProcessResult result = processSingleBPartner(bpartnerId, bpartnerName, p_ReconPeroid, p_AD_Org_ID, p_IsSOTrx);
-                    
-                    if (result.isSuccess()) {
-                        if (result.isDuplicate()) {
-                            // 对账单已完成，跳过
-                            String warningMsg = "业务伙伴【" + bpartnerName + "】 "  + 
-                                              " 已有完成的对账单，跳过处理";
-                            warningMessages.add(warningMsg);
-                            totalLinesSkipped++;
-                            log.info(warningMsg);
-                        } else {
-                            // 成功生成或更新
-                            successBPartners++;
-                            totalDocumentsCreated++;
-                            totalLinesCreated += result.getLinesCreated();
-                            
-                            String successMsg = result.getProcessMessage();
-                            
-                            // 检查是否已存在相同业务伙伴的成功消息
-                            boolean alreadyExists = false;
-                            for (String existingMsg : successMessages) {
-                                if (existingMsg.contains("业务伙伴【" + bpartnerName + "】")) {
-                                    alreadyExists = true;
-                                    log.warning("检测到重复的成功消息: " + successMsg);
-                                    break;
-                                }
-                            }
-                            
-                            if (!alreadyExists) {
-                                successMessages.add(successMsg);
-                            }
-                            addLog(0, null, null, successMsg);
-                        }
-                    } else {
-                        errorBPartners++;
-                        String errorMsg =  result.getErrorMessage();
-                                        
-                        
-                        // 检查是否已存在相同业务伙伴的错误消息
-                        boolean alreadyExists = false;
-                        for (String existingMsg : errorMessages) {
-                            if (existingMsg.contains("业务伙伴【" + bpartnerName + "】")) {
-                                alreadyExists = true;
-                                break;
-                            }
-                        }
-                        
-                        if (!alreadyExists) {
-//                            errorMessages.add(errorMsg);
-                        }
-                        addLog(0, null, null, errorMsg);
-                    }
-                    
-                } catch (Exception e) {
-                    errorBPartners++;
-                    String errorMsg = "业务伙伴【" + bpartnerName + "】处理异常: " + e.getMessage();
-                    
-                    // 检查是否已存在相同业务伙伴的错误消息
-                    boolean alreadyExists = false;
-                    for (String existingMsg : errorMessages) {
-                        if (existingMsg.contains("业务伙伴【" + bpartnerName + "】")) {
-                            alreadyExists = true;
-                            break;
-                        }
-                    }
-                    
-                    if (!alreadyExists) {
-                        errorMessages.add(errorMsg);
-                    }
-                    addLog(0, null, null, errorMsg);
-                    log.log(Level.SEVERE, "处理业务伙伴异常: " + bpartnerName, e);
-                }
-            }
-            
-            // 构建结果消息 - 优化格式
-            StringBuilder resultMsg = new StringBuilder();
-            
-            // 1. 上半部分：统计信息
-            resultMsg.append("<b>批量生成对账单完成！</b><br/>");
-            
-            resultMsg.append("【统计信息】<br/>");
-           
-            resultMsg.append("业务伙伴总数: ").append(totalBPartners).append(" 个<br/>  ");
-            resultMsg.append("成功处理: ").append(successBPartners).append(" 个<br/> ");
-            resultMsg.append("跳过处理: ").append(errorBPartners).append(" 个<br/> ");
-            resultMsg.append("生成对账单: ").append(totalDocumentsCreated).append(" 个<br/> ");
-            resultMsg.append("生成明细行数: ").append(totalLinesCreated).append(" 行<br/> ");            
-           
-         // 修改为：  
-            return new GenerateResult(resultMsg.toString(), new ArrayList<>(logMessages));
-            
-        } finally {
-            // 恢复RecentItems设置
-            if (originalDisableRecentItems != null) {
-                Env.setContext(ctx, "#DisableRecentItems", originalDisableRecentItems);
-            } else {
-                Env.setContext(ctx, "#DisableRecentItems", "");
-            }
-        }
-    }      
+	public GenerateResult generate(int p_C_BPartner_ID, String p_ReconPeroid, int p_AD_Org_ID, boolean p_IsSOTrx)
+			throws Exception {
+		String originalDisableRecentItems = Env.getContext(ctx, "#DisableRecentItems");
+		Env.setContext(ctx, "#DisableRecentItems", "Y");
+
+		try {
+			int totalBPartners = 0;
+			int successBPartners = 0;
+			int errorBPartners = 0;
+			int totalLinesCreated = 0;
+			int totalDocumentsCreated = 0;
+
+			List<String> successMessages = new ArrayList<>();
+			List<String> errorMessages = new ArrayList<>();
+
+			// 从M_InOutLine直接查出需要处理的(业务伙伴, 组织)对
+			// 根据参数动态拼SQL，组织始终取收发单的组织
+			StringBuilder sqlBuilder = new StringBuilder("SELECT DISTINCT io.C_BPartner_ID, bp.Name, io.AD_Org_ID "
+					+ "FROM M_InOut io " + "INNER JOIN M_InOutLine iol ON iol.M_InOut_ID = io.M_InOut_ID "
+					+ "INNER JOIN C_BPartner bp ON io.C_BPartner_ID = bp.C_BPartner_ID "
+					+ "WHERE io.DocStatus IN ('CO','CL') " + "AND io.AD_Client_ID = ? " + "AND bp.IsActive = 'Y' "
+					+ "AND iol.ReconciliationMonth = ? " + "AND (io.IsSOTrx = ? OR io.C_DocType_ID = ?) ");
+
+			if (p_C_BPartner_ID > 0) {
+				// 选了具体业务伙伴：过滤该业务伙伴
+				sqlBuilder.append("AND io.C_BPartner_ID = ? ");
+			} else {
+				// 未选业务伙伴：按客户/供应商类型过滤
+				sqlBuilder.append("AND ").append(p_IsSOTrx ? "bp.IsCustomer='Y'" : "bp.IsVendor='Y'").append(" ");
+			}
+
+			if (p_AD_Org_ID > 0) {
+				// 选了具体组织：过滤该组织
+				sqlBuilder.append("AND io.AD_Org_ID = ? ");
+			}
+			// 选了所有组织(p_AD_Org_ID=0)：不加组织过滤，查所有组织
+
+			sqlBuilder.append("ORDER BY bp.Name, io.AD_Org_ID");
+
+			// 收集(业务伙伴, 组织)处理列表
+			List<int[]> bpartnerOrgList = new ArrayList<>(); // [bpartnerId, orgId]
+			List<String> bpartnerNames = new ArrayList<>();
+			Set<String> processedKeys = new HashSet<>(); // key: "bpartnerId_orgId"
+
+			PreparedStatement pstmt = DB.prepareStatement(sqlBuilder.toString(), trxName);
+			int paramIdx = 1;
+			pstmt.setInt(paramIdx++, clientID);
+			pstmt.setString(paramIdx++, p_ReconPeroid);
+			pstmt.setString(paramIdx++, p_IsSOTrx ? "Y" : "N");
+			pstmt.setInt(paramIdx++, p_IsSOTrx ? DOCTYPE_CUSTOMER_RETURN : DOCTYPE_VENDOR_RETURN);
+			if (p_C_BPartner_ID > 0) {
+				pstmt.setInt(paramIdx++, p_C_BPartner_ID);
+			}
+			if (p_AD_Org_ID > 0) {
+				pstmt.setInt(paramIdx++, p_AD_Org_ID);
+			}
+
+			ResultSet rs = pstmt.executeQuery();
+			while (rs.next()) {
+				int bpartnerId = rs.getInt("C_BPartner_ID");
+				String bpartnerName = rs.getString("Name");
+				int orgId = rs.getInt("AD_Org_ID");
+				String key = bpartnerId + "_" + orgId;
+				if (!processedKeys.contains(key)) {
+					bpartnerOrgList.add(new int[] { bpartnerId, orgId });
+					bpartnerNames.add(bpartnerName);
+					processedKeys.add(key);
+				}
+			}
+			DB.close(rs, pstmt);
+
+			totalBPartners = bpartnerOrgList.size();
+			if (totalBPartners == 0) {
+				String msg = p_C_BPartner_ID > 0
+						? "业务伙伴(ID=" + p_C_BPartner_ID + ")在期间 " + p_ReconPeroid + " 没有符合条件的收发单明细"
+						: "期间 " + p_ReconPeroid + " 没有找到符合条件的收发单明细";
+				return new GenerateResult(msg, new ArrayList<>(logMessages));
+			}
+
+			// 处理每个(业务伙伴, 组织)对
+			for (int i = 0; i < bpartnerOrgList.size(); i++) {
+				int bpartnerId = bpartnerOrgList.get(i)[0];
+				int orgId = bpartnerOrgList.get(i)[1];
+				String bpartnerName = bpartnerNames.get(i);
+
+				try {
+					ProcessResult result = processSingleBPartner(bpartnerId, bpartnerName, p_ReconPeroid, orgId,
+							p_IsSOTrx);
+
+					if (result.isSuccess()) {
+						successBPartners++;
+						totalDocumentsCreated++;
+						totalLinesCreated += result.getLinesCreated();
+						String successMsg = result.getProcessMessage();
+						successMessages.add(successMsg);
+						addLog(0, null, null, successMsg);
+					} else {
+						errorBPartners++;
+						String errorMsg = result.getErrorMessage();
+						errorMessages.add(errorMsg);
+						addLog(0, null, null, errorMsg);
+					}
+
+				} catch (Exception e) {
+					errorBPartners++;
+					String errorMsg = "业务伙伴【" + bpartnerName + "】[组织:" + orgId + "]处理异常: " + e.getMessage();
+					errorMessages.add(errorMsg);
+					addLog(0, null, null, errorMsg);
+					log.log(Level.SEVERE, "处理业务伙伴异常: " + bpartnerName, e);
+				}
+			}
+
+			StringBuilder resultMsg = new StringBuilder();
+			resultMsg.append("<b>批量生成对账单完成！</b><br/>");
+			resultMsg.append("【统计信息】<br/>");
+			resultMsg.append("处理总数: ").append(totalBPartners).append(" 个<br/>");
+			resultMsg.append("成功处理: ").append(successBPartners).append(" 个<br/>");
+			resultMsg.append("跳过/失败: ").append(errorBPartners).append(" 个<br/>");
+			resultMsg.append("生成对账单: ").append(totalDocumentsCreated).append(" 个<br/>");
+			resultMsg.append("生成明细行数: ").append(totalLinesCreated).append(" 行<br/>");
+
+			return new GenerateResult(resultMsg.toString(), new ArrayList<>(logMessages));
+
+		} finally {
+			if (originalDisableRecentItems != null) {
+				Env.setContext(ctx, "#DisableRecentItems", originalDisableRecentItems);
+			} else {
+				Env.setContext(ctx, "#DisableRecentItems", "");
+			}
+		}
+	}
     
     /**
      * 创建对账单表头
@@ -532,7 +454,7 @@ public class ReconciliationGenerateService {
                 
                 if (lineCount > 0) {
                     // 6. 重新计算汇总
-                    calculateHeaderTotalsDirectly(reconId, bpartnerId, clientId, reconPeroid);
+                	calculateHeaderTotalsDirectly(reconId, bpartnerId, clientId, reconPeroid, orgId);
                     
                     // 7. 更新状态
                     String updateSql = "UPDATE C_Reconciliation SET DocStatus='DR' " +
@@ -590,25 +512,22 @@ public class ReconciliationGenerateService {
     /**
      * 获取期初余额
      */
-    private BigDecimal getBeginningBalance(int bpartnerId, int clientId, String reconPeroid) {
-        try {
-            String prevPeriod = getPreviousPeriod(reconPeroid);
-            if (prevPeriod == null) {
-                return BigDecimal.ZERO;
-            }
-            
-            String sql = "SELECT EndingBalance FROM C_Reconciliation " +
-                        "WHERE C_BPartner_ID=? AND ReconPeroid=? AND AD_Client_ID=? " +
-                        "AND DocStatus IN ('CO','CL') " +
-                        "ORDER BY Created DESC LIMIT 1";
-            
-            BigDecimal balance = DB.getSQLValueBD(trxName, sql, bpartnerId, prevPeriod, clientId);
-            return (balance != null) ? balance : BigDecimal.ZERO;
-        } catch (Exception e) {
-            log.warning("获取期初余额失败: " + e.getMessage());
-            return BigDecimal.ZERO;
-        }
-    }
+	private BigDecimal getBeginningBalance(int bpartnerId, int clientId, String reconPeroid, int orgId) {
+		try {
+			String prevPeriod = getPreviousPeriod(reconPeroid);
+			if (prevPeriod == null) {
+				return BigDecimal.ZERO;
+			}
+			String sql = "SELECT EndingBalance FROM C_Reconciliation "
+					+ "WHERE C_BPartner_ID=? AND ReconPeroid=? AND AD_Client_ID=? " + "AND AD_Org_ID=? "
+					+ "AND DocStatus IN ('CO','CL') " + "ORDER BY Created DESC LIMIT 1";
+			BigDecimal balance = DB.getSQLValueBD(trxName, sql, bpartnerId, prevPeriod, clientId, orgId);
+			return (balance != null) ? balance : BigDecimal.ZERO;
+		} catch (Exception e) {
+			log.warning("获取期初余额失败: " + e.getMessage());
+			return BigDecimal.ZERO;
+		}
+	}
     
     /**
      * 获取上一个期间
@@ -1226,36 +1145,28 @@ public class ReconciliationGenerateService {
     /**
      * 计算表头汇总
      */
-   
-    private void calculateHeaderTotalsDirectly(int reconId, int bpartnerId, int clientId, String reconPeroid) {
-        try {
-            String sumSql = "SELECT COALESCE(SUM(LineTotalAmt), 0), " +
-                           "COALESCE(SUM(MovementQty), 0) " +
-                           "FROM C_ReconciliationLine WHERE C_Reconciliation_ID=? AND AD_Client_ID=?";
-            
-            List<Object> sums = DB.getSQLValueObjectsEx(trxName, sumSql, reconId, clientId);
-            if (sums != null && sums.size() >= 2) {
-                BigDecimal totalAmt = (BigDecimal) sums.get(0);
-                BigDecimal totalQty = (BigDecimal) sums.get(1);
-                
-                BigDecimal beginningBalance = getBeginningBalance(bpartnerId, clientId, reconPeroid);
-                BigDecimal endingBalance = beginningBalance.add(totalAmt);
-                
-                String updateSql = "UPDATE C_Reconciliation SET " +
-                    "TotalReconAmt=?, TotalReconQty=?, " +
-                    "BeginningBalance=?, EndingBalance=? " +
-                    "WHERE C_Reconciliation_ID=? AND AD_Client_ID=?";
-                
-                DB.executeUpdate(updateSql, 
-                    new Object[] {totalAmt, totalQty, beginningBalance, endingBalance, reconId, clientId},
-                    false, trxName);
-                    
-                log.fine("计算汇总完成: 对账单ID=" + reconId + ", 总金额=" + totalAmt);
-            }
-        } catch (Exception e) {
-            log.warning("计算汇总失败, 对账单ID=" + reconId + ": " + e.getMessage());
-        }
-    }
+	private void calculateHeaderTotalsDirectly(int reconId, int bpartnerId, int clientId, String reconPeroid,
+			int orgId) {
+		try {
+			String sumSql = "SELECT COALESCE(SUM(LineTotalAmt), 0), " + "COALESCE(SUM(MovementQty), 0) "
+					+ "FROM C_ReconciliationLine WHERE C_Reconciliation_ID=? AND AD_Client_ID=?";
+			List<Object> sums = DB.getSQLValueObjectsEx(trxName, sumSql, reconId, clientId);
+			if (sums != null && sums.size() >= 2) {
+				BigDecimal totalAmt = (BigDecimal) sums.get(0);
+				BigDecimal totalQty = (BigDecimal) sums.get(1);
+				BigDecimal beginningBalance = getBeginningBalance(bpartnerId, clientId, reconPeroid, orgId);
+				BigDecimal endingBalance = beginningBalance.add(totalAmt);
+				String updateSql = "UPDATE C_Reconciliation SET " + "TotalReconAmt=?, TotalReconQty=?, "
+						+ "BeginningBalance=?, EndingBalance=? " + "WHERE C_Reconciliation_ID=? AND AD_Client_ID=?";
+				DB.executeUpdate(updateSql,
+						new Object[] { totalAmt, totalQty, beginningBalance, endingBalance, reconId, clientId }, false,
+						trxName);
+				log.fine("计算汇总完成: 对账单ID=" + reconId + ", 总金额=" + totalAmt);
+			}
+		} catch (Exception e) {
+			log.warning("计算汇总失败, 对账单ID=" + reconId + ": " + e.getMessage());
+		}
+	}
     
     // 辅助方法：安全地处理BigDecimal
     private BigDecimal getBigDecimal(ResultSet rs, String column) throws SQLException {

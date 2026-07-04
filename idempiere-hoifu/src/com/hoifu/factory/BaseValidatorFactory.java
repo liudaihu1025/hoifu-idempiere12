@@ -52,6 +52,7 @@ public class BaseValidatorFactory implements IModelValidatorFactory {
 		if ("com.hoifu.validator.PaymentLineValidator".equals(className)) {
 			return new PaymentLineValidator();
 		}
+
 		return null;
 	}
 }

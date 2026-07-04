@@ -93,7 +93,7 @@ public class InventoryLineValidator implements ModelValidator {
   
 					ProcessInfo info = MWorkflow.runDocumentActionWorkflow(inventory, DocAction.ACTION_Complete);  
 					if (info.isError()) {  
-						log.warning("自动完成库存单据失败: " + info.getSummary());  
+//						log.warning("自动完成库存单据失败: " + info.getSummary());  
 					} else {  
 						log.info("库存单据已自动完成: " + inventory.getDocumentNo());  
 					}  

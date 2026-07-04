@@ -5,11 +5,13 @@ import java.util.List;
 import org.adempiere.base.event.AbstractEventHandler;
 import org.adempiere.base.event.IEventManager;
 import org.adempiere.base.event.IEventTopics;
-import org.adempiere.exceptions.AdempiereException;
 import org.compiere.model.MAllocationHdr;
 import org.compiere.model.MInOut;
 import org.compiere.model.MInOutLine;
+import org.compiere.model.MOrder;
+import org.compiere.model.MOrderLine;
 import org.compiere.model.MProduct;
+import org.compiere.model.MRMA;
 import org.compiere.model.PO;
 import org.eevolution.model.I_PP_Order;
 import org.osgi.service.component.annotations.Component;
@@ -18,12 +20,15 @@ import org.osgi.service.component.annotations.ReferenceCardinality;
 import org.osgi.service.component.annotations.ReferencePolicy;
 import org.osgi.service.event.Event;
 
+import com.hoifu.event.processor.COrderEventProcessor;
+import com.hoifu.event.processor.COrderLineEventProcessor;
 import com.hoifu.event.processor.DefectSummaryEventProcessor;
 import com.hoifu.event.processor.IEventProcessor;
 import com.hoifu.event.processor.IPQCEventProcessor;
+import com.hoifu.event.processor.InOutLineEventProcessor;
 import com.hoifu.event.processor.ProductEventProcessor;
-import com.hoifu.event.processor.QCInOutEventProcessor;
-import com.hoifu.event.processor.QCInOutLineEventProcessor;
+import com.hoifu.event.processor.RMAProcessor;
+import com.hoifu.event.processor.InOutEventProcessor;
 import com.hoifu.event.processor.VoucherEventProcessor;
 import com.hoifu.model.qc.X_QC_DefectRecord;
 import com.hoifu.service.IGlVoucherService;
@@ -68,7 +73,7 @@ public class BaseEnventHandler extends AbstractEventHandler {
 		registerTableEvent(IEventTopics.PO_BEFORE_DELETE, MAllocationHdr.Table_Name);
 
 		// ===== 品质模块 =====
-		registerTableEvent(IEventTopics.PO_AFTER_NEW, MInOutLine.Table_Name);
+
 		registerTableEvent(IEventTopics.DOC_BEFORE_COMPLETE, MInOut.Table_Name);
 		registerTableEvent(IEventTopics.DOC_AFTER_PREPARE, I_PP_Order.Table_Name);
 		registerTableEvent(IEventTopics.DOC_BEFORE_COMPLETE, I_PP_Order.Table_Name);
@@ -81,14 +86,35 @@ public class BaseEnventHandler extends AbstractEventHandler {
 		registerTableEvent(IEventTopics.PO_BEFORE_CHANGE, MProduct.Table_Name);
 		registerTableEvent(IEventTopics.PO_AFTER_NEW, MProduct.Table_Name);  
 		registerTableEvent(IEventTopics.PO_AFTER_CHANGE, MProduct.Table_Name);
+		
+		// ===== 发货单 =====
+		registerTableEvent(IEventTopics.PO_AFTER_CHANGE, MInOut.Table_Name);
+		registerTableEvent(IEventTopics.PO_BEFORE_CHANGE, MInOut.Table_Name);
+		registerTableEvent(IEventTopics.PO_BEFORE_NEW, MInOut.Table_Name);
+		registerTableEvent(IEventTopics.PO_AFTER_NEW, MInOutLine.Table_Name);
+		registerTableEvent(IEventTopics.PO_BEFORE_NEW, MInOutLine.Table_Name);
+
+		// ===== 订单 =====
+		registerTableEvent(IEventTopics.PO_AFTER_CHANGE, MOrder.Table_Name);
+		registerTableEvent(IEventTopics.PO_BEFORE_NEW, MOrder.Table_Name);
+		registerTableEvent(IEventTopics.PO_BEFORE_NEW, MOrderLine.Table_Name);
+		registerTableEvent(IEventTopics.PO_BEFORE_CHANGE, MOrderLine.Table_Name);
+		
+		// ===== 退货授权单 =====
+		registerTableEvent(IEventTopics.PO_AFTER_CHANGE, MRMA.Table_Name);
+		
 		// ===== 初始化处理器链 =====
 		processors = List.of(
 				new VoucherEventProcessor(voucherService),
-				new QCInOutLineEventProcessor(iqcService, oqcService, rqcService),
-				new QCInOutEventProcessor(iqcService, oqcService, rqcService), 
+				new InOutLineEventProcessor(iqcService, oqcService, rqcService),
+				new InOutEventProcessor(iqcService, oqcService, rqcService), 
 				new IPQCEventProcessor(ipqcService),
 				new DefectSummaryEventProcessor(defectService),
-				new ProductEventProcessor());
+				new ProductEventProcessor(),
+				new COrderEventProcessor(),
+				new RMAProcessor(),
+				new COrderLineEventProcessor()
+				);
 	}
 
 	@Override

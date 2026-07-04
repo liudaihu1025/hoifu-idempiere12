@@ -47,17 +47,17 @@ public class ProductWindowValidator implements WindowValidator {
                 callback.onCallback(true);  
             return;  
         }  
-  
+
         // 校验产品所属组织，只有 Value="0213" 的组织才需要处理  
-        int orgId = (Integer) gridTab.getValue("AD_Org_ID");  
-        String orgValue = DB.getSQLValueString(null,  
-                "SELECT Value FROM AD_Org WHERE AD_Org_ID=?", orgId);  
-        if (!"0213".equals(orgValue)) {  
-            if (callback != null)  
-                callback.onCallback(true);  
-            return;  
-        }
-        
+//        int orgId = (Integer) gridTab.getValue("AD_Org_ID");  
+//        String orgValue = DB.getSQLValueString(null,  
+//                "SELECT Value FROM AD_Org WHERE AD_Org_ID=?", orgId);  
+//        if (!"0213".equals(orgValue)) {  
+//            if (callback != null)  
+//                callback.onCallback(true);  
+//            return;  
+//        }
+
         Object newValue = field.getValue();  
         
      // 从数据库加载，获取真实的旧值（而非 GridField 内存中的 oldValue）  

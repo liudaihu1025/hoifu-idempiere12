@@ -11,9 +11,12 @@ import org.osgi.service.component.annotations.Component;
 
 import com.hoifu.info.BillPoolInfoWindow;
 import com.hoifu.info.CInvoiceInfoWindow;
+import com.hoifu.info.COfficeRequisitionInfoWindow;
 import com.hoifu.info.CreateFromInOutInfoWindow;
+import com.hoifu.info.DYSamplingReviewInfoWindow;
 import com.hoifu.info.InfoOrderWindowWithTotal;
 import com.hoifu.info.InfoPurchaseLineWindow;
+import com.hoifu.info.MInOutLineInfoWindow;
 import com.hoifu.info.MInventoryInfoWindow;
 import com.hoifu.info.PPOrderInfoWindow;
 import com.hoifu.info.RVMTransactionDetailInfo;
@@ -64,8 +67,21 @@ public class BaseInfoWindowFactory implements IInfoFactory {
 			return new CInvoiceInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,
 					whereClause, AD_InfoWindow_ID, true, field, null);
 		}
+		if ("M_InOutLine".equals(tableName)) {
+			return new MInOutLineInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,
+					whereClause, AD_InfoWindow_ID, true, field, null);
+		}
 		if ("RV_M_Transaction_Detail".equals(tableName)) {
 			return new RVMTransactionDetailInfo(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,
+					whereClause, AD_InfoWindow_ID, true, field, null);
+		}
+		if ("C_OfficeRequisitionLine".equals(tableName)) {
+            return new COfficeRequisitionInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection, 
+            		whereClause, AD_InfoWindow_ID, true, field, null);
+        }
+		// 打样评审信息窗口
+		if ("dy_samplingreviewline".equals(tableName)) {
+			return new DYSamplingReviewInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,
 					whereClause, AD_InfoWindow_ID, true, field, null);
 		}
         return null;  
@@ -135,6 +151,14 @@ public class BaseInfoWindowFactory implements IInfoFactory {
 				return new CInvoiceInfoWindow(windowNo, tableName, keyColumn, null, true, null, AD_InfoWindow_ID,
 						false, null, predefinedContextVariables);
 			}
+			if ("M_InOutLine".equals(tableName)) {
+				MTable table = (MTable) infoWindow.getAD_Table();
+				String keyColumn = tableName + "_ID";
+				if (table.isUUIDKeyTable())
+					keyColumn = tableName + "_UU";
+				return new MInOutLineInfoWindow(windowNo, tableName, keyColumn, null, true, null, AD_InfoWindow_ID,
+						false, null, predefinedContextVariables);
+			}
 			if ("RV_M_Transaction_Detail".equals(tableName)) {
 				MTable table = (MTable) infoWindow.getAD_Table();
 				String keyColumn = tableName + "_ID";
@@ -148,6 +172,17 @@ public class BaseInfoWindowFactory implements IInfoFactory {
 				String keyColumn = tableName + "_ID"; // M_InOut_CreateFrom_v_ID
 				return new CreateFromInOutInfoWindow(windowNo, tableName, keyColumn, null, true, null, AD_InfoWindow_ID,
 						false, null, predefinedContextVariables);
+			}
+			if ("C_OfficeRequisitionLine".equals(tableName)) {
+				String keyColumn = tableName + "_ID";
+				return new COfficeRequisitionInfoWindow(windowNo, tableName, keyColumn, null, true, null,
+						AD_InfoWindow_ID, false, null, predefinedContextVariables);
+			}
+			// 打样评审信息窗口
+			if ("dy_samplingreviewline".equals(tableName)) {
+				String keyColumn = tableName + "_ID";
+				return new DYSamplingReviewInfoWindow(windowNo, tableName, keyColumn, null, true, null,
+						AD_InfoWindow_ID, false, null, predefinedContextVariables);
 			}
 
         }  
@@ -163,6 +198,10 @@ public class BaseInfoWindowFactory implements IInfoFactory {
         }  
         if ("M_InventoryLine".equals(tableName)) {  
             return new MInventoryInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,  
+                    AD_InfoWindow_ID, lookup, field, null);  
+        }  
+        if ("M_InOutLine".equals(tableName)) {  
+            return new MInOutLineInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,  
                     AD_InfoWindow_ID, lookup, field, null);  
         }  
         if ("RV_M_Product".equals(tableName)) {  
@@ -193,6 +232,15 @@ public class BaseInfoWindowFactory implements IInfoFactory {
 		// 新增：M_InOut_CreateFrom_v 信息窗口
 		if ("M_InOut_CreateFrom_v".equals(tableName)) {
 			return new CreateFromInOutInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,
+					AD_InfoWindow_ID, lookup, field, null);
+		}
+		if ("C_OfficeRequisitionLine".equals(tableName)) {
+			return new COfficeRequisitionInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,
+					AD_InfoWindow_ID, lookup, field, null);
+		}
+		// 打样评审信息窗口
+		if ("dy_samplingreviewline".equals(tableName)) {
+			return new DYSamplingReviewInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,
 					AD_InfoWindow_ID, lookup, field, null);
 		}
         return null;  

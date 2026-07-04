@@ -53,15 +53,15 @@ public class ProductValueCallout implements IColumnCallout {
 		if (categoryId != null) {
 			MProductCategory category = MProductCategory.get(ctx, categoryId);
 			if (category != null) {
-				String categoryValue = category.getValue();
-				if (categoryValue.startsWith(CATEGORY_ZZ)) {
-					mTab.setValue(MProduct.COLUMNNAME_Value, buildPaperProductCode(mTab, ctx));
-				} else {
-					if (mField.getColumnName().equals("M_Product_Category_ID")) {
-						// 其他分类使用默认编码规则：分类值 + 时间戳 + 随机数
-						mTab.setValue(MProduct.COLUMNNAME_Value, categoryValue + System.currentTimeMillis() % 10000 + ThreadLocalRandom.current().nextInt(1000, 10000));
-					}
-				}
+//				String categoryValue = category.getValue();
+//				if (categoryValue.startsWith(CATEGORY_ZZ)) {
+//					mTab.setValue(MProduct.COLUMNNAME_Value, buildPaperProductCode(mTab, ctx));
+//				} else {
+//					if (mField.getColumnName().equals("M_Product_Category_ID")) {
+//						// 其他分类使用默认编码规则：分类值 + 时间戳 + 随机数
+//						mTab.setValue(MProduct.COLUMNNAME_Value, categoryValue + System.currentTimeMillis() % 10000 + ThreadLocalRandom.current().nextInt(1000, 10000));
+//					}
+//				}
 				
 				mTab.setValue(MProduct.COLUMNNAME_Description, generateProductDescription(mTab, category, ctx));
 			}

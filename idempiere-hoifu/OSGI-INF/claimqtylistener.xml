@@ -4,5 +4,5 @@
     <service>  
         <provide interface="org.adempiere.webui.apps.IProcessParameterListener"/>  
     </service>  
-    <property name="ProcessClass" value="com.hoifu.process.OfficeRequisitionClaimStatusProcess"/>  
+    <property name="ProcessClass" value="com.hoifu.process.COfficeRequisitionClaimProcess"/>  
 </component>

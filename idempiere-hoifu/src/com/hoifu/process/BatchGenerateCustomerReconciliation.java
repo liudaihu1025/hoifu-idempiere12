@@ -31,9 +31,9 @@ public class BatchGenerateCustomerReconciliation extends SvrProcess{
         }  
           
         // 验证必填参数  
-        if (p_AD_Org_ID <= 0) {  
-            throw new AdempiereException("@AD_Org_ID@ @FillMandatory@");  
-        }  
+//        if (p_AD_Org_ID < 0) {  
+//            throw new AdempiereException("@AD_Org_ID@ @FillMandatory@");  
+//        }  
         if (p_ReconPeroid == null || p_ReconPeroid.length() != 6) {  
             throw new AdempiereException("@ReconPeroid@ @FillMandatory@");  
         }  

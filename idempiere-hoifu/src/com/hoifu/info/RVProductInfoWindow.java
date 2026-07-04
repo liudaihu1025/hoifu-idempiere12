@@ -1,16 +1,15 @@
 package com.hoifu.info;
 
+import java.util.Date;
+
 import org.adempiere.webui.apps.AEnv;
-import org.adempiere.webui.component.Button;
-import org.adempiere.webui.component.ConfirmPanel;
 import org.adempiere.webui.info.InfoWindow;
 import org.adempiere.webui.window.Dialog;
 import org.compiere.model.GridField;
 import org.compiere.model.MProduct;
 import org.compiere.model.MQuery;
-import org.zkoss.zk.ui.event.Event;
-import org.zkoss.zk.ui.event.EventListener;
-import org.zkoss.zk.ui.event.Events;
+import org.compiere.util.DisplayType;
+import org.compiere.util.Env;
 
 /**  
  * 时序库存信息窗口
@@ -61,5 +60,24 @@ public class RVProductInfoWindow extends InfoWindow {
         } else {  
             Dialog.error(getWindowNo(), "PleaseSelectRecord");  
         }  
-    }    
+    }   
+    
+	@Override
+	protected void executeQuery() {
+		// 1. 从 infoContext 读取用户输入的 Created（valueChange() 写入的）
+		String queryDate = Env.getContext(infoContext, p_WindowNo, "Created");
+
+		// 2. 未输入时，默认当前时间，并写入 infoContext 供 prepareTable() 的 Env.parseContext() 使用
+		if (queryDate == null || queryDate.isEmpty()) {
+			queryDate = DisplayType.getTimestampFormat_Default().format(new Date());
+			Env.setContext(infoContext, p_WindowNo, "Created", queryDate);
+		}
+
+		try {
+			super.executeQuery();
+		} finally {
+			// 3. 清除，避免影响其他逻辑
+			Env.setContext(infoContext, p_WindowNo, "Created", "");
+		}
+	}
 }

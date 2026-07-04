@@ -15,24 +15,26 @@ public class ProductProductCategoryCallout implements IColumnCallout {
   
 	 private static final int TARGET_WINDOW_ID = 1000001; // 产品资料 
 	 private static final String TARGET_WINDOW_NAME = "Product Finished Goods";  
+	 private static final String TARGET_WINDOW_UUID = "a939f56d-2fac-4d31-9580-650c9db31864"; 
     @Override  
     public String start(Properties ctx, int WindowNo, GridTab mTab,  
             GridField mField, Object value, Object oldValue) {  
   
-        String windowName = DB.getSQLValueString(null,  
-                "SELECT Name FROM AD_Window WHERE AD_Window_ID=?",  
-                mTab.getAD_Window_ID());
-        
-    	if (mTab.getAD_Window_ID() != TARGET_WINDOW_ID && !TARGET_WINDOW_NAME.equals(windowName)) {  
-            return null;  
-        } 
-    	
+    	if (mTab.getAD_Window_ID() != TARGET_WINDOW_ID) {  
+    	    String uuid = DB.getSQLValueString(null,  
+    	            "SELECT AD_Window_UU FROM AD_Window WHERE AD_Window_ID=?",  
+    	            mTab.getAD_Window_ID());  
+    	    if (!TARGET_WINDOW_UUID.equals(uuid)) {  
+    	        return null;  
+    	    }  
+    	} 
+
         if (value == null) {  
             return null;  
         }  
-  
+
         int orgId = (Integer) value;  
-  
+
         // 查询当前组织的 Value  
         String orgValue = DB.getSQLValueString(null,  
                 "SELECT Value FROM AD_Org WHERE AD_Org_ID=?", orgId);  
@@ -70,6 +72,19 @@ public class ProductProductCategoryCallout implements IColumnCallout {
         //纸箱时，模默认为1
         mTab.setValue("Imposition", BigDecimal.ONE);
   
+        // 清空尺寸字段  
+        mTab.setValue("Length", null);  
+        mTab.setValue("Width",  null);  
+        mTab.setValue("Height", null);  
+          
+        // 查询 X12DE355='ge' 对应的 C_UOM_ID  
+        int uomId = DB.getSQLValue(null,  
+                "SELECT C_UOM_ID FROM C_UOM WHERE X12DE355=? AND AD_Client_ID=? AND IsActive='Y'",  
+                "ge", clientId);  
+        if (uomId > 0) {  
+            mTab.setValue("C_UOM_ID", uomId);  
+        }
+        
         return null;  
     }  
 }
