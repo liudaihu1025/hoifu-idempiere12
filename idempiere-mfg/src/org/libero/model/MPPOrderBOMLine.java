@@ -15,6 +15,7 @@ import java.util.Properties;
 
 import org.adempiere.exceptions.AdempiereException;
 import org.adempiere.exceptions.DBException;
+import org.compiere.model.MDocType;
 import org.compiere.model.MLocator;
 import org.compiere.model.MProduct;
 import org.compiere.model.MStorageOnHand;
@@ -28,6 +29,7 @@ import org.eevolution.model.MPPProductBOMLine;
 import org.libero.tables.I_PP_Cost_Collector;
 import org.libero.tables.X_PP_Cost_Collector;
 import org.libero.tables.X_PP_Order_BOMLine;
+import org.zkoss.zk.ui.Executions;
 /**
  * PP Order BOM Line Model.
  *  
@@ -119,58 +121,75 @@ public class MPPOrderBOMLine extends X_PP_Order_BOMLine
 	private BigDecimal m_qtyRequieredPhantom = null;
 	
 	@Override
-	protected boolean beforeSave(boolean newRecord)
-	{
-		// Victor Perez: The best practice in this case you do should change the component you need
-		// adding a new line in Order BOM Line with new component so do not is right
-		// delete or change a component because this information is use to calculate
-		// the variances cost ( https://sourceforge.net/tracker/?func=detail&atid=934929&aid=2724579&group_id=176962 )
-		if (!isActive())
-		{
-			throw new AdempiereException("De-Activating an BOM Line is not allowed"); // TODO: translate 
-		}
-		if (!newRecord && is_ValueChanged(COLUMNNAME_M_Product_ID))
-		{
-			throw new AdempiereException("Changing Product is not allowed"); // TODO: translate 
-		}
-		
-		//	Get Line No
-		if (getLine() == 0)
-		{
-			String sql = "SELECT COALESCE(MAX("+COLUMNNAME_Line+"),0)+10 FROM "+Table_Name
-							+" WHERE "+COLUMNNAME_PP_Order_ID+"=?";
-			int ii = DB.getSQLValueEx (get_TrxName(), sql, getPP_Order_ID());
-			setLine (ii);
+	protected boolean beforeSave(boolean newRecord) {
+		boolean isFromUI = Executions.getCurrent() != null;
+
+		if (isFromUI) {
+			MPPOrder order = getParent();
+			if (order != null) {
+				if (isSpecialOrder(order)) {
+					if (isLockedForSpecialOrder(order)) {
+						// throw new AdempiereException("当前工单状态不允许修改BOM子件");
+					}
+				} else {
+					String orderStatus = order.get_ValueAsString("OrderStatus");
+					if (!"Ready".equals(orderStatus)) {
+						// throw new AdempiereException("普通工单只有待发布状态才允许新增或修改BOM子件");
+					}
+					if (!isActive()) {
+						// throw new AdempiereException("De-Activating an BOM Line is not allowed");
+					}
+					if (!newRecord && is_ValueChanged(COLUMNNAME_M_Product_ID)) {
+						throw new AdempiereException("Changing Product is not allowed");
+					}
+				}
+			} else {
+				if (!isActive()) {
+					throw new AdempiereException("De-Activating an BOM Line is not allowed");
+				}
+				if (!newRecord && is_ValueChanged(COLUMNNAME_M_Product_ID)) {
+					throw new AdempiereException("Changing Product is not allowed");
+				}
+			}
 		}
 
-		// If Phantom, we need to explode this line (see afterSave):
-		if(newRecord && COMPONENTTYPE_Phantom.equals(getComponentType()))
-		{
+		// 自动填充 PP_Order_BOM_ID（保留，不受 isFromUI 限制）
+		if (newRecord && getPP_Order_BOM_ID() == 0 && getPP_Order_ID() > 0) {
+			final String sql = "SELECT PP_Order_BOM_ID FROM PP_Order_BOM WHERE PP_Order_ID=? AND IsActive='Y' FETCH FIRST 1 ROWS ONLY";
+			int bomId = DB.getSQLValueEx(get_TrxName(), sql, getPP_Order_ID());
+			if (bomId > 0) {
+				setPP_Order_BOM_ID(bomId);
+			}
+		}
+
+		// 以下原有逻辑保持不变
+		if (getLine() == 0) {
+			String sql = "SELECT COALESCE(MAX(" + COLUMNNAME_Line + "),0)+10 FROM " + Table_Name + " WHERE "
+					+ COLUMNNAME_PP_Order_ID + "=?";
+			int ii = DB.getSQLValueEx(get_TrxName(), sql, getPP_Order_ID());
+			setLine(ii);
+		}
+
+		if (newRecord && COMPONENTTYPE_Phantom.equals(getComponentType())) {
 			m_qtyRequieredPhantom = getQtyRequiered();
 			m_isExplodePhantom = true;
 			setQtyRequiered(Env.ZERO);
 		}
-		
-		if (newRecord
-				|| is_ValueChanged(COLUMNNAME_C_UOM_ID)
-				|| is_ValueChanged(COLUMNNAME_QtyEntered)
-				|| is_ValueChanged(COLUMNNAME_QtyRequiered)
-			)
-		{
+
+		if (newRecord || is_ValueChanged(COLUMNNAME_C_UOM_ID) || is_ValueChanged(COLUMNNAME_QtyEntered)
+				|| is_ValueChanged(COLUMNNAME_QtyRequiered)) {
 			int precision = MUOM.getPrecision(getCtx(), getC_UOM_ID());
 			setQtyEntered(getQtyEntered().setScale(precision, RoundingMode.UP));
 			setQtyRequiered(getQtyRequiered().setScale(precision, RoundingMode.UP));
 		}
-		
-		if( is_ValueChanged(MPPOrderBOMLine.COLUMNNAME_QtyDelivered)
-				|| is_ValueChanged(MPPOrderBOMLine.COLUMNNAME_QtyRequiered))
-		{	
+
+		if (is_ValueChanged(MPPOrderBOMLine.COLUMNNAME_QtyDelivered)
+				|| is_ValueChanged(MPPOrderBOMLine.COLUMNNAME_QtyRequiered)) {
 			reserveStock();
 		}
-		
+
 		return true;
 	}
-
 	@Override
 	protected boolean afterSave(boolean newRecord, boolean success)
 	{
@@ -181,9 +200,25 @@ public class MPPOrderBOMLine extends X_PP_Order_BOMLine
 	}
 	
 	@Override
-	protected boolean beforeDelete()
-	{
-		// Release Reservation
+	protected boolean beforeDelete() {
+		MPPOrder order = getParent();
+
+		if (order != null) {
+			if (isSpecialOrder(order)) {
+				// 研发/打样工单：Completed/Shipped/Stored 状态下不允许删除
+				if (isLockedForSpecialOrder(order)) {
+					// throw new AdempiereException("当前工单状态不允许删除BOM子件");
+				}
+			} else {
+				// 普通工单：只有 Ready 状态才允许删除
+				String orderStatus = order.get_ValueAsString("OrderStatus");
+				if (!"Ready".equals(orderStatus)) {
+					// throw new AdempiereException("普通工单只有已发布状态才允许删除BOM子件");
+				}
+			}
+		}
+
+		// 原有逻辑：释放库存预留
 		setQtyRequiered(Env.ZERO);
 		reserveStock();
 		return true;
@@ -267,6 +302,21 @@ public class MPPOrderBOMLine extends X_PP_Order_BOMLine
 		return m_parent;
 	}	//	getParent
 	
+	private boolean isSpecialOrder(MPPOrder order) {
+		if (order == null || order.getC_DocTypeTarget_ID() <= 0)
+			return false;
+		MDocType docType = MDocType.get(getCtx(), order.getC_DocTypeTarget_ID());
+		if (docType == null)
+			return false;
+		String name = docType.getName();
+		return name != null && (name.contains("研发") || name.contains("打样"));
+	}
+
+	private boolean isLockedForSpecialOrder(MPPOrder order) {
+		String orderStatus = order.get_ValueAsString("OrderStatus");
+		return "Completed".equals(orderStatus) || "Shipped".equals(orderStatus) || "Stored".equals(orderStatus);
+	}
+
 	/**
 	 * @return UOM precision
 	 */

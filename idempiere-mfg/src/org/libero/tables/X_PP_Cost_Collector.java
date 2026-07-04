@@ -279,6 +279,10 @@ public class X_PP_Cost_Collector extends PO implements I_PP_Cost_Collector, I_Pe
 	public static final String COSTCOLLECTORTYPE_MixVariance = "150";
 	/** Activity Control = 160 */
 	public static final String COSTCOLLECTORTYPE_ActivityControl = "160";
+	/**
+	 * 非生产报工
+	 */
+	public static final String COSTCOLLECTORTYPE_NonProduction = "161";
 	/** Set Cost Collector Type.
 		@param CostCollectorType 
 		Transaction Type for Manufacturing Management
@@ -1106,53 +1110,74 @@ public class X_PP_Cost_Collector extends PO implements I_PP_Cost_Collector, I_Pe
 			 return 0;
 		return ii.intValue();
 	}
-	/** Set Start Date.  
-    @param datestart Start Date  
-  */  
-public void setDateStart (Timestamp datestart)  
-{  
-    set_Value (COLUMNNAME_datestart, datestart);  
-}  
-  
-/** Get Start Date.  
-    @return Start Date  
-  */  
-public Timestamp getDateStart()  
-{  
-    return (Timestamp)get_Value(COLUMNNAME_datestart);  
-}  
-  
-/** Set Finish Date.  
-    @param datefinish Finish Date  
-  */  
-public void setDateFinish (Timestamp datefinish)  
-{  
-    set_Value (COLUMNNAME_datefinish, datefinish);  
-}  
-  
-/** Get Finish Date.  
-    @return Finish Date  
-  */  
-public Timestamp getDateFinish()  
-{  
-    return (Timestamp)get_Value(COLUMNNAME_datefinish);  
-}
-/** Set PP_Material_Requisition_ID */  
-public void setPP_Material_Requisition_ID(int PP_Material_Requisition_ID) 
-{  
-    if (PP_Material_Requisition_ID < 1) 
- 
-        set_Value(COLUMNNAME_PP_Material_Requisition_ID, null);  
 
-    else  
-        set_Value(COLUMNNAME_PP_Material_Requisition_ID, Integer.valueOf(PP_Material_Requisition_ID));  
-}  
-  
-/** Get PP_Material_Requisition_ID */  
-public int getPP_Material_Requisition_ID() 
-{  
-    Integer ii = (Integer) get_Value(COLUMNNAME_PP_Material_Requisition_ID);  
-    return ii == null ? 0
- : ii.intValue();  
-}
+	/**
+	 * Set Start Date.
+	 * 
+	 * @param datestart Start Date
+	 */
+	public void setDateStart(Timestamp datestart) {
+		set_Value(COLUMNNAME_datestart, datestart);
+	}
+
+	/**
+	 * Get Start Date.
+	 * 
+	 * @return Start Date
+	 */
+	public Timestamp getDateStart() {
+		return (Timestamp) get_Value(COLUMNNAME_datestart);
+	}
+
+	/**
+	 * Set Finish Date.
+	 * 
+	 * @param datefinish Finish Date
+	 */
+	public void setDateFinish(Timestamp datefinish) {
+		set_Value(COLUMNNAME_datefinish, datefinish);
+	}
+
+	/**
+	 * Get Finish Date.
+	 * 
+	 * @return Finish Date
+	 */
+	public Timestamp getDateFinish() {
+		return (Timestamp) get_Value(COLUMNNAME_datefinish);
+	}
+
+	/** Set PP_Material_Requisition_ID */
+	public void setPP_Material_Requisition_ID(int PP_Material_Requisition_ID) {
+		if (PP_Material_Requisition_ID < 1)
+
+			set_Value(COLUMNNAME_PP_Material_Requisition_ID, null);
+
+		else
+			set_Value(COLUMNNAME_PP_Material_Requisition_ID, Integer.valueOf(PP_Material_Requisition_ID));
+	}
+
+	/** Get PP_Material_Requisition_ID */
+	public int getPP_Material_Requisition_ID() {
+		Integer ii = (Integer) get_Value(COLUMNNAME_PP_Material_Requisition_ID);
+		return ii == null ? 0 : ii.intValue();
+	}
+
+	@Override
+	public void setIsSubstitute(boolean IsSubstitute) {
+		set_Value(COLUMNNAME_IsSubstitute, Boolean.valueOf(IsSubstitute));
+
+	}
+
+	@Override
+	public boolean getIsSubstitute() {
+		Object oo = get_Value(COLUMNNAME_IsSubstitute);
+		if (oo != null) {
+			if (oo instanceof Boolean)
+				return ((Boolean) oo).booleanValue();
+			return "Y".equals(oo);
+		}
+		return false;
+	}
+
 }

@@ -27,14 +27,17 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Vector;
 
 import org.adempiere.exceptions.AdempiereException;
+import org.adempiere.util.ProcessUtil;
 import org.adempiere.webui.apps.AEnv;
 import org.adempiere.webui.component.Button;
 import org.adempiere.webui.component.Combobox;
 import org.adempiere.webui.component.Grid;
 import org.adempiere.webui.component.GridFactory;
 import org.adempiere.webui.component.Label;
+import org.adempiere.webui.component.ListModelTable;
 import org.adempiere.webui.component.ListboxFactory;
 import org.adempiere.webui.component.Panel;
 import org.adempiere.webui.component.ProcessInfoDialog;
@@ -63,15 +66,21 @@ import org.compiere.model.GridField;
 import org.compiere.model.GridFieldVO;
 import org.compiere.model.MColumn;
 import org.compiere.model.MDocType;
+import org.compiere.model.MInventory;
+import org.compiere.model.MInventoryLine;
 import org.compiere.model.MLocator;
 import org.compiere.model.MLocatorLookup;
 import org.compiere.model.MLookup;
 import org.compiere.model.MLookupFactory;
 import org.compiere.model.MProduct;
+import org.compiere.model.MStorageOnHand;
+import org.compiere.model.MStorageReservation;
 import org.compiere.model.MSysConfig;
 import org.compiere.model.MTab;
+import org.compiere.model.MUOM;
 import org.compiere.model.MWindow;
 import org.compiere.model.Query;
+import org.compiere.process.ProcessInfo;
 import org.compiere.util.CLogger;
 import org.compiere.util.DB;
 import org.compiere.util.DisplayType;
@@ -81,6 +90,8 @@ import org.compiere.util.Language;
 import org.compiere.util.Msg;
 import org.compiere.util.Trx;
 import org.compiere.util.TrxRunnable;
+import org.compiere.wf.MWFProcess;
+import org.compiere.wf.MWorkflow;
 import org.eevolution.model.I_PP_Order_BOMLine;
 import org.libero.model.MPPOrder;
 import org.libero.model.MPPOrderBOM;
@@ -100,7 +111,6 @@ import org.zkoss.zul.South;
 import org.zkoss.zul.Tabpanel;
 import org.zkoss.zul.Tabpanels;
 import org.zkoss.zul.Window;
-
 /**
  *  @author Cristina Ghita, www.arhipac.ro
  *  @author Adi Takacs, www.arhipac.ro
@@ -200,6 +210,8 @@ ValueChangeListener,Serializable,WTableModelListener
 	private Button deleteMaterialButton = new Button("删除物料");
 	private Button cancelButton = new Button("取消");
 	private Button viewOrderButton = new Button("查看工单");
+	private Button refreshButton = new Button("刷新");
+	private Button generalIssueButton = new Button("通用物料领用");
 
 	/**
 	 *	Initialize Panel
@@ -416,7 +428,7 @@ ValueChangeListener,Serializable,WTableModelListener
 		fulfilledFilterCombo.appendItem("全部", null);
 		fulfilledFilterCombo.appendItem("是", "Y");
 		fulfilledFilterCombo.appendItem("否", "N");
-		fulfilledFilterCombo.setSelectedIndex(2);
+		fulfilledFilterCombo.setSelectedIndex(0);
 		fulfilledFilterCombo.addEventListener(Events.ON_CHANGE, this);
 
 		// ↓↓↓ 修改 PanelBottom 布局 ↓↓↓
@@ -470,6 +482,10 @@ ValueChangeListener,Serializable,WTableModelListener
 		viewOrderButton.setEnabled(false); // 初始置灰
 		viewOrderButton.addEventListener(Events.ON_CLICK, this);
 		leftDiv.appendChild(viewOrderButton);
+		refreshButton.addEventListener(Events.ON_CLICK, this);
+		leftDiv.appendChild(refreshButton);
+		generalIssueButton.addEventListener(Events.ON_CLICK, this);
+		leftDiv.appendChild(generalIssueButton);
 
 		// 中列：占位（保持对称）
 		Div centerDiv = new Div();
@@ -835,6 +851,12 @@ ValueChangeListener,Serializable,WTableModelListener
 			// 直接用 Table_ID + Record_ID，内部自动处理 ZoomTableName/ZoomColumnName
 			AEnv.zoom(I_PP_Order_BOMLine.Table_ID, selectedBOMLineId);
 		}
+		if (e.getTarget().equals(refreshButton)) {
+			executeQuery();
+		}
+		if (e.getTarget().equals(generalIssueButton)) {
+			onGeneralIssue();
+		}
 	}
 	
 	
@@ -845,7 +867,7 @@ ValueChangeListener,Serializable,WTableModelListener
 	private void reloadOrderData(int orderId) {
 	    try {
 	        // 1. 保存当前选中的工序
-	        Integer selectedNodeId = getAD_WF_Node_ID();
+			Integer selectedNodeId = getPP_Order_Node_ID();
 	        
 	        // 2. 重新加载工单基本信息
 	        MPPOrder pp_order = new MPPOrder(Env.getCtx(), orderId, null);
@@ -865,8 +887,8 @@ ValueChangeListener,Serializable,WTableModelListener
 	            setOrder_UOM_ID(pp_order.getC_UOM_ID());
 	            
 	            // 3. 重新加载工序下拉框数据
-	            int workflowId = pp_order.getAD_Workflow_ID();
-	            loadNodeComboData(workflowId);
+				int ppOrderId = pp_order.get_ID();
+				loadNodeComboData(ppOrderId);
 	            
 	            // 4. 恢复之前选中的工序
 	            if (selectedNodeId != null && selectedNodeId > 0) {
@@ -888,6 +910,8 @@ ValueChangeListener,Serializable,WTableModelListener
 	            // 5. 重新查询并加载物料表格数据
 	            executeQuery();
 	            
+				updateMaterialButtonsVisibility();
+
 	            log.info("工单数据已重新加载，工单ID: " + orderId);
 	        }
 	    } catch (Exception ex) {
@@ -950,28 +974,29 @@ ValueChangeListener,Serializable,WTableModelListener
 	/**
 	 * 加载工序下拉框数据
 	 * 
-	 * @param workflowId 工艺路线ID
+	 * @param ppOrderId 工单ID
 	 */
-	private void loadNodeComboData(int workflowId) {
+	private void loadNodeComboData(int ppOrderId) {
 		// 清空当前选项
 		nodeCombo.getItems().clear();
 		
-		if (workflowId <= 0) {
+		if (ppOrderId <= 0) {
 			// 添加工序为空的选项
 			nodeCombo.appendItem("请选择工序", null);
 			nodeCombo.setSelectedIndex(0);
 			return;
 		}
 		
-		// 查询该工艺路线的所有工序
-		String sql = "SELECT AD_WF_Node_ID, Name FROM AD_WF_Node WHERE AD_Workflow_ID = ? AND IsActive='Y' ORDER BY value";
 		
+		// 查询该工单的所有工序节点
+		String sql = "SELECT PP_Order_Node_ID, Name FROM PP_Order_Node WHERE PP_Order_ID = ? AND IsActive='Y' ORDER BY Value";
+
 		PreparedStatement pstmt = null;
 		ResultSet rs = null;
 		
 		try {
 			pstmt = DB.prepareStatement(sql, null);
-			pstmt.setInt(1, workflowId);
+			pstmt.setInt(1, ppOrderId);
 			rs = pstmt.executeQuery();
 			
 			// 添加工序为空的选项
@@ -979,7 +1004,7 @@ ValueChangeListener,Serializable,WTableModelListener
 			
 			boolean hasData = false;
 			while (rs.next()) {
-				int nodeId = rs.getInt("AD_WF_Node_ID");
+				int nodeId = rs.getInt("PP_Order_Node_ID");
 				String nodeName = rs.getString("Name");
 				if (nodeName == null) {
 					nodeName = "Unnamed";
@@ -1018,6 +1043,7 @@ ValueChangeListener,Serializable,WTableModelListener
 			// 如果工序为空，清空机台字段
 //			resourceField.setValue(null);\
 			resourceCombo.setSelectedIndex(0);
+			executeQuery();
 			return;
 		}
 		
@@ -1026,7 +1052,8 @@ ValueChangeListener,Serializable,WTableModelListener
 			Integer nodeId = (Integer) nodeObj;
 			if (nodeId > 0) {
 				// 根据工序ID获取机台信息 - 使用 DB.getSQLValue
-				String sql = "SELECT S_Resource_ID FROM AD_WF_Node WHERE AD_WF_Node_ID = ?";
+				// String sql = "SELECT S_Resource_ID FROM AD_WF_Node WHERE AD_WF_Node_ID = ?";
+				String sql = "SELECT S_Resource_ID FROM PP_Order_Node WHERE PP_Order_Node_ID = ?";
 				int resourceId = DB.getSQLValue(null, sql, nodeId);
 				
 				if (resourceId > 0) {
@@ -1044,6 +1071,7 @@ ValueChangeListener,Serializable,WTableModelListener
 				}
 			}
 		}
+		executeQuery();
 	}
 	
 	public void enableToDeliver()
@@ -1082,8 +1110,15 @@ ValueChangeListener,Serializable,WTableModelListener
 		setFulfilledFilter(filterValue); // 传给基类
 		// ↑↑↑ 新增结束 ↑↑↑
 		
+		// ↓ 新增：工序过滤
+		setNodeFilter(getPP_Order_Node_ID());
+
 		// 重新执行查询
 		super.executeQuery(issue);
+
+		// 新增：替代料规则应用
+		this.applySubstituteRules();
+
 		issue.repaint();
 		
 		// 确保表格正确显示
@@ -1150,11 +1185,11 @@ ValueChangeListener,Serializable,WTableModelListener
 					}
 				}
 
-				// 获取工单的工艺路线ID
-				int workflowId = pp_order.getAD_Workflow_ID();
+				// 改为获取工单的工艺路线，获取工单id
+				int ppOrderId = pp_order.get_ID();
 
 				// 加载工序下拉框数据
-				loadNodeComboData(workflowId);
+				loadNodeComboData(ppOrderId);
 				loadResourceComboData();
 				setS_Resource_ID(pp_order.getS_Resource_ID());
 				setM_Warehouse_ID(pp_order.getM_Warehouse_ID());
@@ -1185,6 +1220,9 @@ ValueChangeListener,Serializable,WTableModelListener
 				toDeliverQty.setValue(Env.ZERO);
 				scrapQtyField.setValue(Env.ZERO);
 				rejectQty.setValue(Env.ZERO);
+
+				// 根据单据类型控制新增/删除物料按钮显隐
+				updateMaterialButtonsVisibility();
 			}
 		} // PP_Order_ID
 
@@ -1467,7 +1505,7 @@ ValueChangeListener,Serializable,WTableModelListener
 	    }    
 	    
 	    // 获取工序和机台ID
-	    int nodeId = getAD_WF_Node_ID();
+		int nodeId = getPP_Order_Node_ID();
 	    int resourceId = getS_Resource_ID();
 	    
 	    // 记录选择的工序和机台
@@ -1634,9 +1672,9 @@ ValueChangeListener,Serializable,WTableModelListener
 	 * 从工序下拉框获取选择的工序ID
 	 * 这个值会被传递到生成的生产发料单的"工单工序"字段
 	 * 
-	 * @return 工序ID (AD_WF_Node_ID)
+	 * @return 工序ID (PP_Order_Node_ID)
 	 */
-	protected int getAD_WF_Node_ID() {
+	protected int getPP_Order_Node_ID() {
 	    if (nodeCombo.getSelectedItem() != null && nodeCombo.getSelectedItem().getValue() != null) {
 	        Object value = nodeCombo.getSelectedItem().getValue();
 	        if (value instanceof Integer) {
@@ -1704,7 +1742,12 @@ ValueChangeListener,Serializable,WTableModelListener
 
 			if ("生产领料".equals(selectedType)) {
 				// 领料：最大值 = min(向上取整的最大值 - 已领数量, 库存数量)
-				BigDecimal calculatedQty = calculateIssueQty(requiredQty, deliveredQty, unitsPerPack);
+				BigDecimal n = calculateIssueQty(requiredQty, deliveredQty, unitsPerPack);
+				// 新上限 = min(N + 最小包装数量, 库存数量)
+				BigDecimal safeUnitsPerPack = (unitsPerPack == null || unitsPerPack.compareTo(Env.ZERO) <= 0)
+						? BigDecimal.ONE
+						: unitsPerPack;
+				BigDecimal nPlusOnePack = n.add(safeUnitsPerPack);
 
 				// 检查库存数量 - 内联获取逻辑
 				BigDecimal stockQty = Env.ZERO;
@@ -1719,8 +1762,16 @@ ValueChangeListener,Serializable,WTableModelListener
 				} catch (Exception e) {
 					log.warning("获取库存数量出错: " + e.getMessage());
 				}
-				maxQty = calculatedQty.compareTo(stockQty) > 0 ? stockQty : calculatedQty;
-
+				maxQty = nPlusOnePack.compareTo(stockQty) > 0 ? stockQty : nPlusOnePack;
+				// 新下限：输入值必须 > 0
+				if (inputValue.compareTo(Env.ZERO) <= 0) {
+					BigDecimal restoreValue = n.compareTo(stockQty) > 0 ? stockQty : n;
+					isRestoringValue = true;
+					issue.setValueAt(restoreValue, row, column);
+					isRestoringValue = false;
+					log.info("领退数量必须大于0，已恢复为: " + restoreValue);
+					return;
+				}
 			} else if ("生产退料".equals(selectedType)) {
 				// 退料：最大值 = min(已领数量, 向上取整的最大值)
 				maxQty = deliveredQty;
@@ -1838,114 +1889,303 @@ ValueChangeListener,Serializable,WTableModelListener
 			return;
 		}
 
-		// 创建弹窗
-		Window dialog = new Window();
-		dialog.setTitle("新增物料");
-		dialog.setWidth("500px");
-		dialog.setBorder("normal");
-		dialog.setClosable(true);
-		dialog.setSizable(true);
+		// 已选物料数据：[productId(Integer), productValue(String), productName(String),
+		// uomName(String), qty(BigDecimal)]
+		final List<Object[]> selectedProducts = new ArrayList<Object[]>();
 
-		// 创建产品搜索字段（会自动关联 AD_InfoWindow_ID=200000）
-		MLookup productLookup = MLookupFactory.get(Env.getCtx(), m_WindowNo, 0,
-				MColumn.getColumn_ID(MProduct.Table_Name, MProduct.COLUMNNAME_M_Product_ID), DisplayType.Search);
-		WSearchEditor productSearchField = new WSearchEditor(MProduct.COLUMNNAME_M_Product_ID, false, false, true,
-				productLookup);
+		final Window outerDialog = new Window();
+		outerDialog.setTitle("新增物料");
+		outerDialog.setWidth("720px");
+		outerDialog.setHeight("480px");
+		outerDialog.setBorder("normal");
+		outerDialog.setClosable(true);
+		outerDialog.setSizable(true);
 
-		// 布局
-		Grid grid = GridFactory.newGridLayout();
-		Rows rows = grid.newRows();
-		Row row = rows.newRow();
-		row.appendChild(new Label("物料").rightAlign());
-		row.appendChild(productSearchField.getComponent());
+		// 顶部工具栏：+ 和 - 按钮（靠右）
+		Hbox toolbar = new Hbox();
+		toolbar.setWidth("100%");
+		toolbar.setStyle("padding:4px; text-align:right; background:#f5f5f5; border-bottom:1px solid #ddd");
+		toolbar.setPack("end");
+		final Button addBtn = new Button("+");
+		final Button removeBtn = new Button("-");
+		addBtn.setTooltiptext("从物料列表中选择物料");
+		removeBtn.setTooltiptext("删除选中的物料");
+		toolbar.appendChild(addBtn);
+		toolbar.appendChild(removeBtn);
 
-		// 按钮
-		Button confirmBtn = new Button("确认");
+		// 外层物料列表
+		final WListbox outerTable = new WListbox();
+		outerTable.setWidth("100%");
+		outerTable.setHeight("330px");
+		outerTable.setMultiSelection(true);
+		outerTable.setMultiple(true); // 开启多选
+		// outerTable.setCheckmark(true); // 显示复选框（可选，但更直观）
+
+		// 初始化空表格
+		refreshOuterTable(outerTable, selectedProducts);
+
+		// 底部按钮
+		Hbox bottomBar = new Hbox();
+		bottomBar.setWidth("100%");
+		bottomBar.setStyle("padding:5px; text-align:right");
+		bottomBar.setPack("end");
 		Button cancelBtn = new Button("取消");
-		Panel btnPanel = new Panel();
-		btnPanel.setStyle("text-align:center; padding:5px");
-		btnPanel.appendChild(confirmBtn);
-		btnPanel.appendChild(cancelBtn);
+		Button confirmBtn = new Button("确定");
+		bottomBar.appendChild(cancelBtn);
+		bottomBar.appendChild(confirmBtn);
 
-		dialog.appendChild(grid);
-		dialog.appendChild(btnPanel);
+		// 整体布局
+		org.zkoss.zul.Vlayout vlayout = new org.zkoss.zul.Vlayout();
+		vlayout.setWidth("100%");
+		vlayout.appendChild(toolbar);
+		vlayout.appendChild(outerTable);
+		vlayout.appendChild(bottomBar);
+		outerDialog.appendChild(vlayout);
 
-		confirmBtn.addEventListener(Events.ON_CLICK, new EventListener<Event>() {
+		// + 按钮：直接打开物料信息窗口（InfoPanel），选完自动填入外层列表
+		addBtn.addEventListener(Events.ON_CLICK, new EventListener<Event>() {
 			public void onEvent(Event e) throws Exception {
-				Integer productId = (Integer) productSearchField.getValue();
-				if (productId != null && productId > 0) {
-					dialog.detach();
-					addProductToOrderBOM(productId);
-				} else {
-					Messagebox.show("请选择物料", "提示", Messagebox.OK, Messagebox.INFORMATION);
-				}
+				// 设置仓库上下文，InfoProductPanel 需要用来显示库存
+				Env.setContext(Env.getCtx(), m_WindowNo, "M_Warehouse_ID", getM_Warehouse_ID());
+
+				MLookup productLookup = MLookupFactory.get(Env.getCtx(), m_WindowNo, 0,
+						MColumn.getColumn_ID(MProduct.Table_Name, MProduct.COLUMNNAME_M_Product_ID),
+						DisplayType.ChosenMultipleSelectionSearch);
+
+				final org.adempiere.webui.panel.InfoPanel ip = org.adempiere.webui.factory.InfoManager
+						.create(productLookup, null, "M_Product", "M_Product_ID", null, true, "");
+				if (ip == null)
+					return;
+
+				ip.setVisible(true);
+				ip.setClosable(true);
+				ip.addEventListener(org.adempiere.webui.event.DialogEvents.ON_WINDOW_CLOSE, new EventListener<Event>() {
+					public void onEvent(Event event) throws Exception {
+						if (ip.isCancelled())
+							return;
+						Object[] keys = ip.getSelectedKeys();
+						if (keys == null || keys.length == 0)
+							return;
+
+						java.util.Set<Integer> existingIds = new java.util.HashSet<Integer>();
+						for (Object[] p : selectedProducts) {
+							existingIds.add((Integer) p[0]);
+						}
+
+						int added = 0;
+						for (Object key : keys) {
+							if (key == null)
+								continue;
+							int productId;
+							try {
+								productId = Integer.parseInt(key.toString());
+							} catch (NumberFormatException ex) {
+								continue;
+							}
+							if (existingIds.contains(productId))
+								continue;
+
+							MProduct product = MProduct.get(Env.getCtx(), productId);
+							if (product == null)
+								continue;
+							org.compiere.model.MUOM uom = org.compiere.model.MUOM.get(Env.getCtx(),
+									product.getC_UOM_ID());
+							String uomName = uom != null ? uom.getName() : "";
+
+							selectedProducts.add(new Object[] { productId, product.getValue(), product.getName(),
+									uomName, BigDecimal.ONE });
+							existingIds.add(productId);
+							added++;
+						}
+
+						if (added > 0) {
+							refreshOuterTable(outerTable, selectedProducts);
+						}
+					}
+				});
+				ip.setId("InfoProduct_" + m_WindowNo);
+				org.adempiere.webui.apps.AEnv.showWindow(ip);
 			}
 		});
 
+		// - 按钮：删除勾选行（从后往前删，避免索引错位）
+		removeBtn.addEventListener(Events.ON_CLICK, new EventListener<Event>() {
+			public void onEvent(Event e) throws Exception {
+				List<Integer> toRemove = new ArrayList<Integer>();
+				for (int i = 0; i < outerTable.getRowCount(); i++) {
+					IDColumn idCol = (IDColumn) outerTable.getValueAt(i, 0);
+					if (idCol != null && idCol.isSelected()) {
+						toRemove.add(0, i); // 倒序插入
+					}
+				}
+				if (toRemove.isEmpty()) {
+					Messagebox.show("请先勾选要删除的物料", "提示", Messagebox.OK, Messagebox.INFORMATION);
+					return;
+				}
+				for (int idx : toRemove) {
+					selectedProducts.remove(idx);
+				}
+				refreshOuterTable(outerTable, selectedProducts);
+			}
+		});
+
+		// 取消
 		cancelBtn.addEventListener(Events.ON_CLICK, new EventListener<Event>() {
 			public void onEvent(Event e) throws Exception {
-				dialog.detach();
+				outerDialog.detach();
 			}
 		});
 
-		dialog.setPage(form.getPage());
-		dialog.doModal();
+		// 确定：读取表格中最新的领用数量，批量添加到BOM
+		confirmBtn.addEventListener(Events.ON_CLICK, new EventListener<Event>() {
+			public void onEvent(Event e) throws Exception {
+				if (outerTable.getRowCount() == 0) {
+					Messagebox.show("请先添加物料", "提示", Messagebox.OK, Messagebox.INFORMATION);
+					return;
+				}
+				final List<Object[]> finalProducts = new ArrayList<Object[]>();
+				for (int i = 0; i < outerTable.getRowCount(); i++) {
+					IDColumn idCol = (IDColumn) outerTable.getValueAt(i, 0);
+					if (idCol == null)
+						continue;
+					int productId = idCol.getRecord_ID();
+					Object qtyObj = outerTable.getValueAt(i, 5);
+					BigDecimal qty = BigDecimal.ONE;
+					if (qtyObj instanceof BigDecimal) {
+						qty = (BigDecimal) qtyObj;
+					} else if (qtyObj != null) {
+						try {
+							qty = new BigDecimal(qtyObj.toString());
+						} catch (Exception ex) {
+							/* ignore */
+						}
+					}
+					if (qty.compareTo(Env.ZERO) <= 0)
+						qty = BigDecimal.ONE;
+					finalProducts.add(new Object[] { productId, qty });
+				}
+				outerDialog.detach();
+				addProductsToOrderBOM(finalProducts);
+			}
+		});
+
+		outerDialog.setPage(form.getPage());
+		outerDialog.doModal();
 	}
 
-	private void addProductToOrderBOM(int productId) {
+	private void refreshOuterTable(WListbox outerTable, List<Object[]> selectedProducts) {
+		Vector<String> colNames = new Vector<String>();
+		colNames.add(" ");
+		colNames.add("序号");
+		colNames.add("物料编码");
+		colNames.add("物料名称");
+		colNames.add("单位");
+		colNames.add("领用数量");
+
+		Vector<Vector<Object>> data = new Vector<Vector<Object>>();
+		for (int i = 0; i < selectedProducts.size(); i++) {
+			Object[] p = selectedProducts.get(i);
+			Vector<Object> row = new Vector<Object>();
+			IDColumn idCol = new IDColumn((Integer) p[0]);
+			idCol.setSelected(false);
+			row.add(idCol);
+			row.add(i + 1);
+			row.add(p[1]);
+			row.add(p[2]);
+			row.add(p[3]);
+			row.add(p[4]);
+			data.add(row);
+		}
+
+		ListModelTable model = new ListModelTable(data);
+		outerTable.setData(model, colNames);
+		outerTable.setColumnClass(0, IDColumn.class, false, " ");
+		outerTable.setColumnClass(1, Integer.class, true, "序号");
+		outerTable.setColumnClass(2, String.class, true, "物料编码");
+		outerTable.setColumnClass(3, String.class, true, "物料名称");
+		outerTable.setColumnClass(4, String.class, true, "单位");
+		outerTable.setColumnClass(5, BigDecimal.class, false, "领用数量");
+		outerTable.autoSize();
+
+		// ★ 关键：setData 内部 setModel 会重置 multiple，必须在 setData 之后重新设置
+		outerTable.setMultiple(true);
+	}
+
+
+	
+
+	private void addProductsToOrderBOM(final List<Object[]> products) {
 		try {
-			MPPOrder order = getPP_Order();
+			final MPPOrder order = getPP_Order();
 			if (order == null)
 				return;
 
-			// 1. 防止重复添加
-			MPPOrderBOMLine existing = MPPOrderBOMLine.forM_Product_ID(Env.getCtx(), order.get_ID(), productId, null);
-			if (existing != null) {
-				Messagebox.show("该物料已存在于工单BOM中，无法重复添加", "提示", Messagebox.OK, Messagebox.INFORMATION);
-				return;
-			}
-
-			// 2. 获取工单对应的 PP_Order_BOM_ID
-			MPPOrderBOM orderBOM = new Query(Env.getCtx(), MPPOrderBOM.Table_Name, "PP_Order_ID=?", null)
+			final MPPOrderBOM orderBOM = new Query(Env.getCtx(), MPPOrderBOM.Table_Name, "PP_Order_ID=?", null)
 					.setParameters(order.get_ID()).first();
 			if (orderBOM == null) {
 				Messagebox.show("未找到工单对应的BOM，无法新增物料", "错误", Messagebox.OK, Messagebox.ERROR);
 				return;
 			}
 
-			// 3. 获取物料信息
-			MProduct product = MProduct.get(Env.getCtx(), productId);
-			if (product == null)
-				return;
+			final List<String> skipped = new ArrayList<String>();
+			final List<String> added = new ArrayList<String>();
 
-			// 4. 创建新的 MPPOrderBOMLine
 			Trx.run(new TrxRunnable() {
 				public void run(String trxName) {
-					MPPOrderBOMLine newLine = new MPPOrderBOMLine(Env.getCtx(), 0, trxName);
-					newLine.setAD_Org_ID(order.getAD_Org_ID());
-					newLine.setPP_Order_ID(order.get_ID());
-					newLine.setPP_Order_BOM_ID(orderBOM.get_ID());
-					newLine.setM_Product_ID(productId);
-					newLine.setC_UOM_ID(product.getC_UOM_ID());
-					newLine.setM_Warehouse_ID(order.getM_Warehouse_ID());
-					newLine.setQtyBatch(Env.ZERO);
-					newLine.setIsQtyPercentage(false);
-					newLine.setQtyBOM(BigDecimal.ONE); // BOM数量默认1
-					// ComponentType 默认空（不设置，使用默认值）
-					// 用工单数量 × BOM数量(1) 计算需求数量
-					newLine.setComponentType(MPPOrderBOMLine.COMPONENTTYPE_Component);
-					newLine.setQtyPlusScrap(order.getQtyOrdered());
-					newLine.setValidFrom(new Timestamp(System.currentTimeMillis()));
-					newLine.saveEx(trxName);
+					for (Object[] p : products) {
+						int productId = (Integer) p[0];
+						BigDecimal qty = (BigDecimal) p[1];
+
+						// 防止重复添加
+						MPPOrderBOMLine existing = MPPOrderBOMLine.forM_Product_ID(Env.getCtx(), order.get_ID(),
+								productId, trxName);
+						if (existing != null) {
+							MProduct prod = MProduct.get(Env.getCtx(), productId);
+							skipped.add(prod != null ? prod.getValue() : String.valueOf(productId));
+							continue;
+						}
+
+						MProduct product = MProduct.get(Env.getCtx(), productId);
+						if (product == null)
+							continue;
+
+						MPPOrderBOMLine newLine = new MPPOrderBOMLine(Env.getCtx(), 0, trxName);
+						newLine.setAD_Org_ID(order.getAD_Org_ID());
+						newLine.setPP_Order_ID(order.get_ID());
+						newLine.setPP_Order_BOM_ID(orderBOM.get_ID());
+						newLine.setM_Product_ID(productId);
+						newLine.setC_UOM_ID(product.getC_UOM_ID());
+						newLine.setM_Warehouse_ID(order.getM_Warehouse_ID());
+						newLine.setQtyBatch(Env.ZERO);
+						newLine.setIsQtyPercentage(false);
+						newLine.setQtyBOM(qty);
+						newLine.setComponentType(MPPOrderBOMLine.COMPONENTTYPE_Component);
+						newLine.setQtyPlusScrap(order.getQtyOrdered().multiply(qty));
+						newLine.setValidFrom(new Timestamp(System.currentTimeMillis()));
+						newLine.saveEx(trxName);
+
+						added.add(product.getValue());
+					}
 				}
 			});
 
-			// 5. 刷新物料表格
-			Messagebox.show("物料已成功添加到工单BOM", "成功", Messagebox.OK, Messagebox.INFORMATION);
-			executeQuery(); // 刷新领退料窗口的物料列表
+			StringBuilder msg = new StringBuilder();
+			if (!added.isEmpty()) {
+				msg.append("已成功添加 ").append(added.size()).append(" 个物料：").append(String.join(", ", added));
+			}
+			if (!skipped.isEmpty()) {
+				if (msg.length() > 0)
+					msg.append("\n");
+				msg.append("以下物料已存在，跳过：").append(String.join(", ", skipped));
+			}
+			if (msg.length() == 0)
+				msg.append("无物料被添加");
+
+			Messagebox.show(msg.toString(), "结果", Messagebox.OK, Messagebox.INFORMATION);
+			executeQuery(); // 刷新主表格
 
 		} catch (Exception ex) {
-			log.severe("新增物料到工单BOM失败: " + ex.getMessage());
+			log.severe("批量新增物料到工单BOM失败: " + ex.getMessage());
 			Messagebox.show("新增物料失败: " + ex.getMessage(), "错误", Messagebox.OK, Messagebox.ERROR);
 		}
 	}
@@ -1975,5 +2215,735 @@ ValueChangeListener,Serializable,WTableModelListener
 			Messagebox.show("删除物料失败: " + ex.getMessage(), "错误", Messagebox.OK, Messagebox.ERROR);
 		}
 	}
+
 	
+	// ==================== 替代料相关方法 ====================
+	
+	/**
+	 * 对表格中每行物料应用替代料规则： - 查询该主料的有效替代规则（SubstituteStatus='A'=已审批，在有效期内） -
+	 * 根据替代方式（S=替代料优先/M=主料优先）决定是否替换 - 按优先级遍历替代料，过滤省份限制，找第一条有库存的替代料 -
+	 * 修改表格中的物料和库存相关数量
+	 */
+	private void applySubstituteRules() {
+		int warehouseId = getM_Warehouse_ID();
+		if (warehouseId <= 0)
+			return;
+
+		Timestamp today = new Timestamp(System.currentTimeMillis());
+		int regionId = getRegionByWarehouse(warehouseId);
+
+		isRestoringValue = true;
+		try {
+			for (int row = 0; row < issue.getRowCount(); row++) {
+				Object productObj = issue.getValueAt(row, 2);
+				if (!(productObj instanceof KeyNamePair))
+					continue;
+				KeyNamePair productKey = (KeyNamePair) productObj;
+				int mainProductId = productKey.getKey();
+				if (mainProductId <= 0)
+					continue;
+
+				SubstituteResult result = resolveSubstitute(mainProductId, warehouseId, regionId, today);
+				if (result == null)
+					continue; // 1.无替代料，2.主料优先且主料有库存，3.替代料优先 但是替代料无库存或被省份限制日期范围限制，以上三种情况不替代
+
+				MProduct subProduct = MProduct.get(Env.getCtx(), result.substituteProductId);
+				MProduct mainProduct = MProduct.get(Env.getCtx(), mainProductId);
+
+				// 列1：物料编码
+				issue.setValueAt(subProduct.getValue(), row, 1);
+
+				// 列2：产品 KeyNamePair（createIssue 从此列读取产品ID）
+				issue.setValueAt(new KeyNamePair(result.substituteProductId, subProduct.getName()), row, 2);
+
+				// 列3：单位（替代料单位可能与主料不同）
+				int subUomId = subProduct.getC_UOM_ID();
+				MUOM subUom = MUOM.get(Env.getCtx(), subUomId);
+				String uomName = subUom != null ? subUom.getName() : "";
+				issue.setValueAt(new KeyNamePair(subUomId, uomName), row, 3);
+
+				// 列4：批次/ASI 清空（替代料批次与主料不同，让用户在发料时重新选择）
+				issue.setValueAt(null, row, 4);
+
+				// 列5：需求数量（替代比例≠1时按比例调整）
+				BigDecimal origRequired = convertToBigDecimal(issue.getValueAt(row, 5));
+				BigDecimal newRequired = origRequired.multiply(result.ratio);
+				issue.setValueAt(newRequired, row, 5);
+
+				// 列6：已领数量 — 不改（属于BOM行的历史记录）
+
+				// 列7：领退数量（替代比例≠1时按比例调整）
+				BigDecimal origToDeliver = convertToBigDecimal(issue.getValueAt(row, 7));
+				BigDecimal newToDeliver = origToDeliver.multiply(result.ratio);
+				issue.setValueAt(newToDeliver, row, 7);
+
+				// 列8：库存数量（替代料在当前仓库的库存）
+				BigDecimal subOnHand = MStorageOnHand.getQtyOnHand(result.substituteProductId, warehouseId, 0, null);
+				issue.setValueAt(subOnHand, row, 8);
+
+				// 列9：预留数量（替代料在当前仓库的预留数量）
+				// isSOTrx=false 表示查询采购/生产侧预留
+				MStorageReservation reservation = MStorageReservation.get(Env.getCtx(), warehouseId,
+						result.substituteProductId, 0, false, null);
+				BigDecimal subReserved = (reservation != null) ? reservation.getQty() : BigDecimal.ZERO;
+				if (subReserved == null)
+					subReserved = BigDecimal.ZERO;
+				issue.setValueAt(subReserved, row, 9);
+
+				// 列10：可用数量 = 库存 - 预留
+				BigDecimal subAvailable = subOnHand.subtract(subReserved);
+				issue.setValueAt(subAvailable, row, 10);
+
+				// 列11：仓库 — 不改（仓库不变）
+
+				// 列12：BOM数量 — 不改（BOM定义的数量不变）
+
+				// 列13：主料信息（新增列，显示被替代的主料）
+				issue.setValueAt(mainProduct.getValue() + " - " + mainProduct.getName(), row, 13);
+
+				log.info("替代料应用: 主料[" + mainProduct.getValue() + "] → 替代料[" + subProduct.getValue() + "] 比例="
+						+ result.ratio);
+			}
+		} finally {
+			isRestoringValue = false;
+		}
+	}
+
+	/**
+	 * 替代料解析核心逻辑
+	 * 
+	 * @return SubstituteResult（找到替代料时），null（使用主料时）
+	 */
+	private SubstituteResult resolveSubstitute(int mainProductId, int warehouseId, int regionId, Timestamp today) {
+
+		// 先按优先级，再按最早入库日期 FIFO
+		String sql = "SELECT s.Substitute_ID, s.SubstituteRatio, earliest.EarliestDate FROM M_Substitute s "
+				+ "LEFT JOIN ( " + "    SELECT oh.M_Product_ID, MIN(oh.DateMaterialPolicy) AS EarliestDate "
+				+ "    FROM M_StorageOnHand oh  JOIN M_Locator loc ON oh.M_Locator_ID = loc.M_Locator_ID "
+				+ "    WHERE loc.M_Warehouse_ID = ?   AND oh.QtyOnHand > 0  GROUP BY oh.M_Product_ID "
+				+ ") earliest ON earliest.M_Product_ID = s.Substitute_ID WHERE s.M_Product_ID=? "
+				+ "  AND s.SubstituteStatus='A'  AND (s.ValidFrom IS NULL OR s.ValidFrom <= ?) "
+				+ "  AND (s.ValidTo IS NULL OR s.ValidTo > ?)  AND s.IsActive='Y'  AND s.AD_Client_ID=? "
+				+ "ORDER BY s.Priority NULLS LAST, earliest.EarliestDate ASC NULLS LAST";
+
+		List<Object[]> substitutes = new ArrayList<>();
+		java.sql.PreparedStatement pstmt = null;
+		java.sql.ResultSet rs = null;
+		try {
+			pstmt = DB.prepareStatement(sql, null);
+			pstmt.setInt(1, warehouseId); // LEFT JOIN 子查询中的 M_Warehouse_ID
+			pstmt.setInt(2, mainProductId); // WHERE s.M_Product_ID=?
+			pstmt.setTimestamp(3, today); // ValidFrom <= ?
+			pstmt.setTimestamp(4, today); // ValidTo > ?
+			pstmt.setInt(5, Env.getAD_Client_ID(Env.getCtx())); // AD_Client_ID
+			rs = pstmt.executeQuery();
+			while (rs.next()) {
+				substitutes.add(new Object[] { rs.getInt(1), // Substitute_ID
+						rs.getBigDecimal(2) // SubstituteRatio
+				});
+			}
+		} catch (Exception e) {
+			log.severe("查询替代料失败: " + e.getMessage());
+			return null;
+		} finally {
+			DB.close(rs, pstmt);
+		}
+
+		if (substitutes.isEmpty())
+			return null;
+
+		// 获取替代方式
+		MProduct mainProduct = MProduct.get(Env.getCtx(), mainProductId);
+		String substituteType = (String) mainProduct.get_Value("SubstituteType");
+		if (substituteType == null || substituteType.isEmpty())
+			substituteType = "S"; // 默认替代料优先
+
+		// 主料优先：主料有库存则直接使用主料，不替换
+		if ("M".equals(substituteType)) {
+			BigDecimal mainOnHand = MStorageOnHand.getQtyOnHand(mainProductId, warehouseId, 0, null);
+			if (mainOnHand.compareTo(BigDecimal.ZERO) > 0) {
+				return null;
+			}
+		}
+
+		// 按优先级遍历替代料，找第一条有库存且不在省份限制范围内的
+		for (Object[] sub : substitutes) {
+			int subProductId = (Integer) sub[0];
+
+			// 检查省份限制（在限制范围内则跳过该替代料）
+			if (regionId > 0 && isRegionRestricted(regionId, today)) {
+				log.info("替代料[" + subProductId + "]因省份限制被过滤");
+				continue;
+			}
+
+			BigDecimal subOnHand = MStorageOnHand.getQtyOnHand(subProductId, warehouseId, 0, null);
+			if (subOnHand.compareTo(BigDecimal.ZERO) > 0) {
+				SubstituteResult result = new SubstituteResult();
+				result.substituteProductId = subProductId;
+				// 从查询结果中取替代比例（sub[1] = SubstituteRatio）
+				BigDecimal ratio = (BigDecimal) sub[1];
+				result.ratio = (ratio != null && ratio.compareTo(BigDecimal.ZERO) > 0) ? ratio : BigDecimal.ONE;
+				return result;
+			}
+		}
+
+		return null; // 无可用替代料，回退到主料
+	}
+
+	/**
+	 * 检查省份是否在限制替代日期范围内 在范围内（restrictFrom <= today < restrictTo）则不可替代，返回 true
+	 */
+	private boolean isRegionRestricted(int regionId, Timestamp today) {
+		String sql = "SELECT SubstituteRestrictFrom, SubstituteRestrictTo " + "FROM C_Region WHERE C_Region_ID=?";
+		java.sql.PreparedStatement pstmt = null;
+		java.sql.ResultSet rs = null;
+		try {
+			pstmt = DB.prepareStatement(sql, null);
+			pstmt.setInt(1, regionId);
+			rs = pstmt.executeQuery();
+			if (rs.next()) {
+				Timestamp from = rs.getTimestamp(1);
+				Timestamp to = rs.getTimestamp(2);
+				if (from != null && to != null) {
+					return !today.before(from) && today.before(to);
+				}
+			}
+		} catch (Exception e) {
+			log.severe("查询省份限制失败: " + e.getMessage());
+		} finally {
+			DB.close(rs, pstmt);
+		}
+		return false;
+	}
+
+	/**
+	 * 通过仓库ID获取省份ID（C_Region_ID） 路径：M_Warehouse → C_Location → C_Region
+	 */
+	private int getRegionByWarehouse(int warehouseId) {
+		String sql = "SELECT l.C_Region_ID " + "FROM M_Warehouse w "
+				+ "JOIN C_Location l ON l.C_Location_ID = w.C_Location_ID " + "WHERE w.M_Warehouse_ID=?";
+		int regionId = DB.getSQLValue(null, sql, warehouseId);
+		return regionId > 0 ? regionId : 0;
+	}
+
+	/**
+	 * 替代料解析结果
+	 * @ClassName: SubstituteResult
+	 * @author ldh
+	 * @date 2026年6月2日
+	 */
+	private static class SubstituteResult {
+		int substituteProductId;
+	    BigDecimal ratio = BigDecimal.ONE; // 替代比例，默认1:1
+	}
+	
+	// 判断当前工单是否为"生产工单"类型
+	private boolean isStandardProductionOrder() {
+		MPPOrder order = getPP_Order();
+		if (order == null)
+			return false;
+		return order.getC_DocTypeTarget_ID() == 1000740;
+	}
+
+	// 添加按钮显隐控制方法
+	private void updateMaterialButtonsVisibility() {
+		boolean hide = isStandardProductionOrder();
+		addMaterialButton.setVisible(!hide);
+		deleteMaterialButton.setVisible(!hide);
+	}
+
+	/**
+	 * 通用物料领用入口 不依赖工单，直接打开物料信息窗口（过滤YL_原材料大类，排除YL01/YL02/YL04/YL05）
+	 */
+	private void onGeneralIssue() {
+		final List<Object[]> selectedProducts = new ArrayList<Object[]>();
+
+		final Window outerDialog = new Window();
+		outerDialog.setTitle("通用物料领用");
+		outerDialog.setWidth("720px");
+		outerDialog.setHeight("480px");
+		outerDialog.setBorder("normal");
+		outerDialog.setClosable(true);
+		outerDialog.setSizable(true);
+
+		Hbox toolbar = new Hbox();
+		toolbar.setWidth("100%");
+		toolbar.setStyle("padding:4px; text-align:right; background:#f5f5f5; border-bottom:1px solid #ddd");
+		toolbar.setPack("end");
+		final Button addBtn = new Button("+");
+		final Button removeBtn = new Button("-");
+		addBtn.setTooltiptext("从物料列表中选择物料");
+		removeBtn.setTooltiptext("删除选中的物料");
+		toolbar.appendChild(addBtn);
+		toolbar.appendChild(removeBtn);
+
+		final WListbox outerTable = new WListbox();
+		outerTable.setWidth("100%");
+		outerTable.setHeight("330px");
+		outerTable.setMultiSelection(true);
+		outerTable.setMultiple(true);   
+		// outerTable.setCheckmark(true);
+		refreshOuterTable(outerTable, selectedProducts);
+
+		Hbox bottomBar = new Hbox();
+		bottomBar.setWidth("100%");
+		bottomBar.setStyle("padding:5px; text-align:right");
+		bottomBar.setPack("end");
+		Button cancelBtn = new Button("取消");
+		Button confirmBtn = new Button("确定");
+		bottomBar.appendChild(confirmBtn);
+		bottomBar.appendChild(cancelBtn);
+
+
+		org.zkoss.zul.Vlayout vlayout = new org.zkoss.zul.Vlayout();
+		vlayout.setWidth("100%");
+		vlayout.appendChild(toolbar);
+		vlayout.appendChild(outerTable);
+		vlayout.appendChild(bottomBar);
+		outerDialog.appendChild(vlayout);
+
+		// + 按钮：直接打开物料信息窗口，带物料组过滤
+		addBtn.addEventListener(Events.ON_CLICK, new EventListener<Event>() {
+			public void onEvent(Event e) throws Exception {
+				int clientId = Env.getAD_Client_ID(Env.getCtx());
+				int warehouseId = getDefaultWarehouseId();
+				Env.setContext(Env.getCtx(), m_WindowNo, "M_Warehouse_ID", warehouseId);
+
+				// 1. 查出 Value='CP' 的成品大类 ID，用于排除
+				int cpId = DB.getSQLValue(null, "SELECT M_Product_Category_ID FROM M_Product_Category "
+						+ "WHERE Value='CP' AND IsActive='Y' AND AD_Client_ID=" + clientId);
+
+				// 2. 查出需要排除的 L2 子类 ID（YL01/YL02/YL04/YL05）
+				StringBuilder excludeIds = new StringBuilder();
+				java.sql.PreparedStatement pstmt = null;
+				java.sql.ResultSet rs = null;
+				try {
+					pstmt = DB.prepareStatement("SELECT M_Product_Category_ID FROM M_Product_Category "
+							+ "WHERE Value IN ('YL01','YL02','YL04','YL05') " + "AND IsActive='Y' AND AD_Client_ID="
+							+ clientId, null);
+					rs = pstmt.executeQuery();
+					while (rs.next()) {
+						if (excludeIds.length() > 0)
+							excludeIds.append(",");
+						excludeIds.append(rs.getInt(1));
+					}
+				} catch (Exception ex) {
+					log.severe("查询排除物料组失败: " + ex.getMessage());
+				} finally {
+					DB.close(rs, pstmt);
+				}
+
+				// 3. 构建产品列表的 whereClause ★ 修改此处
+				StringBuilder whereClause = new StringBuilder();
+
+				// ★ 排除成品大类（CP）的物料
+				if (cpId > 0) {
+					whereClause.append("(p.M_Product_Category_ID_L1 IS NULL OR p.M_Product_Category_ID_L1 <> ")
+							.append(cpId).append(")");
+				}
+
+				// 排除 L2 子类（YL01/YL02/YL04/YL05）
+				if (excludeIds.length() > 0) {
+					if (whereClause.length() > 0)
+						whereClause.append(" AND ");
+					whereClause.append("(p.M_Product_Category_ID_L2 IS NULL OR p.M_Product_Category_ID_L2 NOT IN (")
+							.append(excludeIds).append("))");
+				}
+
+				MLookup productLookup = MLookupFactory.get(Env.getCtx(), m_WindowNo, 0,
+						MColumn.getColumn_ID(MProduct.Table_Name, MProduct.COLUMNNAME_M_Product_ID),
+						DisplayType.ChosenMultipleSelectionSearch);
+
+				final org.adempiere.webui.panel.InfoPanel ip = org.adempiere.webui.factory.InfoManager
+						.create(productLookup, null, "M_Product", "M_Product_ID", null, true, whereClause.toString());
+				if (ip == null)
+					return;
+
+				// 反射操作：限制 L2 下拉 + 排除 L1 中的 CP 大类
+				if (ip instanceof org.adempiere.webui.info.InfoWindow) {
+					try {
+						java.lang.reflect.Field editorsField = org.adempiere.webui.info.InfoWindow.class
+								.getDeclaredField("editors");
+						editorsField.setAccessible(true);
+						@SuppressWarnings("unchecked")
+						java.util.List<org.adempiere.webui.editor.WEditor> editorList = (java.util.List<org.adempiere.webui.editor.WEditor>) editorsField
+								.get(ip);
+
+						if (editorList != null) {
+							// 第一步：修改 L2 的 ValidationCode，排除 YL01/YL02/YL04/YL05
+							if (excludeIds.length() > 0) {
+								for (org.adempiere.webui.editor.WEditor editor : editorList) {
+									if (editor.getGridField() != null && "M_Product_Category_ID_L2"
+											.equals(editor.getGridField().getColumnName())) {
+										if (editor instanceof org.adempiere.webui.editor.WTableDirEditor) {
+											org.compiere.model.Lookup lkp = ((org.adempiere.webui.editor.WTableDirEditor) editor)
+													.getLookup();
+											if (lkp instanceof org.compiere.model.MLookup) {
+												org.compiere.model.MLookupInfo info = ((org.compiere.model.MLookup) lkp)
+														.getLookupInfo();
+												String excludeClause = "M_Product_Category.M_Product_Category_ID NOT IN ("
+														+ excludeIds + ")";
+												String existing = info.ValidationCode != null
+														? info.ValidationCode.trim()
+														: "";
+												info.ValidationCode = existing.length() > 0
+														? existing + " AND " + excludeClause
+														: excludeClause;
+												info.IsValidated = false;
+											}
+										}
+										break;
+									}
+								}
+							}
+
+							// 第二步：修改 L1 的 ValidationCode，排除 CP 大类
+							if (cpId > 0) {
+								for (org.adempiere.webui.editor.WEditor editor : editorList) {
+									if (editor.getGridField() != null && "M_Product_Category_ID_L1"
+											.equals(editor.getGridField().getColumnName())) {
+										if (editor instanceof org.adempiere.webui.editor.WTableDirEditor) {
+											org.adempiere.webui.editor.WTableDirEditor l1TableDir = (org.adempiere.webui.editor.WTableDirEditor) editor;
+											org.compiere.model.Lookup lkp = l1TableDir.getLookup();
+											if (lkp instanceof org.compiere.model.MLookup) {
+												org.compiere.model.MLookupInfo info = ((org.compiere.model.MLookup) lkp)
+														.getLookupInfo();
+												String excludeClause = "M_Product_Category.M_Product_Category_ID <> "
+														+ cpId;
+												String existing = info.ValidationCode != null
+														? info.ValidationCode.trim()
+														: "";
+												info.ValidationCode = existing.length() > 0
+														? existing + " AND " + excludeClause
+														: excludeClause;
+												info.IsValidated = false;
+												// 立即刷新 L1 下拉列表，使新 ValidationCode 生效
+												l1TableDir.actionRefresh();
+											}
+										}
+										break;
+									}
+								}
+							}
+						}
+					} catch (Exception ex) {
+						log.warning("设置物料组默认值失败: " + ex.getMessage());
+					}
+				}
+
+				ip.setVisible(true);
+				ip.setClosable(true);
+				ip.addEventListener(org.adempiere.webui.event.DialogEvents.ON_WINDOW_CLOSE, new EventListener<Event>() {
+					public void onEvent(Event event) throws Exception {
+						if (ip.isCancelled())
+							return;
+						Object[] keys = ip.getSelectedKeys();
+						if (keys == null || keys.length == 0)
+							return;
+
+						java.util.Set<Integer> existingIds = new java.util.HashSet<Integer>();
+						for (Object[] p : selectedProducts) {
+							existingIds.add((Integer) p[0]);
+						}
+
+						int added = 0;
+						for (Object key : keys) {
+							if (key == null)
+								continue;
+							int productId;
+							try {
+								productId = Integer.parseInt(key.toString());
+							} catch (NumberFormatException ex) {
+								continue;
+							}
+							if (existingIds.contains(productId))
+								continue;
+
+							MProduct product = MProduct.get(Env.getCtx(), productId);
+							if (product == null)
+								continue;
+							org.compiere.model.MUOM uom = org.compiere.model.MUOM.get(Env.getCtx(),
+									product.getC_UOM_ID());
+							String uomName = uom != null ? uom.getName() : "";
+
+							selectedProducts.add(new Object[] { productId, product.getValue(), product.getName(),
+									uomName, BigDecimal.ONE });
+							existingIds.add(productId);
+							added++;
+						}
+
+						if (added > 0) {
+							refreshOuterTable(outerTable, selectedProducts);
+						}
+					}
+				});
+				ip.setId("InfoProduct_" + m_WindowNo);
+				org.adempiere.webui.apps.AEnv.showWindow(ip);
+			}
+		});
+		// - 按钮：删除勾选行
+		removeBtn.addEventListener(Events.ON_CLICK, new EventListener<Event>() {
+			public void onEvent(Event e) throws Exception {
+				List<Integer> toRemove = new ArrayList<Integer>();
+				for (int i = 0; i < outerTable.getRowCount(); i++) {
+					IDColumn idCol = (IDColumn) outerTable.getValueAt(i, 0);
+					if (idCol != null && idCol.isSelected()) {
+						toRemove.add(0, i);
+					}
+				}
+				if (toRemove.isEmpty()) {
+					Messagebox.show("请先勾选要删除的物料", "提示", Messagebox.OK, Messagebox.INFORMATION);
+					return;
+				}
+				for (int idx : toRemove) {
+					selectedProducts.remove(idx);
+				}
+				refreshOuterTable(outerTable, selectedProducts);
+			}
+		});
+
+		cancelBtn.addEventListener(Events.ON_CLICK, new EventListener<Event>() {
+			public void onEvent(Event e) throws Exception {
+				outerDialog.detach();
+			}
+		});
+
+		// 确定：生成领用单
+		confirmBtn.addEventListener(Events.ON_CLICK, new EventListener<Event>() {
+			public void onEvent(Event e) throws Exception {
+				if (outerTable.getRowCount() == 0) {
+					Messagebox.show("请先添加物料", "提示", Messagebox.OK, Messagebox.INFORMATION);
+					return;
+				}
+				final List<Object[]> finalProducts = new ArrayList<Object[]>();
+				for (int i = 0; i < outerTable.getRowCount(); i++) {
+					IDColumn idCol = (IDColumn) outerTable.getValueAt(i, 0);
+					if (idCol == null)
+						continue;
+					int productId = idCol.getRecord_ID();
+					Object qtyObj = outerTable.getValueAt(i, 5);
+					BigDecimal qty = BigDecimal.ONE;
+					if (qtyObj instanceof BigDecimal) {
+						qty = (BigDecimal) qtyObj;
+					} else if (qtyObj != null) {
+						try {
+							qty = new BigDecimal(qtyObj.toString());
+						} catch (Exception ex) {
+							/* ignore */ }
+					}
+					if (qty.compareTo(Env.ZERO) <= 0)
+						qty = BigDecimal.ONE;
+					finalProducts.add(new Object[] { productId, qty });
+				}
+				outerDialog.detach();
+				createGeneralInventory(finalProducts);
+			}
+		});
+
+		outerDialog.setPage(form.getPage());
+		outerDialog.doModal();
+	}
+
+	/**
+	 * 获取当前组织的默认仓库ID
+	 */
+	private int getDefaultWarehouseId() {
+		int orgId = Env.getAD_Org_ID(Env.getCtx());
+		return DB.getSQLValue(null, "SELECT M_Warehouse_ID FROM M_Warehouse "
+				+ "WHERE AD_Org_ID=? AND IsActive='Y' AND IsInTransit='N' " + "FETCH FIRST 1 ROWS ONLY", orgId);
+	}
+
+	/**
+	 * 生成《领用单》表头+明细，并触发工作流审批
+	 * 
+	 * @param products [productId(Integer), qty(BigDecimal)]
+	 */
+	private void createGeneralInventory(final List<Object[]> products) {
+		final String[] resultDocNo = { null };
+		final int[] resultInventoryId = { 0 };
+
+		try {
+			Trx.run(new TrxRunnable() {
+				public void run(String trxName) {
+					int orgId = Env.getAD_Org_ID(Env.getCtx());
+					int clientId = Env.getAD_Client_ID(Env.getCtx());
+					int userId = Env.getAD_User_ID(Env.getCtx());
+					int warehouseId = getDefaultWarehouseId();
+
+					if (warehouseId <= 0)
+						throw new AdempiereException("未找到当前组织的默认仓库，请先配置仓库");
+
+					// 查找单据类型（领用单）
+					int docTypeId = DB.getSQLValue(null, "SELECT C_DocType_ID FROM C_DocType "
+							+ "WHERE Name='领用单' AND DocSubTypeInv='IU' AND IsActive='Y' AND AD_Client_ID=" + clientId);
+
+					if (docTypeId <= 0)
+						throw new AdempiereException("未找到单据类型：领用单，请先在系统中配置");
+
+					// 查找费用项目（500101 生产成本_材料成本）
+					int chargeId = DB.getSQLValue(trxName,
+							"SELECT C_Charge_ID FROM C_Charge "
+									+ "WHERE AD_Client_ID=? AND Name='500101 生产成本_材料成本' AND IsActive='Y' "
+									+ "FETCH FIRST 1 ROWS ONLY",
+							clientId);
+
+					// ── 库存预校验（在创建 MInventory 之前）──
+					for (Object[] p : products) {
+						int productId = (Integer) p[0];
+						BigDecimal qty = (BigDecimal) p[1];
+
+						BigDecimal qtyOnHand = MStorageOnHand.getQtyOnHand(productId, warehouseId, 0, // M_AttributeSetInstance_ID
+																										// = 0 表示不限批次
+								trxName);
+
+						if (qtyOnHand.compareTo(qty) < 0) {
+							MProduct product = MProduct.get(Env.getCtx(), productId);
+							throw new AdempiereException("物料[" + product.getValue() + " - " + product.getName() + "]"
+									+ " 库存不足，需要: " + qty + "，当前在手库存: " + qtyOnHand);
+						}
+					}
+
+					// ── 创建领用单表头 ──
+					MInventory inventory = new MInventory(Env.getCtx(), 0, trxName);
+					inventory.setAD_Org_ID(orgId);
+					inventory.setC_DocType_ID(docTypeId);
+					inventory.setMovementDate(new Timestamp(System.currentTimeMillis()));
+					inventory.setM_Warehouse_ID(warehouseId);
+					inventory.set_ValueOfColumn("AD_User_ID", userId);
+					inventory.setDocStatus(MInventory.DOCSTATUS_Drafted);
+					inventory.setDocAction(MInventory.DOCACTION_Complete);
+
+					// ★ 查出"烟包生产部"的 C_Activity_ID 并设置
+					int activityId = DB.getSQLValue(trxName,
+							"SELECT C_Activity_ID FROM C_Activity "
+									+ "WHERE Name='烟包生产部' AND IsActive='Y' AND AD_Client_ID=?",
+							Env.getAD_Client_ID(Env.getCtx()));
+					if (activityId > 0) {
+						inventory.setC_Activity_ID(activityId);
+					} else {
+						log.warning("未找到 C_Activity Name='烟包生产部'，C_Activity_ID 未设置");
+					}
+					inventory.saveEx(trxName);
+
+					// ── 创建领用单明细 ──
+					int lineNo = 10;
+					for (Object[] p : products) {
+						int productId = (Integer) p[0];
+						BigDecimal qty = (BigDecimal) p[1];
+
+						// 通过SQL函数获取推荐库位
+						int locatorId = DB.getSQLValue(trxName, "SELECT get_recommended_locator(?, ?, ?)", productId,
+								warehouseId, "N");
+
+						if (locatorId <= 0) {
+							// 回退：取仓库默认库位
+							locatorId = DB.getSQLValue(trxName,
+									"SELECT M_Locator_ID FROM M_Locator "
+											+ "WHERE M_Warehouse_ID=? AND IsDefault='Y' AND IsActive='Y' "
+											+ "FETCH FIRST 1 ROWS ONLY",
+									warehouseId);
+						}
+						if (locatorId <= 0)
+							throw new AdempiereException("物料[ID=" + productId + "]未找到有效库位，请检查库存或库位配置");
+
+						MInventoryLine line = new MInventoryLine(Env.getCtx(), 0, trxName);
+						line.setM_Inventory_ID(inventory.getM_Inventory_ID());
+						line.setAD_Org_ID(orgId);
+						line.setM_Locator_ID(locatorId);
+						line.setM_Product_ID(productId);
+						line.setM_AttributeSetInstance_ID(0);
+						line.setLine(lineNo);
+						line.setInventoryType(MInventoryLine.INVENTORYTYPE_ChargeAccount);
+						line.setQtyInternalUse(qty);
+						line.setQtyBook(Env.ZERO);
+						line.setQtyCount(Env.ZERO);
+						if (chargeId > 0) {
+							line.setC_Charge_ID(chargeId);
+						}
+						line.saveEx(trxName);
+						lineNo += 10;
+					}
+
+					// ── 触发工作流审批 ──
+					try {
+						MWorkflow wf = new Query(Env.getCtx(), MWorkflow.Table_Name, "Value=? AND IsActive='Y'",
+								trxName).setParameters("inventory").setClient_ID().first();
+						if (wf == null) {
+							log.warning("未找到工作流 Value='inventory'，跳过审批");
+						} else {
+							ProcessInfo pi = new ProcessInfo(inventory.getDocumentNo(), 0, inventory.get_Table_ID(),
+									inventory.getM_Inventory_ID());
+							pi.setTransactionName(trxName);
+							pi.setPO(inventory);
+
+							MWFProcess wfProcess = ProcessUtil.startWorkFlow(Env.getCtx(), pi, wf.getAD_Workflow_ID());
+							if (wfProcess == null || pi.isError()) {
+								log.warning("领用单工作流启动失败: " + pi.getSummary());
+							} else {
+								inventory.load(trxName);
+								log.info("领用单[" + inventory.getDocumentNo() + "]工作流已启动，状态: " + wfProcess.getWFState());
+							}
+						}
+					} catch (Exception wfEx) {
+						log.severe("领用单工作流异常: " + wfEx.getMessage());
+					}
+
+					resultDocNo[0] = inventory.getDocumentNo();
+					resultInventoryId[0] = inventory.getM_Inventory_ID();
+
+				}
+			});
+
+			if (resultDocNo[0] != null) {
+				// ★ 改用 org.adempiere.webui.component.Window，而不是 org.zkoss.zul.Window
+				final org.adempiere.webui.component.Window successDialog = new org.adempiere.webui.component.Window();
+				successDialog.setTitle("成功");
+				successDialog.setWidth("420px");
+				successDialog.setBorder("normal");
+				successDialog.setClosable(true);
+
+				org.zkoss.zul.Hbox content = new org.zkoss.zul.Hbox();
+				content.setStyle("padding:12px 10px; align-items:center");
+				content.setAlign("center");
+				content.appendChild(new org.zkoss.zul.Label("领用单 "));
+				final int inventoryTableId = org.compiere.model.MTable.getTable_ID("M_Inventory");
+				final int invId = resultInventoryId[0];
+				org.adempiere.webui.component.DocumentLink docLink = new org.adempiere.webui.component.DocumentLink(
+						resultDocNo[0], inventoryTableId, invId, new EventListener<Event>() {
+							public void onEvent(Event event) throws Exception {
+								successDialog.detach(); // ★ 先关闭弹窗
+								if (inventoryTableId > 0 && invId > 0)
+									org.adempiere.webui.apps.AEnv.zoom(inventoryTableId, invId); // ★ 再跳转
+							}
+						});
+				content.appendChild(docLink);
+				content.appendChild(new org.zkoss.zul.Label(" 已成功创建并提交审批"));
+
+				Button okBtn = new Button("确定");
+				okBtn.addEventListener(Events.ON_CLICK, new EventListener<Event>() {
+					public void onEvent(Event event) throws Exception {
+						successDialog.detach();
+					}
+				});
+				org.zkoss.zul.Hbox btnBox = new org.zkoss.zul.Hbox();
+				btnBox.setStyle("padding:5px");
+				btnBox.setPack("end");
+				btnBox.setWidth("100%");
+				btnBox.appendChild(okBtn);
+
+				org.zkoss.zul.Vlayout vlayout = new org.zkoss.zul.Vlayout();
+				vlayout.appendChild(content);
+				vlayout.appendChild(btnBox);
+				successDialog.appendChild(vlayout);
+
+				org.adempiere.webui.apps.AEnv.showCenterScreen(successDialog);
+			}
+
+
+		} catch (Exception ex) {
+			log.severe("创建领用单失败: " + ex.getMessage());
+			Messagebox.show("创建领用单失败: " + ex.getMessage(), "错误", Messagebox.OK, Messagebox.ERROR);
+		}
+	}
+
 }

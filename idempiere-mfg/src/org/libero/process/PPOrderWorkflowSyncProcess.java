@@ -11,6 +11,7 @@ import org.compiere.process.DocAction;
 import org.compiere.process.ProcessInfo;
 import org.compiere.process.ServerProcessCtl;
 import org.compiere.process.SvrProcess;
+import org.compiere.util.DB;
 import org.compiere.util.Trx;
 import org.compiere.wf.MWFNode;
 import org.compiere.wf.MWFNodeNext;
@@ -99,6 +100,9 @@ public class PPOrderWorkflowSyncProcess extends SvrProcess {
 	/**
 	 * 同步工单工艺流程到产品工艺流程
 	 */
+	/**
+	 * 同步工单工艺流程到产品工艺流程
+	 */
 	private void syncOrderWorkflowToProductWorkflow(MPPOrder order) throws Exception {
 
 		// 1. 获取工单工艺流程
@@ -127,7 +131,12 @@ public class PPOrderWorkflowSyncProcess extends SvrProcess {
 		deleteWorkflowNodes(productWorkflow);
 
 		// 7. 复制工单工艺流程节点到产品工艺流程
-		copyOrderWorkflowNodesToProductWorkflow(orderWorkflow, productWorkflow);
+		// ★ 返回 旧AD_WF_Node_ID → 新AD_WF_Node_ID 映射，同时已更新当前工单节点
+		Map<Integer, Integer> oldToNewNodeIdMap = copyOrderWorkflowNodesToProductWorkflow(orderWorkflow,
+				productWorkflow);
+
+		// ★ 批量更新其他工单（使用同一产品工艺流程）的 PP_Order_Node.AD_WF_Node_ID
+		updateOtherOrderNodeReferences(order.getAD_Workflow_ID(), oldToNewNodeIdMap, order.getPP_Order_ID());
 
 		// 8. 保存产品工艺流程
 		productWorkflow.saveEx();
@@ -135,7 +144,6 @@ public class PPOrderWorkflowSyncProcess extends SvrProcess {
 		// 9. 调用提交审核流程
 		submitWorkflowForApproval(productWorkflow);
 	}
-
 	/**
 	 * 复制主字段
 	 */
@@ -180,59 +188,69 @@ public class PPOrderWorkflowSyncProcess extends SvrProcess {
 		}
 	}
 
-	private void copyOrderWorkflowNodesToProductWorkflow(MPPOrderWorkflow orderWorkflow, MWorkflow productWorkflow)  
-	        throws Exception {  
+	private Map<Integer, Integer> copyOrderWorkflowNodesToProductWorkflow(MPPOrderWorkflow orderWorkflow,
+			MWorkflow productWorkflow) throws Exception {
 	    MPPOrderNode[] orderNodes = orderWorkflow.getNodes(false, orderWorkflow.getAD_Client_ID());  
-	    
-	    // 核心映射结构：
-	    // 1. 工单节点ID -> 新产品节点
-	    Map<Integer, MWFNode> orderNodeIdToProductNode = new HashMap<>();
-	    
-	    // 2. 工单节点ID -> 工单节点对象
-	    Map<Integer, MPPOrderNode> orderNodeMap = new HashMap<>();
-	    
-	    // 3. 新产品节点列表
-	    List<MWFNode> productNodes = new ArrayList<>();
 	  
-	    // 构建工单节点映射
+		// 核心映射结构：
+		// 1. 工单节点ID -> 新产品节点
+		Map<Integer, MWFNode> orderNodeIdToProductNode = new HashMap<>();
+
+		// 2. 工单节点ID -> 工单节点对象
+		Map<Integer, MPPOrderNode> orderNodeMap = new HashMap<>();
+
+		// 3. 新产品节点列表
+		List<MWFNode> productNodes = new ArrayList<>();
+
+		// ★ 4. 旧AD_WF_Node_ID → 新AD_WF_Node_ID 映射，不依赖 Value
+		Map<Integer, Integer> oldToNewNodeIdMap = new HashMap<>();
+
+		// 构建工单节点映射
 	    for (MPPOrderNode orderNode : orderNodes) {  
-	        orderNodeMap.put(orderNode.getPP_Order_Node_ID(), orderNode);
-	    }
-	    
-	    // 创建所有产品节点
+			orderNodeMap.put(orderNode.getPP_Order_Node_ID(), orderNode);
+		}
+
+		// 创建所有产品节点
 	    for (MPPOrderNode orderNode : orderNodes) {  
+			int oldNodeId = orderNode.getAD_WF_Node_ID(); // ★ 旧 AD_WF_Node_ID（记录已删但字段值还在）
+
 	        MWFNode productNode = new MWFNode(productWorkflow.getCtx(), 0, productWorkflow.get_TrxName());  
-	          
+
 	        copyOrderWorkflowNodeToProductWorkflowNode(orderNode, productNode);  
 	        productNode.setAD_Workflow_ID(productWorkflow.getAD_Workflow_ID());  
 	        productNode.saveEx();  
 	  
 	        productNodes.add(productNode);  
-	        
-	        // 建立映射：工单节点ID -> 新产品节点
-	        orderNodeIdToProductNode.put(orderNode.getPP_Order_Node_ID(), productNode);
-	          
-	        // 复制节点产品记录  
+
+			// 建立映射：工单节点ID -> 新产品节点
+			orderNodeIdToProductNode.put(orderNode.getPP_Order_Node_ID(), productNode);
+
+			// ★ 记录 旧ID → 新ID 映射
+			oldToNewNodeIdMap.put(oldNodeId, productNode.getAD_WF_Node_ID());
+
+			// ★ 更新当前工单的 PP_Order_Node.AD_WF_Node_ID 指向新节点
+			orderNode.setAD_WF_Node_ID(productNode.getAD_WF_Node_ID());
+			orderNode.saveEx();
+
+			// 复制节点产品记录
 	        copyOrderNodeProductsToProductWorkflow(orderNode, productNode);  
-	        // 复制节点资产记录    
+			// 复制节点资产记录
 	        copyOrderNodeAssetsToProductWorkflow(orderNode, productNode);  
 	    }  
 	  
-	    // 设置起始节点  
+		// 设置起始节点
 	    if (orderWorkflow.getPP_Order_Node_ID() > 0) {  
-	        MWFNode firstProductNode = orderNodeIdToProductNode.get(orderWorkflow.getPP_Order_Node_ID());
+			MWFNode firstProductNode = orderNodeIdToProductNode.get(orderWorkflow.getPP_Order_Node_ID());
 	        if (firstProductNode != null) {  
 	            productWorkflow.setAD_WF_Node_ID(firstProductNode.getAD_WF_Node_ID());  
 	        }  
 	    }  
 	  
-	    // 复制节点转换记录
-	    copyAllNodeTransitionsToProductWorkflow(
-	        orderNodeMap, 
-	        orderNodeIdToProductNode
-	    );
-	}  
+		// 复制节点转换记录
+		copyAllNodeTransitionsToProductWorkflow(orderNodeMap, orderNodeIdToProductNode);
 
+		return oldToNewNodeIdMap; // ★ 返回映射
+	}
 	/**  
 	 * 批量复制所有节点的转换关系
 	 */
@@ -415,5 +433,36 @@ public class PPOrderWorkflowSyncProcess extends SvrProcess {
 	        productWorkflowAsset.saveEx();    
 	    }    
 	} 
+
+	/**
+	 * 批量更新其他工单（使用同一产品工艺流程）的 PP_Order_Node.AD_WF_Node_ID 直接通过 旧AD_WF_Node_ID →
+	 * 新AD_WF_Node_ID 映射更新，不依赖 Value
+	 */
+	private void updateOtherOrderNodeReferences(int adWorkflowId, Map<Integer, Integer> oldToNewNodeIdMap,
+			int excludeOrderId) {
+
+		if (oldToNewNodeIdMap.isEmpty()) {
+			return;
+		}
+
+		for (Map.Entry<Integer, Integer> entry : oldToNewNodeIdMap.entrySet()) {
+			int oldNodeId = entry.getKey();
+			int newNodeId = entry.getValue();
+
+			if (oldNodeId <= 0) {
+				continue; // 旧节点本来就没有关联，跳过
+			}
+
+			String sql = "UPDATE PP_Order_Node SET AD_WF_Node_ID = ? " + "WHERE AD_WF_Node_ID = ? "
+					+ "AND PP_Order_ID != ? " + "AND PP_Order_ID IN ("
+					+ "  SELECT PP_Order_ID FROM PP_Order WHERE AD_Workflow_ID = ?" + ")";
+			int updated = DB.executeUpdateEx(sql, new Object[] { newNodeId, oldNodeId, excludeOrderId, adWorkflowId },
+					get_TrxName());
+
+			if (updated > 0) {
+				log.info("已更新 " + updated + " 条 PP_Order_Node.AD_WF_Node_ID: " + oldNodeId + " → " + newNodeId);
+			}
+		}
+	}
 	  
 }

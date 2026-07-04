@@ -144,13 +144,12 @@ public class CopyWorkflow extends SvrProcess {
 			newWF.saveEx();
 		}
 
-		return "已复制工艺路线: " + fromWF.getValue() + " → " + newWF.getValue() + "，工序 " + nodeCount + " 条" + "，工序物料 "
-				+ nodeProductCount + " 条" + "，工序工具 " + nodeAssetCount + " 条" + "，流转 " + nodeNextCount + " 条";
+		return "已复制工艺路线: " + fromWF.getValue() + " → " + newWF.getValue();
 	}
 
 	@Override
 	protected void postProcess(boolean success) {
-		this.addLog("@Copied@ Node=" + nodeCount + ", NodeProduct=" + nodeProductCount + ", NodeAsset=" + nodeAssetCount
-				+ ", NodeNext=" + nodeNextCount);
+		this.addLog("工序 " + nodeCount + " 条，工序物料 " + nodeProductCount + " 条，" + "工序工具 " + nodeAssetCount + " 条，流转 "
+				+ nodeNextCount + " 条");
 	}
 }

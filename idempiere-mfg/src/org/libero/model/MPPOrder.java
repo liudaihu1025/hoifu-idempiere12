@@ -52,6 +52,7 @@ import org.compiere.util.KeyNamePair;
 import org.compiere.util.Msg;
 import org.compiere.wf.MWFNode;
 import org.compiere.wf.MWFNodeNext;
+import org.compiere.wf.MWFProcess;
 import org.compiere.wf.MWorkflow;
 import org.eevolution.model.I_PP_Order;
 import org.eevolution.model.MPPProductBOM;
@@ -461,7 +462,6 @@ public class MPPOrder extends X_PP_Order implements DocAction
 	 * @return true 如果校验通过，false 否则
 	 */
 	private boolean validateOrderQuantity() {
-		// 如果没有关联销售订单行，则跳过校验
 		if (getC_OrderLine_ID() <= 0) {
 			return true;
 		}
@@ -472,27 +472,32 @@ public class MPPOrder extends X_PP_Order implements DocAction
 		String printName = docType.getName();
 		if (printName == null || !printName.contains("生产工单"))
 			return true;
-		
-		// 获取销售订单行数量 - 使用QtyEntered
+
 		MOrderLine orderLine = new MOrderLine(getCtx(), getC_OrderLine_ID(), get_TrxName());
 		BigDecimal orderQty = orderLine.getQtyEntered();
 
-		// 统计同一销售订单行的所有工单数量 - 也使用QtyEntered
-		String sql = "SELECT COALESCE(SUM(QtyEntered), 0) FROM PP_Order "
-				+ "WHERE C_OrderLine_ID = ? AND PP_Order_ID != ? " + "AND DocStatus NOT IN ('VO', 'CL')";
+		// 统计同一销售订单行的所有【生产工单】数量，通过 JOIN C_DocType 过滤
+		String sql = "SELECT COALESCE(SUM(po.QtyEntered), 0) FROM PP_Order po "
+				+ "INNER JOIN C_DocType dt ON po.C_DocTypeTarget_ID = dt.C_DocType_ID "
+				+ "WHERE po.C_OrderLine_ID = ? AND po.PP_Order_ID != ? " + "AND po.DocStatus NOT IN ('VO', 'CL') "  + "AND po.Orderstatus NOT IN ('ChangeExecuted') "
+				+ "AND dt.Name = '生产工单'";
 
 		BigDecimal otherOrdersQty = DB.getSQLValueBD(get_TrxName(), sql, getC_OrderLine_ID(), getPP_Order_ID());
 
-		// 计算包含当前工单的总数量
 		BigDecimal totalQty = otherOrdersQty.add(getQtyEntered());
 
-		// 校验总数量不超过销售订单数量
 		if (totalQty.compareTo(orderQty) > 0) {
-			log.saveError("Error", "工单数量(" + totalQty + ")不能超过关联订单数量(" + orderQty + ")");
+			log.saveError("", "保存失败：累计生产工单数量（" + totalQty + "）已超过关联销售订单数量（" + orderQty + "），请检查调整");
 			return false;
 		}
 
 		return true;
+	}
+
+	private boolean m_skipExplosion = false;// 设置一个标志位，工单复制时不走BOM展开
+
+	public void setSkipExplosion(boolean skip) {
+		this.m_skipExplosion = skip;
 	}
 
 	@Override
@@ -511,8 +516,7 @@ public class MPPOrder extends X_PP_Order implements DocAction
 
 		if( is_ValueChanged(MPPOrder.COLUMNNAME_QtyEntered) && !isDelivered())
 		{
-			deleteWorkflowAndBOM();
-			explosion();
+			updateBOMAndWorkflowQuantities(getQtyOrdered()); // 只更新数量，不删除重建
 		}
 		if( is_ValueChanged(MPPOrder.COLUMNNAME_QtyEntered) && isDelivered())
 		{
@@ -524,9 +528,31 @@ public class MPPOrder extends X_PP_Order implements DocAction
 			return success;
 		}
 
-		explosion();
+		if (!m_skipExplosion) { // 工单复制时不需要BOM展开
+			explosion();
+		}
+
 		return true;
 	} //	beforeSave
+
+	/**
+	 * 修改工单数量时，按比例更新 BOM 子件需求数量和工序需求数量/工时， 不删除重建，保留工单上已有的自定义子件和工序。
+	 */
+	private void updateBOMAndWorkflowQuantities(BigDecimal newQty) {
+		// 更新 BOM 子件需求数量（setQtyPlusScrap 内部会处理废料率）
+		for (MPPOrderBOMLine line : getLines()) {
+			line.setQtyPlusScrap(newQty);
+			line.saveEx(get_TrxName());
+		}
+		// 更新工序需求数量和预计工时
+		MPPOrderWorkflow wf = getMPPOrderWorkflow();
+		if (wf != null) {
+			for (MPPOrderNode node : wf.getNodes(false, getAD_Client_ID())) {
+				node.setQtyOrdered(newQty);
+				node.saveEx(get_TrxName());
+			}
+		}
+	}
 
 	@Override
 	protected boolean beforeDelete()
@@ -936,79 +962,102 @@ public class MPPOrder extends X_PP_Order implements DocAction
 		}
 	} //	reserveStock
 
-	public boolean approveIt()
-	{
+	public boolean approveIt() {
 		log.info("approveIt - " + toString());
 		MDocType doc = MDocType.get(getCtx(), getC_DocType_ID());
-		if (doc.getDocBaseType().equals(MDocType.DOCBASETYPE_QualityOrder))
-		{
-			String whereClause = COLUMNNAME_PP_Product_BOM_ID+"=? AND "+COLUMNNAME_AD_Workflow_ID+"=?";
+		if (doc.getDocBaseType().equals(MDocType.DOCBASETYPE_QualityOrder)) {
+			String whereClause = COLUMNNAME_PP_Product_BOM_ID + "=? AND " + COLUMNNAME_AD_Workflow_ID + "=?";
 			MQMSpecification qms = new Query(getCtx(), MQMSpecification.Table_Name, whereClause, get_TrxName())
-					.setParameters(new Object[]{getPP_Product_BOM_ID(), getAD_Workflow_ID()})
-					.firstOnly();
+					.setParameters(new Object[] { getPP_Product_BOM_ID(), getAD_Workflow_ID() }).firstOnly();
 			return qms != null ? qms.isValid(getM_AttributeSetInstance_ID()) : true;
-		}
-		else
-		{
+		} else {
 			setIsApproved(true);
+			// 重工工单审批通过：工单状态变更为"待发布"
+			// DocStatus 将由 MFG_Validator 的 DOC_AFTER_APPROVE 事件改为 DR（草稿）
+			if ("重工工单".equals(doc.getName())) {
+				set_ValueOfColumn("Orderstatus", "Ready");
+			}
 		}
 
 		return true;
 	} //	approveIt
 
-	public boolean rejectIt()
-	{
+	public boolean rejectIt() {
 		log.info("rejectIt - " + toString());
 		setIsApproved(false);
+		// 重工工单审批不通过：工单状态变更为"关闭"
+		MDocType doc = MDocType.get(getCtx(), getC_DocType_ID());
+		if ("重工工单".equals(doc.getName())) {
+			set_ValueOfColumn("Orderstatus", "Close");
+		}
 		return true;
 	} //	rejectIt
 
-	public String completeIt()
-	{
-		//	Just prepare
-		if (DOCACTION_Prepare.equals(getDocAction()))
-		{
+	public String completeIt() {
+		// 重工工单：重新发起审批（工单状态为"已关闭"且单据状态为"处理中"时触发）
+		MDocType docType = MDocType.get(getCtx(), getC_DocTypeTarget_ID());
+		if ("重工工单".equals(docType.getName())) {
+			String orderstatus = (String) get_Value("Orderstatus");
+			// ★ 修改：工单状态为"已关闭" 且 单据状态为"处理中"(IP) 时启动工作流
+			if ("Close".equals(orderstatus) && DOCSTATUS_InProgress.equals(getDocStatus())) {
+				MWorkflow wf = new Query(getCtx(), MWorkflow.Table_Name, "Value=? AND IsActive='Y'", get_TrxName())
+						.setParameters("rework").first();
+				if (wf != null) {
+					try {
+						ProcessInfo pi = new ProcessInfo(wf.getName(), 0, MPPOrder.Table_ID, get_ID());
+						pi.setTransactionName(get_TrxName());
+						pi.setPO(this);
+						MWFProcess wfProcess = new MWFProcess(wf, pi, get_TrxName());
+						wfProcess.startWork();
+					} catch (Exception e) {
+						throw new AdempiereException("启动审批工作流失败: " + e.getMessage(), e);
+					}
+				}
+				// 将工单状态更新为"审批中"
+				set_ValueOfColumn("Orderstatus", "UnderReview");
+				saveEx(get_TrxName());
+				setDocAction(DOCACTION_Complete);
+				return DocAction.STATUS_InProgress;
+			}
+		}
+
+		// Just prepare
+		if (DOCACTION_Prepare.equals(getDocAction())) {
 			setProcessed(false);
 			return DocAction.STATUS_InProgress;
 		}
 
-		//	Re-Check
-		if (!m_justPrepared)
-		{
+		// Re-Check
+		if (!m_justPrepared) {
 			String status = prepareIt();
 			if (!DocAction.STATUS_InProgress.equals(status))
 				return status;
 		}
 
 		m_processMsg = ModelValidationEngine.get().fireDocValidate(this, ModelValidator.TIMING_BEFORE_COMPLETE);
-		if (m_processMsg != null)
-		{
+		if (m_processMsg != null) {
 			return DocAction.STATUS_Invalid;
 		}
 
-		//	Implicit Approval
-		if (!isApproved())
-		{
+		// Implicit Approval
+		if (!isApproved()) {
 			approveIt();
 		}
 
 		createStandardCosts();
 
-		//Create the Activity Control
+		// Create the Activity Control
 		autoReportActivities();
 
-		//setProcessed(true);
 		setDocAction(DOCACTION_Close);
 
 		String valid = ModelValidationEngine.get().fireDocValidate(this, ModelValidator.TIMING_AFTER_COMPLETE);
-		if (valid != null)
-		{
+		if (valid != null) {
 			m_processMsg = valid;
 			return DocAction.STATUS_Invalid;
 		}
 		return DocAction.STATUS_Completed;
-	} //	completeIt
-
+	}
 	/**
 	 * Check if the Quantity from all BOM Lines is available (QtyOnHand >= QtyRequiered)
 	 * @return true if entire Qty is available for this Order
@@ -1309,32 +1358,32 @@ public class MPPOrder extends X_PP_Order implements DocAction
 	{
 		// Create BOM Head
 		final MPPProductBOM PP_Product_BOM = MPPProductBOM.get(getCtx(), getPP_Product_BOM_ID());
-		//iterate Product BOM components as more Parent tab records
+		// iterate Product BOM components as more Parent tab records
 
-		// Product from Order should be same as product from BOM - teo_sarca [ 2817870 ] 
+		// Product from Order should be same as product from BOM - teo_sarca [ 2817870 ]
 		if (getM_Product_ID() != PP_Product_BOM.getM_Product_ID())
 		{
 			throw new AdempiereException("@NotMatch@ @PP_Product_BOM_ID@ , @M_Product_ID@");
 		}
 		// Product BOM Configuration should be verified - teo_sarca [ 2817870 ]
 		final MProduct product = MProduct.get(getCtx(), PP_Product_BOM.getM_Product_ID());
-		
-		//如果是ECN创建生成的单就跳过验证产品校验
+
+		// 如果是ECN创建生成的单就跳过验证产品校验
 		String creationSource = (String) get_Value("CreationSource");
-	
+
 		if (!"ECN_DERIVED".equals(creationSource) && !product.isVerified())
 		{
-			throw new AdempiereException("产品BOM配置未验证, 请先验证产品 - "+product.getValue()); // 
+			throw new AdempiereException("产品BOM配置未验证, 请先验证产品 - " + product.getValue()); //
 		}
 		if (PP_Product_BOM.isValidFromTo(getDateStartSchedule()))
 		{
 			MPPOrderBOM PP_Order_BOM = new MPPOrderBOM(PP_Product_BOM, getPP_Order_ID(), get_TrxName());
 			PP_Order_BOM.setAD_Org_ID(getAD_Org_ID());
-            String bomstatus = (String) PP_Product_BOM.get_Value("bomstatus");
-            Integer SubmittedBy = (Integer) PP_Product_BOM.get_Value("SubmittedBy");
-            
-            PP_Order_BOM.set_ValueOfColumn("SubmittedBy", SubmittedBy);
-            PP_Order_BOM.set_ValueOfColumn("bomstatus", bomstatus);
+			String bomstatus = (String) PP_Product_BOM.get_Value("bomstatus");
+			Integer SubmittedBy = (Integer) PP_Product_BOM.get_Value("SubmittedBy");
+
+			PP_Order_BOM.set_ValueOfColumn("SubmittedBy", SubmittedBy);
+			PP_Order_BOM.set_ValueOfColumn("bomstatus", bomstatus);
 			PP_Order_BOM.saveEx(get_TrxName());
 
 			expandBOM(PP_Product_BOM, PP_Order_BOM, getQtyOrdered());
@@ -1346,9 +1395,18 @@ public class MPPOrder extends X_PP_Order implements DocAction
 
 		// Create Workflow (Routing & Process)
 		explosionWorkflow();
+		// 自动填充 PP_Order_BOMLine.PP_Order_Node_ID
+		String updateSql = "UPDATE PP_Order_BOMLine obl " + "SET PP_Order_Node_ID = (" + "  SELECT n.PP_Order_Node_ID "
+				+ "  FROM PP_Order_Node n " + "  INNER JOIN PP_ProductCategory_RoutingNode pcr "
+				+ "    ON n.AD_Routing_Node_ID = pcr.AD_Routing_Node_ID " + "  INNER JOIN M_Product p "
+				+ "    ON p.M_Product_Category_ID = pcr.M_Product_Category_ID "
+				+ "  WHERE n.PP_Order_ID = obl.PP_Order_ID " + "    AND p.M_Product_ID = obl.M_Product_ID "
+				+ "    AND pcr.IsActive = 'Y' " + "    AND n.IsActive = 'Y' " + "  ORDER BY pcr.NodePriority ASC "
+				+ "  FETCH FIRST 1 ROWS ONLY" + ") " + "WHERE obl.PP_Order_ID = ?";
+		DB.executeUpdateEx(updateSql, new Object[] { get_ID() }, get_TrxName());
 	}
 
-	
+
 	private void explosionWorkflow() {
 		final MWorkflow AD_Workflow = MWorkflow.get(getCtx(), getAD_Workflow_ID());
 		// Workflow should be validated first - teo_sarca [ 2817870 ]
@@ -1607,12 +1665,24 @@ public class MPPOrder extends X_PP_Order implements DocAction
 	 */
 	public static void createIssue(MPPOrder order, int PP_OrderBOMLine_ID, Timestamp movementdate, BigDecimal qty,
 			BigDecimal qtyScrap, BigDecimal qtyReject, MStorageOnHand[] storages, boolean forceIssue,
-			String costCollectorType, int nodeId, int resourceId, boolean draftOnly, int locatorId) {
+			String costCollectorType, int nodeId, int resourceId, boolean draftOnly, int locatorId, int substituteProductId) {
 
 		if (qty.signum() == 0)
 			return;
 
 		MPPOrderBOMLine PP_orderbomLine = new MPPOrderBOMLine(order.getCtx(), PP_OrderBOMLine_ID, order.get_TrxName());
+
+		// 是否替代料
+		int effectiveProductId = PP_orderbomLine.getM_Product_ID();
+		int effectiveUomId = PP_orderbomLine.getC_UOM_ID();
+		boolean isSubstiute = substituteProductId > 0;
+		if (isSubstiute) {
+			effectiveProductId = substituteProductId;
+			// 取替代料的单位C_UOM_ID
+			MProduct subProduct = MProduct.get(order.getCtx(), substituteProductId);
+			effectiveUomId = subProduct.getC_UOM_ID();
+		}
+		
 		BigDecimal toIssue = qty.add(qtyScrap);
 
 		// 生产退料：手动创建成本收集器，不自动完成
@@ -1648,8 +1718,9 @@ public class MPPOrder extends X_PP_Order implements DocAction
 			costCollector.setUser1_ID(order.getUser1_ID());
 			costCollector.setUser2_ID(order.getUser2_ID());
 			costCollector.setC_Activity_ID(order.getC_Activity_ID()); // 新增这行
-			costCollector.setM_Product_ID(PP_orderbomLine.getM_Product_ID());
-			costCollector.setC_UOM_ID(PP_orderbomLine.getC_UOM_ID());
+			costCollector.setM_Product_ID(effectiveProductId);
+			costCollector.setC_UOM_ID(effectiveUomId);
+			costCollector.setIsSubstitute(isSubstiute);
 
 			costCollector.saveEx(order.get_TrxName());
 
@@ -1720,8 +1791,9 @@ public class MPPOrder extends X_PP_Order implements DocAction
 				costCollector.setUser1_ID(order.getUser1_ID());
 				costCollector.setUser2_ID(order.getUser2_ID());
 				costCollector.setC_Activity_ID(order.getC_Activity_ID()); // 新增这行
-				costCollector.setM_Product_ID(PP_orderbomLine.getM_Product_ID());
-				costCollector.setC_UOM_ID(PP_orderbomLine.getC_UOM_ID());
+				costCollector.setM_Product_ID(effectiveProductId);
+				costCollector.setC_UOM_ID(effectiveUomId);
+				costCollector.setIsSubstitute(isSubstiute);
 
 				costCollector.saveEx(order.get_TrxName());
 				costCollectors.add(costCollector);
@@ -1772,7 +1844,8 @@ public class MPPOrder extends X_PP_Order implements DocAction
 			costCollector.setUser1_ID(order.getUser1_ID());
 			costCollector.setUser2_ID(order.getUser2_ID());
 			costCollector.setC_Activity_ID(order.getC_Activity_ID()); // 新增这行
-			costCollector.setM_Product_ID(PP_orderbomLine.getM_Product_ID());
+			costCollector.setM_Product_ID(effectiveProductId);
+			costCollector.setIsSubstitute(isSubstiute);
 
 			if (PP_OrderBOMLine_ID > 0) {
 				costCollector.setC_UOM_ID(0);
@@ -1822,12 +1895,24 @@ public class MPPOrder extends X_PP_Order implements DocAction
 	        Timestamp movementdate, BigDecimal qty, BigDecimal qtyScrap,  
 	        BigDecimal qtyReject, MStorageOnHand[] storages, boolean forceIssue,  
 	        String costCollectorType, int nodeId, int resourceId,  
-	        boolean draftOnly) {  
+	        boolean draftOnly, int substituteProductId) {  
 	  
 	    if (qty.signum() == 0)  
 	        return;  
 	  
 	    MPPOrderBOMLine PP_orderbomLine = new MPPOrderBOMLine(order.getCtx(), PP_OrderBOMLine_ID, order.get_TrxName());  
+	    
+		// 是否替代料
+		int effectiveProductId = PP_orderbomLine.getM_Product_ID();
+		int effectiveUomId = PP_orderbomLine.getC_UOM_ID();
+		boolean isSubstiute = substituteProductId > 0;
+		if (isSubstiute) {
+			effectiveProductId = substituteProductId;
+			// 取替代料的单位C_UOM_ID
+			MProduct subProduct = MProduct.get(order.getCtx(), substituteProductId);
+			effectiveUomId = subProduct.getC_UOM_ID();
+		}
+	    
 	    BigDecimal toIssue = qty.add(qtyScrap);  
 	  
 	    // 第一阶段：创建所有成本收集器（与原11参数方法一致）  
@@ -1875,10 +1960,11 @@ public class MPPOrder extends X_PP_Order implements DocAction
 	            costCollector.setProcessing(false);  
 	            costCollector.setUser1_ID(order.getUser1_ID());  
 	            costCollector.setUser2_ID(order.getUser2_ID());  
-	            costCollector.setM_Product_ID(PP_orderbomLine.getM_Product_ID());  
-	            costCollector.setC_UOM_ID(PP_orderbomLine.getC_UOM_ID());  
+	            costCollector.setM_Product_ID(effectiveProductId);  
+	            costCollector.setC_UOM_ID(effectiveUomId);  
 				costCollector.setC_Activity_ID(order.getC_Activity_ID()); // 新增这行
 	            costCollector.saveEx(order.get_TrxName());  
+				costCollector.setIsSubstitute(isSubstiute);
 	            costCollectors.add(costCollector);  
 	        }  
 	        toIssue = toIssue.subtract(qtyIssue);  
@@ -1926,7 +2012,8 @@ public class MPPOrder extends X_PP_Order implements DocAction
 	        costCollector.setUser1_ID(order.getUser1_ID());  
 	        costCollector.setUser2_ID(order.getUser2_ID());  
 			costCollector.setC_Activity_ID(order.getC_Activity_ID()); // 新增这行
-	        costCollector.setM_Product_ID(PP_orderbomLine.getM_Product_ID());  
+	        costCollector.setM_Product_ID(effectiveProductId);  
+			costCollector.setIsSubstitute(isSubstiute);
 	  
 	        if (PP_OrderBOMLine_ID > 0) {  
 	            costCollector.setC_UOM_ID(0);  

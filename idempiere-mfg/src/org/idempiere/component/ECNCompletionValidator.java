@@ -478,8 +478,8 @@ public class ECNCompletionValidator extends AbstractEventHandler {
 		newOrder.setAD_Org_ID(originalOrder.getAD_Org_ID());
 		newOrder.saveEx();
 
-		newOrder.setPP_Product_BOM_ID(originalOrder.getPP_Product_BOM_ID());
-		newOrder.setAD_Workflow_ID(originalOrder.getAD_Workflow_ID());
+		//newOrder.setPP_Product_BOM_ID(originalOrder.getPP_Product_BOM_ID());
+		//newOrder.setAD_Workflow_ID(originalOrder.getAD_Workflow_ID());
 		newOrder.saveEx();
 		// 更新原工单状态
 		originalOrder.setDocAction(MPPOrder.DOCACTION_None);

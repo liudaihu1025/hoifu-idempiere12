@@ -9,7 +9,6 @@ import org.compiere.model.MSequence;
 import org.compiere.model.PO;
 import org.compiere.model.Query;
 import org.compiere.process.SvrProcess;
-import org.compiere.util.DB;
 import org.libero.model.MPPOrder;
 import org.libero.model.MPPOrderBOM;
 import org.libero.model.MPPOrderBOMLine;
@@ -89,53 +88,22 @@ public class CopyPPOrder extends SvrProcess {
 		newOrder.setIsApproved(false);
 		newOrder.setProcessing(false);
 		newOrder.setPosted(false);
+		// 数量取数据库默认值
 		newOrder.setQtyDelivered(org.compiere.util.Env.ZERO);
 		newOrder.setQtyScrap(org.compiere.util.Env.ZERO);
 		newOrder.setQtyReject(org.compiere.util.Env.ZERO);
+		newOrder.setQtyEntered(java.math.BigDecimal.ONE);
+		newOrder.setQtyOrdered(java.math.BigDecimal.ONE);
+		newOrder.setAssay(org.compiere.util.Env.ZERO);
+		newOrder.setYield(new java.math.BigDecimal("100"));
+		// 关联订单置空
+		newOrder.setC_OrderLine_ID(0);
 		newOrder.setDateStart(null);
 		newOrder.setDateFinish(null);
-
-		// 保存主记录（afterSave → explosion() 自动创建第一批子记录）
+		newOrder.setSkipExplosion(true); // 跳过 explosion
+		// 保存主记录
 		newOrder.saveEx();
 
-		// =============================================
-		// Step 3: 删除 explosion() 自动创建的第一批子记录
-		// 必须先删翻译表，再删主表，避免 FK 约束失败
-		// =============================================
-		String delWhere = "PP_Order_ID=? AND AD_Client_ID=?";
-		Object[] delParams = new Object[] { newOrder.getPP_Order_ID(), newOrder.getAD_Client_ID() };
-
-		// 先清空 PP_Order_Workflow 的起始节点指针（避免循环引用 FK）
-		DB.executeUpdateEx("UPDATE PP_Order_Workflow SET PP_Order_Node_ID=NULL WHERE " + delWhere, delParams, trxName);
-
-		// 删除工艺路线子记录（无翻译表）
-		DB.executeUpdateEx("DELETE FROM PP_Order_Node_Asset   WHERE " + delWhere, delParams, trxName);
-		DB.executeUpdateEx("DELETE FROM PP_Order_Node_Product WHERE " + delWhere, delParams, trxName);
-		DB.executeUpdateEx("DELETE FROM PP_Order_NodeNext     WHERE " + delWhere, delParams, trxName);
-
-		// 删除 PP_Order_Node 翻译表，再删主表
-		DB.executeUpdateEx("DELETE FROM PP_Order_Node_Trl WHERE PP_Order_Node_ID IN "
-				+ "(SELECT PP_Order_Node_ID FROM PP_Order_Node WHERE " + delWhere + ")", delParams, trxName);
-		DB.executeUpdateEx("DELETE FROM PP_Order_Node WHERE " + delWhere, delParams, trxName);
-
-		// 删除 PP_Order_Workflow 翻译表，再删主表
-		DB.executeUpdateEx(
-				"DELETE FROM PP_Order_Workflow_Trl WHERE PP_Order_Workflow_ID IN "
-						+ "(SELECT PP_Order_Workflow_ID FROM PP_Order_Workflow WHERE " + delWhere + ")",
-				delParams, trxName);
-		DB.executeUpdateEx("DELETE FROM PP_Order_Workflow WHERE " + delWhere, delParams, trxName);
-
-		// 删除 PP_Order_BOMLine 翻译表，再删主表
-		DB.executeUpdateEx(
-				"DELETE FROM PP_Order_BOMLine_Trl WHERE PP_Order_BOMLine_ID IN "
-						+ "(SELECT PP_Order_BOMLine_ID FROM PP_Order_BOMLine WHERE " + delWhere + ")",
-				delParams, trxName);
-		DB.executeUpdateEx("DELETE FROM PP_Order_BOMLine WHERE " + delWhere, delParams, trxName);
-
-		// 删除 PP_Order_BOM 翻译表，再删主表
-		DB.executeUpdateEx("DELETE FROM PP_Order_BOM_Trl WHERE PP_Order_BOM_ID IN "
-				+ "(SELECT PP_Order_BOM_ID FROM PP_Order_BOM WHERE " + delWhere + ")", delParams, trxName);
-		DB.executeUpdateEx("DELETE FROM PP_Order_BOM WHERE " + delWhere, delParams, trxName);
 
 		// =============================================
 		// Step 4: 复制 PP_Order_BOM
@@ -160,6 +128,7 @@ public class CopyPPOrder extends SvrProcess {
 				newLine.setAD_Org_ID(fromLine.getAD_Org_ID());
 				newLine.setPP_Order_BOM_ID(newBOM.getPP_Order_BOM_ID());
 				newLine.setPP_Order_ID(newOrder.getPP_Order_ID());
+				newLine.setQtyPlusScrap(newOrder.getQtyOrdered());// 重新计算
 				newLine.saveEx();
 				bomLineCount++;
 			}
@@ -199,6 +168,7 @@ public class CopyPPOrder extends SvrProcess {
 				newNode.setPP_Order_ID(newOrder.getPP_Order_ID());
 				newNode.setPP_Order_Workflow_ID(newWF.getPP_Order_Workflow_ID());
 				newNode.setDocStatus(MPPOrder.DOCSTATUS_Drafted);
+				newNode.setQtyOrdered(newOrder.getQtyOrdered());
 				newNode.saveEx();
 				nodeCount++;
 
@@ -282,15 +252,13 @@ public class CopyPPOrder extends SvrProcess {
 			}
 		}
 
-		return "已复制工单: " + fromOrder.getDocumentNo() + " → " + newOrder.getDocumentNo() + "，BOM " + bomCount + " 条"
-				+ "，BOM子件 " + bomLineCount + " 条" + "，工艺路线 " + workflowCount + " 条" + "，工序 " + nodeCount + " 条"
-				+ "，工序物料 " + nodeProductCount + " 条" + "，工序资产 " + nodeAssetCount + " 条" + "，流转 " + nodeNextCount + " 条";
+		return "已复制工单: " + fromOrder.getDocumentNo() + " → " + newOrder.getDocumentNo();
 	}
 
 	@Override
 	protected void postProcess(boolean success) {
-		this.addLog("@Copied@ BOM=" + bomCount + ", BOMLine=" + bomLineCount + ", Workflow=" + workflowCount + ", Node="
-				+ nodeCount + ", NodeProduct=" + nodeProductCount + ", NodeAsset=" + nodeAssetCount + ", NodeNext="
-				+ nodeNextCount);
+		this.addLog("BOM " + bomCount + " 条，BOM子件 " + bomLineCount + " 条，" + "工艺路线 " + workflowCount + " 条，工序 "
+				+ nodeCount + " 条，工序物料 " + nodeProductCount + " 条，工序资产 " + nodeAssetCount + " 条，流转 " + nodeNextCount
+				+ " 条");
 	}
 }

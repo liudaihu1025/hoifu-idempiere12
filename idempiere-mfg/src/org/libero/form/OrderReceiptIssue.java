@@ -65,6 +65,8 @@ public class OrderReceiptIssue extends GenForm {
 	protected static CLogger log = CLogger.getCLogger(OrderReceiptIssue.class);
 	String m_sql = "";
 
+	private int m_nodeFilter = 0; // 0=不过滤，>0=只显示该工序和无工序的子件
+
 	private boolean m_isOnlyReceipt = false;
 
 	private boolean m_OnlyIssue = false;
@@ -174,6 +176,7 @@ public class OrderReceiptIssue extends GenForm {
 	    // 移除了库位列（原本第11列）
 	    issue.addColumn("仓库");     // 11 - 原来第12列，现在前移到第11列
 	    issue.addColumn("bom数量"); // 12 - 原来第13列，现在前移到第12列
+	    issue.addColumn("主料信息"); // 13 - 新增13列：主料信息
 
 	    issue.setMultiSelection(true);
 
@@ -192,6 +195,7 @@ public class OrderReceiptIssue extends GenForm {
 	    // 移除了第11列的库位设置
 	    issue.setColumnClass(11, KeyNamePair.class, true, "仓库"); // 原来第12列，现在第11列
 	    issue.setColumnClass(12, BigDecimal.class, true, "bom数量"); // 原来第13列，现在第12列
+	    issue.setColumnClass(13, String.class, true, "主料信息"); // 新增13列：主料信息（替代时显示被替代的主料编码+名称）  
 
 	    issue.autoSize();
 	    issue.setRowCount(0);
@@ -289,11 +293,7 @@ public class OrderReceiptIssue extends GenForm {
 		int activityId = 0; 
 		if (this instanceof WOrderReceiptIssue) {
 			WOrderReceiptIssue wForm = (WOrderReceiptIssue) this;
-			int adWfNodeId = wForm.getAD_WF_Node_ID();
-			if (adWfNodeId > 0) {
-				String sql = "SELECT PP_Order_Node_ID FROM PP_Order_Node WHERE PP_Order_ID = ? AND AD_WF_Node_ID = ?";
-	            nodeId = DB.getSQLValue(order.get_TrxName(), sql, order.get_ID(), adWfNodeId);  
-	        }  
+			nodeId = wForm.getPP_Order_Node_ID(); // 直接使用，已经是 PP_Order_Node_ID
 	        resourceId = wForm.getS_Resource_ID();  
 	        int selectedActivityId = wForm.getC_Activity_ID();  
 	        if (selectedActivityId > 0) {  
@@ -514,6 +514,11 @@ public class OrderReceiptIssue extends GenForm {
 				MStorageOnHand[] storages;
 				boolean draftOnly;
 
+				// 判断是否发生了替代（列13有主料信息则说明当前行已被替代）
+				Object mainProductInfo = issue.getValueAt(i, 13);
+				boolean isSubstituted = mainProductInfo != null && !mainProductInfo.toString().isEmpty();
+				int substituteProductId = isSubstituted ? M_Product_ID : 0;
+
 				if (MPPCostCollector.COSTCOLLECTORTYPE_ProductionReturn.equals(costCollectorType)) {
 					// 生产退料：使用用户选择的库位
 					if (locatorId <= 0) {
@@ -536,7 +541,7 @@ public class OrderReceiptIssue extends GenForm {
 					draftOnly = true; //
 					// 调用13参数重载，传入locatorId
 					MPPOrder.createIssue(order, PP_Order_BOMLine_ID, movementDate, qtyToDeliver, Env.ZERO, Env.ZERO,
-							storages, false, costCollectorType, nodeId, resourceId, draftOnly, locatorId);
+							storages, false, costCollectorType, nodeId, resourceId, draftOnly, locatorId, substituteProductId);
 				} else {
 					// 领料/补领：保持原逻辑
 					storages = MPPOrder.getStorages(Env.getCtx(), M_Product_ID, order.getM_Warehouse_ID(),
@@ -544,7 +549,7 @@ public class OrderReceiptIssue extends GenForm {
 					draftOnly = true; // 仅保存草稿
 					// 调用12参数方法创建明细
 					MPPOrder.createIssue(order, PP_Order_BOMLine_ID, movementDate, qtyToDeliver, Env.ZERO, Env.ZERO,
-							storages, false, costCollectorType, nodeId, resourceId, draftOnly);
+							storages, false, costCollectorType, nodeId, resourceId, draftOnly, substituteProductId);
 				}
 	  
 
@@ -651,7 +656,9 @@ public class OrderReceiptIssue extends GenForm {
 	    }  
 	}
 
-	
+	public void setNodeFilter(int nodeId) {
+		m_nodeFilter = nodeId;
+	}
 
 	public void executeQuery(IMiniTable issue) {
 		// 改为 StringBuilder 动态拼接
@@ -680,7 +687,11 @@ public class OrderReceiptIssue extends GenForm {
 		} else if ("N".equals(m_fulfilledFilter)) {
 			sqlBuilder.append(" AND obl.QtyDelivered < obl.QtyRequiered");
 		}
-
+		// ↓ 新增：工序过滤
+		if (m_nodeFilter > 0) {
+			sqlBuilder.append(" AND (obl.PP_Order_Node_ID = ").append(m_nodeFilter)
+					.append(" OR obl.PP_Order_Node_ID IS NULL").append(" OR obl.PP_Order_Node_ID = 0)");
+		}
 		sqlBuilder.append(" ORDER BY obl.").append(MPPOrderBOMLine.COLUMNNAME_Line);
 		String sql = sqlBuilder.toString();
 
@@ -1220,4 +1231,5 @@ public class OrderReceiptIssue extends GenForm {
 	protected boolean isSubcontractingReplenishment() {
 		return false; // 基类默认返回false，子类重写
 	}
+
 }

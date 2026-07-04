@@ -34,6 +34,7 @@ import org.libero.tables.I_PP_Cost_Collector;
 import org.libero.tables.I_PP_Order_Workflow;
 import org.libero.tables.X_PP_Cost_Collector;
 import org.libero.tables.X_PP_Order_Node;
+import org.zkoss.zk.ui.Executions;
 
 /**
  * PP Order Workflow Node Model
@@ -214,6 +215,7 @@ public class MPPOrderNode extends X_PP_Order_Node
 		//PShepetko maintetnance
 		set_ValueOfColumn("HR_Requirement_ID", wfNode.get_Value("HR_Requirement_ID"));
 		set_ValueOfColumn("IsEmployee", wfNode.get_Value("IsEmployee"));
+		set_ValueOfColumn("IsCheckNodeSeq", wfNode.get_Value("IsCheckNodeSeq"));
 	}
 	
 	/**
@@ -601,5 +603,84 @@ public class MPPOrderNode extends X_PP_Order_Node
 	 */
 	public void setAD_Routing_Node_ID(int AD_Routing_Node_ID) {
 		set_Value("AD_Routing_Node_ID", Integer.valueOf(AD_Routing_Node_ID));
+	}
+
+	@Override
+	protected boolean beforeSave(boolean newRecord) {
+		boolean isFromUI = Executions.getCurrent() != null;
+
+		if (isFromUI) {
+			MPPOrder order = getOrderParent();
+			if (order != null) {
+				if (isSpecialOrder(order)) {
+					if (isLockedForSpecialOrder(order)) {
+						// throw new AdempiereException("当前工单状态不允许新增或者修改工序");
+					}
+				} else {
+					String orderStatus = order.get_ValueAsString("Orderstatus");
+					if (!"Ready".equals(orderStatus)) {
+						// throw new AdempiereException("普通工单只有待发布状态才允许新增或者修改工序");
+					}
+				}
+			}
+		}
+
+		// 自动填充 PP_Order_Workflow_ID（不受 isFromUI 限制）
+		if (newRecord && getPP_Order_Workflow_ID() == 0 && getPP_Order_ID() > 0) {
+			String sql = "SELECT PP_Order_Workflow_ID FROM PP_Order_Workflow WHERE PP_Order_ID=? AND IsActive='Y' FETCH FIRST 1 ROWS ONLY";
+			int wfId = DB.getSQLValueEx(get_TrxName(), sql, getPP_Order_ID());
+			if (wfId > 0)
+				setPP_Order_Workflow_ID(wfId);
+		}
+
+		// 自动填充 AD_Workflow_ID
+		if (newRecord && getAD_Workflow_ID() == 0 && getPP_Order_Workflow_ID() > 0) {
+			String sql = "SELECT AD_Workflow_ID FROM PP_Order_Workflow WHERE PP_Order_Workflow_ID=?";
+			int adWfId = DB.getSQLValueEx(get_TrxName(), sql, getPP_Order_Workflow_ID());
+			if (adWfId > 0)
+				setAD_Workflow_ID(adWfId);
+		}
+
+		return true;
+	}
+
+	@Override
+	protected boolean beforeDelete() {
+		MPPOrder order = getOrderParent();
+		if (order != null) {
+			if (isSpecialOrder(order)) {
+				if (isLockedForSpecialOrder(order)) {
+					// throw new AdempiereException("当前工单状态不允许删除工序");
+				}
+			} else {
+				String orderStatus = order.get_ValueAsString("Orderstatus");
+				if (!"Ready".equals(orderStatus)) {
+					// throw new AdempiereException("普通工单只有待发布状态才允许删除工序");
+				}
+			}
+		}
+		return true;
+	}
+
+	private MPPOrder getOrderParent() {
+		int id = getPP_Order_ID();
+		if (id <= 0)
+			return null;
+		return new MPPOrder(getCtx(), id, get_TrxName());
+	}
+
+	private boolean isSpecialOrder(MPPOrder order) {
+		if (order == null || order.getC_DocTypeTarget_ID() <= 0)
+			return false;
+		MDocType docType = MDocType.get(getCtx(), order.getC_DocTypeTarget_ID());
+		if (docType == null)
+			return false;
+		String name = docType.getName();
+		return name != null && (name.contains("研发") || name.contains("打样"));
+	}
+
+	private boolean isLockedForSpecialOrder(MPPOrder order) {
+		String orderStatus = order.get_ValueAsString("Orderstatus");
+		return "Completed".equals(orderStatus) || "Shipped".equals(orderStatus) || "Stored".equals(orderStatus);
 	}
 }

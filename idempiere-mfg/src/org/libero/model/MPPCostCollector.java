@@ -800,6 +800,8 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 	@Override
 	protected boolean beforeSave(boolean newRecord)
 	{
+		// 是否使用替代料
+		boolean isSubstitute = getIsSubstitute();
 		// Set default locator, if not set and we have the warehouse:
 		if (getM_Locator_ID() <= 0 && getM_Warehouse_ID() > 0)
 		{
@@ -820,10 +822,12 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 			// If no UOM, use the UOM from BOMLine
 			if (getC_UOM_ID() <= 0)
 			{
-				setC_UOM_ID(getPP_Order_BOMLine().getC_UOM_ID());
+//				setC_UOM_ID(getPP_Order_BOMLine().getC_UOM_ID());
+				MProduct product = MProduct.get(getCtx(), getM_Product_ID());
+				setC_UOM_ID(isSubstitute ? product.getC_UOM_ID() : getPP_Order_BOMLine().getC_UOM_ID());
 			}
 			// If Cost Collector UOM differs from BOM Line UOM then throw exception because this conversion is not supported yet
-			if (getC_UOM_ID() != getPP_Order_BOMLine().getC_UOM_ID())
+			if (!isSubstitute && getC_UOM_ID() != getPP_Order_BOMLine().getC_UOM_ID())
 			{
 				throw new AdempiereException("@PP_Cost_Collector_ID@ @C_UOM_ID@ <> @PP_Order_BOMLine_ID@ @C_UOM_ID@");
 			}
@@ -1138,37 +1142,29 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 	}
 	
 	/**  
-	 * 根据实际的开始时间和完成时间计算并更新DurationReal  
-	 * 使用独立的日期字段而不是计算得出的日期  
+	 * 根据实际的开始时间和完成时间计算并更新DurationReal（单位：小时）  
 	 */  
 	public BigDecimal updateDurationRealFromDates(Timestamp actualStartDate, Timestamp actualFinishDate)  
 	{  
-	    // 如果开始时间或完成时间为空，跳过更新  
 	    if (actualStartDate == null || actualFinishDate == null)  
 	    {  
 	        return BigDecimal.ZERO;  
 	    }  
-	      
-	    // 计算时间差（毫秒）  
+	  
+	    // 计算时间差（毫秒）转换为小时  
 	    long diffMillis = actualFinishDate.getTime() - actualStartDate.getTime();  
-	      
-	    // 转换为小时（基于DurationBaseSec）  
-	    long durationBaseSec = getDurationBaseSec();  
-	    double hours = (double) diffMillis / (durationBaseSec * 1000.0);  
-	      
+	    double hours = (double) diffMillis / (3600.0 * 1000.0);  
+	  
 	    // 按0.5小时向下取整  
 	    double roundedHours = Math.floor(hours * 2) / 2.0;  
-	      
-	    // 确保DurationReal最小值为0  
+	  
 	    if (roundedHours < 0)  
 	    {  
 	        roundedHours = 0;  
 	    }  
-	      
-	    // 更新DurationReal  
+	  
 	    setDurationReal(BigDecimal.valueOf(roundedHours));  
-	    
-	    return BigDecimal.valueOf(roundedHours);
+	    return BigDecimal.valueOf(roundedHours);  
 	}
 	
 	public boolean isIssue()
@@ -1190,6 +1186,10 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 		return isCostCollectorType(COSTCOLLECTORTYPE_ActivityControl);
 	}
 	
+	public boolean isNonProduction()
+	{
+		return isCostCollectorType(COSTCOLLECTORTYPE_NonProduction);
+	}
 	public boolean isVariance()
 	{
 		return isCostCollectorType(COSTCOLLECTORTYPE_MethodChangeVariance

@@ -18,7 +18,7 @@ package org.libero.model;
 
 import java.io.File;
 import java.math.BigDecimal;
-import java.math.RoundingMode;		
+import java.math.RoundingMode;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -567,7 +567,17 @@ public class MPPMRP extends X_PP_MRP implements DocAction
 			{
 				order.deleteEx(true);
 			}
-		}		
+		}
+		// ★ 新增：检查 PP_MRP 表里是否存在 tableName_ID 列，不存在则直接返回
+		int colCount = DB.getSQLValue(null,
+				"SELECT COUNT(*) FROM information_schema.columns " + "WHERE table_name='pp_mrp' AND column_name=?",
+				(tableName + "_ID").toLowerCase());
+		if (colCount <= 0) {
+			s_log.finest("Column " + tableName + "_ID not found in PP_MRP, skipping MRP delete for " + tableName);
+			return;
+		}
+		// ★ 新增结束
+
 		//-->Ferry, delete all MRP. Ex. MO Voided will deleted MRP of SO  
 		no = DB.executeUpdateEx("DELETE FROM "+Table_Name+" WHERE "+tableName+"_ID=? AND AD_Client_ID=? AND ( DocStatus=? OR DocStatus=? )",
 				new Object[]{po.get_ID(), po.getAD_Client_ID(),MPPMRP.DOCSTATUS_Drafted,MPPMRP.DOCSTATUS_Voided},

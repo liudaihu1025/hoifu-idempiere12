@@ -18,8 +18,7 @@ package org.libero.tables;
 
 import java.math.BigDecimal;
 import java.sql.Timestamp;
-
-import org.compiere.model.MTable;
+import org.compiere.model.*;
 import org.compiere.util.KeyNamePair;
 
 /** Generated Interface for HX_BoxType
@@ -31,16 +30,16 @@ public interface I_HX_BoxType
 {
 
     /** TableName=HX_BoxType */
-	public static final String Table_Name = "hx_boxtype";
+    public static final String Table_Name = "HX_BoxType";
 
-    /** AD_Table_ID=1000101 */
+    /** AD_Table_ID=1000086 */
     public static final int Table_ID = MTable.getTable_ID(Table_Name);
 
     KeyNamePair Model = new KeyNamePair(Table_ID, Table_Name);
 
-    /** AccessLevel = 1 - Org 
+    /** AccessLevel = 3 - Client - Org 
      */
-    BigDecimal accessLevel = BigDecimal.valueOf(1);
+    BigDecimal accessLevel = BigDecimal.valueOf(3);
 
     /** Load Meta Data */
 
@@ -64,6 +63,36 @@ public interface I_HX_BoxType
 	  * Organizational entity within tenant
 	  */
 	public int getAD_Org_ID();
+
+    /** Column name AD_Workflow_ID */
+    public static final String COLUMNNAME_AD_Workflow_ID = "AD_Workflow_ID";
+
+	/** Set Workflow.
+	  * Workflow or combination of tasks
+	  */
+	public void setAD_Workflow_ID (int AD_Workflow_ID);
+
+	/** Get Workflow.
+	  * Workflow or combination of tasks
+	  */
+	public int getAD_Workflow_ID();
+
+	public org.compiere.model.I_AD_Workflow getAD_Workflow() throws RuntimeException;
+
+    /** Column name C_UOM_ID */
+    public static final String COLUMNNAME_C_UOM_ID = "C_UOM_ID";
+
+	/** Set UOM.
+	  * Unit of Measure
+	  */
+	public void setC_UOM_ID (int C_UOM_ID);
+
+	/** Get UOM.
+	  * Unit of Measure
+	  */
+	public int getC_UOM_ID();
+
+	public org.compiere.model.I_C_UOM getC_UOM() throws RuntimeException;
 
     /** Column name Created */
     public static final String COLUMNNAME_Created = "Created";
@@ -112,15 +141,6 @@ public interface I_HX_BoxType
 	/** Get HX_BoxType_UU	  */
 	public String getHX_BoxType_UU();
 
-    /** Column name Height */
-    public static final String COLUMNNAME_Height = "Height";
-
-	/** Set Height	  */
-	public void setHeight (String Height);
-
-	/** Get Height	  */
-	public String getHeight();
-
     /** Column name IsActive */
     public static final String COLUMNNAME_IsActive = "IsActive";
 
@@ -147,27 +167,18 @@ public interface I_HX_BoxType
 	  */
 	public boolean isValid();
 
-    /** Column name Length */
-    public static final String COLUMNNAME_Length = "Length";
+    /** Column name Name */
+    public static final String COLUMNNAME_Name = "Name";
 
-	/** Set Length	  */
-	public void setLength (String Length);
-
-	/** Get Length	  */
-	public String getLength();
-
-    /** Column name Thickness */
-    public static final String COLUMNNAME_Thickness = "Thickness";
-
-	/** Set &#21402;
-&#24230;
+	/** Set Name.
+	  * Alphanumeric identifier of the entity
 	  */
-	public void setThickness (String Thickness);
+	public void setName (String Name);
 
-	/** Get &#21402;
-&#24230;
+	/** Get Name.
+	  * Alphanumeric identifier of the entity
 	  */
-	public String getThickness();
+	public String getName();
 
     /** Column name Updated */
     public static final String COLUMNNAME_Updated = "Updated";
@@ -185,74 +196,226 @@ public interface I_HX_BoxType
 	  */
 	public int getUpdatedBy();
 
-    /** Column name Width */
-    public static final String COLUMNNAME_Width = "Width";
+    /** Column name Value */
+    public static final String COLUMNNAME_Value = "Value";
 
-	/** Set Width	  */
-	public void setWidth (String Width);
+	/** Set Search Key.
+	  * Search key for the record in the format required - must be unique
+	  */
+	public void setValue (String Value);
 
-	/** Get Width	  */
-	public String getWidth();
+	/** Get Search Key.
+	  * Search key for the record in the format required - must be unique
+	  */
+	public String getValue();
 
-    /** Column name isjumpdegree */
-    public static final String COLUMNNAME_isjumpdegree = "isjumpdegree";
+    /** Column name WeightFormula */
+    public static final String COLUMNNAME_WeightFormula = "WeightFormula";
 
-	/** Set isjumpdegree	  */
-	public void setisjumpdegree (boolean isjumpdegree);
+	/** Set &#35745;
+&#37325;
+&#20844;
+&#24335;
+	  */
+	public void setWeightFormula (String WeightFormula);
 
-	/** Get isjumpdegree	  */
-	public boolean isjumpdegree();
+	/** Get &#35745;
+&#37325;
+&#20844;
+&#24335;
+	  */
+	public String getWeightFormula();
+
+    /** Column name ad_workflow_name */
+    public static final String COLUMNNAME_ad_workflow_name = "ad_workflow_name";
+
+	/** Set ad_workflow_name	  */
+	public void setad_workflow_name (String ad_workflow_name);
+
+	/** Get ad_workflow_name	  */
+	public String getad_workflow_name();
+
+    /** Column name ad_workflow_value */
+    public static final String COLUMNNAME_ad_workflow_value = "ad_workflow_value";
+
+	/** Set ad_workflow_value	  */
+	public void setad_workflow_value (String ad_workflow_value);
+
+	/** Get ad_workflow_value	  */
+	public String getad_workflow_value();
+
+    /** Column name areaformula */
+    public static final String COLUMNNAME_areaformula = "areaformula";
+
+	/** Set areaformula	  */
+	public void setareaformula (String areaformula);
+
+	/** Get areaformula	  */
+	public String getareaformula();
+
+    /** Column name horizontalexpandlength */
+    public static final String COLUMNNAME_horizontalexpandlength = "horizontalexpandlength";
+
+	/** Set horizontalexpandlength	  */
+	public void sethorizontalexpandlength (String horizontalexpandlength);
+
+	/** Get horizontalexpandlength	  */
+	public String gethorizontalexpandlength();
+
+    /** Column name horizontalexpandwidth */
+    public static final String COLUMNNAME_horizontalexpandwidth = "horizontalexpandwidth";
+
+	/** Set horizontalexpandwidth	  */
+	public void sethorizontalexpandwidth (String horizontalexpandwidth);
+
+	/** Get horizontalexpandwidth	  */
+	public String gethorizontalexpandwidth();
 
     /** Column name isnailmouth */
     public static final String COLUMNNAME_isnailmouth = "isnailmouth";
 
-	/** Set isnailmouth	  */
+	/** Set &#38025;
+&#21475;
+	  */
 	public void setisnailmouth (boolean isnailmouth);
 
-	/** Get isnailmouth	  */
+	/** Get &#38025;
+&#21475;
+	  */
 	public boolean isnailmouth();
 
-    /** Column name openingmethod */
-    public static final String COLUMNNAME_openingmethod = "openingmethod";
+    /** Column name ispluginterface */
+    public static final String COLUMNNAME_ispluginterface = "ispluginterface";
 
-	/** Set openingmethod	  */
-	public void setopeningmethod (String openingmethod);
+	/** Set ispluginterface	  */
+	public void setispluginterface (boolean ispluginterface);
 
-	/** Get openingmethod	  */
-	public String getopeningmethod();
+	/** Get ispluginterface	  */
+	public boolean ispluginterface();
 
-	/** Column name Value */
-	public static final String COLUMNNAME_Value = "Value";
+    /** Column name istwobargebox */
+    public static final String COLUMNNAME_istwobargebox = "istwobargebox";
 
-	/**
-	 * Set Search Key.
-	 * 
-	 * @param Value Search key for the record in the format required - must be
-	 *              unique
-	 */
-	public void setValue(String Value);
+	/** Set istwobargebox	  */
+	public void setistwobargebox (boolean istwobargebox);
 
-	/**
-	 * Get Search Key.
-	 * 
-	 * @return Search key for the record in the format required - must be unique
-	 */
-	public String getValue();
+	/** Get istwobargebox	  */
+	public boolean istwobargebox();
 
-	/** Column name Name */
-	public static final String COLUMNNAME_Name = "Name";
+    /** Column name paperlengthcrease1 */
+    public static final String COLUMNNAME_paperlengthcrease1 = "paperlengthcrease1";
 
-	/**
-	 * Set Name.
-	 * 
-	 * @param Name Alphanumeric identifier of the entity
-	 */
-	public void setName(String Name);
+	/** Set paperlengthcrease1	  */
+	public void setpaperlengthcrease1 (String paperlengthcrease1);
 
-	/**
-	 * Get Name.
-	 * 
-	 * @return Alphanumeric identifier of the entity
-	 */
-	public String getName();
+	/** Get paperlengthcrease1	  */
+	public String getpaperlengthcrease1();
+
+    /** Column name paperlengthcrease2 */
+    public static final String COLUMNNAME_paperlengthcrease2 = "paperlengthcrease2";
+
+	/** Set paperlengthcrease2	  */
+	public void setpaperlengthcrease2 (String paperlengthcrease2);
+
+	/** Get paperlengthcrease2	  */
+	public String getpaperlengthcrease2();
+
+    /** Column name paperlengthcrease3 */
+    public static final String COLUMNNAME_paperlengthcrease3 = "paperlengthcrease3";
+
+	/** Set paperlengthcrease3	  */
+	public void setpaperlengthcrease3 (String paperlengthcrease3);
+
+	/** Get paperlengthcrease3	  */
+	public String getpaperlengthcrease3();
+
+    /** Column name paperlengthcrease4 */
+    public static final String COLUMNNAME_paperlengthcrease4 = "paperlengthcrease4";
+
+	/** Set paperlengthcrease4	  */
+	public void setpaperlengthcrease4 (String paperlengthcrease4);
+
+	/** Get paperlengthcrease4	  */
+	public String getpaperlengthcrease4();
+
+    /** Column name paperlengthcrease5 */
+    public static final String COLUMNNAME_paperlengthcrease5 = "paperlengthcrease5";
+
+	/** Set paperlengthcrease5	  */
+	public void setpaperlengthcrease5 (String paperlengthcrease5);
+
+	/** Get paperlengthcrease5	  */
+	public String getpaperlengthcrease5();
+
+    /** Column name paperwidthcrease1 */
+    public static final String COLUMNNAME_paperwidthcrease1 = "paperwidthcrease1";
+
+	/** Set paperwidthcrease1	  */
+	public void setpaperwidthcrease1 (String paperwidthcrease1);
+
+	/** Get paperwidthcrease1	  */
+	public String getpaperwidthcrease1();
+
+    /** Column name paperwidthcrease2 */
+    public static final String COLUMNNAME_paperwidthcrease2 = "paperwidthcrease2";
+
+	/** Set paperwidthcrease2	  */
+	public void setpaperwidthcrease2 (String paperwidthcrease2);
+
+	/** Get paperwidthcrease2	  */
+	public String getpaperwidthcrease2();
+
+    /** Column name paperwidthcrease3 */
+    public static final String COLUMNNAME_paperwidthcrease3 = "paperwidthcrease3";
+
+	/** Set paperwidthcrease3	  */
+	public void setpaperwidthcrease3 (String paperwidthcrease3);
+
+	/** Get paperwidthcrease3	  */
+	public String getpaperwidthcrease3();
+
+    /** Column name paperwidthcrease4 */
+    public static final String COLUMNNAME_paperwidthcrease4 = "paperwidthcrease4";
+
+	/** Set paperwidthcrease4	  */
+	public void setpaperwidthcrease4 (String paperwidthcrease4);
+
+	/** Get paperwidthcrease4	  */
+	public String getpaperwidthcrease4();
+
+    /** Column name paperwidthcrease5 */
+    public static final String COLUMNNAME_paperwidthcrease5 = "paperwidthcrease5";
+
+	/** Set paperwidthcrease5	  */
+	public void setpaperwidthcrease5 (String paperwidthcrease5);
+
+	/** Get paperwidthcrease5	  */
+	public String getpaperwidthcrease5();
+
+    /** Column name verticalexpandlength */
+    public static final String COLUMNNAME_verticalexpandlength = "verticalexpandlength";
+
+	/** Set verticalexpandlength	  */
+	public void setverticalexpandlength (String verticalexpandlength);
+
+	/** Get verticalexpandlength	  */
+	public String getverticalexpandlength();
+
+    /** Column name verticalexpandwidth */
+    public static final String COLUMNNAME_verticalexpandwidth = "verticalexpandwidth";
+
+	/** Set verticalexpandwidth	  */
+	public void setverticalexpandwidth (String verticalexpandwidth);
+
+	/** Get verticalexpandwidth	  */
+	public String getverticalexpandwidth();
+
+    /** Column name volumeformula */
+    public static final String COLUMNNAME_volumeformula = "volumeformula";
+
+	/** Set volumeformula	  */
+	public void setvolumeformula (String volumeformula);
+
+	/** Get volumeformula	  */
+	public String getvolumeformula();
 }

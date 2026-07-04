@@ -663,4 +663,11 @@ public interface I_PP_Cost_Collector
 	  
 	/** Get PP_Material_Requisition_ID */  
 	public int getPP_Material_Requisition_ID();
+
+	
+	public static final String COLUMNNAME_IsSubstitute = "IsSubstitute";  
+	  
+	public void setIsSubstitute(boolean IsSubstitute);  
+	  
+	public boolean getIsSubstitute();
 }

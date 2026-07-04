@@ -160,6 +160,36 @@
             columnName="M_Product_ID"
             tableName="PP_Product_BOM">
       </callout>
+	  <callout  
+	      class="org.libero.callouts.ProductCalculateBoxAreaCallout"  
+	      columnName="HX_BoxType_ID"  
+	      tableName="M_Product">  
+	</callout>  
+	<callout  
+	      class="org.libero.callouts.ProductCalculateBoxAreaCallout"  
+	      columnName="Lengbie"  
+	      tableName="M_Product">  
+	</callout>  
+	<callout  
+	      class="org.libero.callouts.ProductCalculateBoxAreaCallout"  
+	      columnName="M_Product_Category_ID_L1"  
+	      tableName="M_Product">  
+	</callout>  
+	<callout  
+	      class="org.libero.callouts.ProductCalculateBoxAreaCallout"  
+	      columnName="Length"  
+	      tableName="M_Product">  
+	</callout>  
+	<callout  
+	      class="org.libero.callouts.ProductCalculateBoxAreaCallout"  
+	      columnName="Width"  
+	      tableName="M_Product">  
+	</callout>  
+	<callout  
+	      class="org.libero.callouts.ProductCalculateBoxAreaCallout"  
+	      columnName="Height"  
+	      tableName="M_Product">  
+	</callout>
       <callout
             class="org.libero.callouts.Callout_PP_Order"
             columnName="QtyEntered"
@@ -245,6 +275,16 @@
             columnName="QtyRequiered"
             tableName="PP_Order_BOMLine">
       </callout>
+      <callout  
+    		class="org.libero.callouts.Callout_PP_Order_BOMLine"  
+    		columnName="M_Product_ID"  
+    		tableName="PP_Order_BOMLine">  
+	  </callout>
+	  <callout  
+        class="org.libero.callouts.Callout_PP_Order_BOMLine"  
+        columnName="PP_Order_Node_ID"  
+        tableName="PP_Order_BOMLine">  
+</callout>
       <callout
               class="org.libero.callouts.Callout_PP_Order_Workflow"
               columnName="QtyBatchSize"
@@ -255,6 +295,26 @@
               columnName="AD_Routing_Node_ID"
               tableName="PP_Order_Node">
       </callout>
+       <callout  
+              class="org.libero.callouts.Callout_PP_Order_Node"  
+              columnName="ScrapType"  
+              tableName="PP_Order_Node">  
+      </callout>  
+      <callout  
+              class="org.libero.callouts.Callout_PP_Order_Node"  
+              columnName="QtyColor"  
+              tableName="PP_Order_Node">  
+      </callout>  
+      <callout  
+    class="org.libero.callouts.Callout_M_InOutLine_Product"  
+    columnName="M_Product_ID"  
+    tableName="M_InOutLine">  
+	</callout>
+	<callout  
+    class="org.libero.callouts.Callout_M_InOutLine_Product"  
+    columnName="QtyEntered"  
+    tableName="M_InOutLine">  
+	</callout>
       <callout  
     class="org.libero.callouts.Callout_HX_BoxType"  
     columnName="AD_Workflow_ID"  
@@ -283,6 +343,7 @@
 <callout class="org.libero.callouts.Callout_HF_QuotationPrice" columnName="WasteCleaningFee"   tableName="HF_QuotationPrice"/>  
 <callout class="org.libero.callouts.Callout_HF_QuotationPrice" columnName="PlateFee"           tableName="HF_QuotationPrice"/>  
 <callout class="org.libero.callouts.Callout_HF_QuotationPrice" columnName="DieFee"             tableName="HF_QuotationPrice"/>
+<callout class="org.libero.callouts.Callout_HF_QuotationPrice" columnName="CalcRatio"             tableName="HF_QuotationPrice"/>
 <callout class="org.libero.callouts.Callout_HF_QuotationPrice" columnName="OtherProcessFee" tableName="HF_QuotationPrice"/>
    </extension>
    <extension
@@ -320,6 +381,14 @@
          point="org.adempiere.webui.Form">
       <form
             class="org.libero.form.WTreeBOM">
+      </form>
+   </extension>
+   <extension      
+   		 id="org.libero.form.WMfgOrderForm"
+         name="WMfgOrderForm"
+         point="org.adempiere.webui.Form">
+      <form
+            class="org.libero.form.WMfgOrderForm">
       </form>
    </extension>
    <extension
@@ -607,5 +676,13 @@
          class="org.libero.process.CopyWorkflow">  
    </process>  
 </extension>
+<extension  
+      id="org.libero.process.PPOrderReworkApplyProcess"  
+      point="org.adempiere.base.Process">  
+   <process  
+         class="org.libero.process.PPOrderReworkApplyProcess">  
+   </process>  
+</extension>
+
 
 </plugin>

@@ -92,12 +92,11 @@ public class CopyProductWithBOM extends SvrProcess {
 			}
 		}
 
-		return "已复制产品: " + sourceProduct.getValue() + " → " + newProduct.getValue() + "，BOM " + bomCount + " 条，BOM子件 "
-				+ lineCount + " 条";
+		return "已复制产品: " + sourceProduct.getValue() + " → " + newProduct.getValue();
 	}
 
 	@Override
 	protected void postProcess(boolean success) {
-		this.addLog("@Copied@ BOM=" + bomCount + ", BOMLine=" + lineCount);
+		this.addLog("BOM " + bomCount + " 条，BOM子件 " + lineCount + " 条");
 	}
 }

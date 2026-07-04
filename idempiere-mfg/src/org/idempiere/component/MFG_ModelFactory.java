@@ -18,6 +18,7 @@ import org.libero.model.MC_WorkTeam;
 import org.libero.model.MC_WorkTeamMember;
 import org.libero.model.MDDNetworkDistribution;
 import org.libero.model.MDDNetworkDistributionLine;
+import org.libero.model.MHFLengbieConfig;
 import org.libero.model.MHX_BoxType;
 import org.libero.model.MPPCostCollector;
 import org.libero.model.MPPCostCollectorMA;
@@ -126,6 +127,8 @@ public class MFG_ModelFactory implements IModelFactory {
 				return MC_WorkTeam.class;
 			} else if (tableName.equals(MC_WorkTeamMember.Table_Name)) {
 				return MC_WorkTeamMember.class;
+			} else if (tableName.equals(MHFLengbieConfig.Table_Name)) {
+				return MHFLengbieConfig.class;
 			} else
 			   return null;
 	}
@@ -220,6 +223,8 @@ public class MFG_ModelFactory implements IModelFactory {
 				return new MC_WorkTeam(Env.getCtx(), Record_ID, trxName);
 			} else if (tableName.equals(MC_WorkTeamMember.Table_Name)) {
 				return new MC_WorkTeamMember(Env.getCtx(), Record_ID, trxName);
+			} else if (tableName.equals(MHFLengbieConfig.Table_Name)) {
+				return new MHFLengbieConfig(Env.getCtx(), Record_ID, trxName);
 			}
 		   return null;
 	}
@@ -309,12 +314,18 @@ public class MFG_ModelFactory implements IModelFactory {
 	        }  
 			else if (tableName.equals(MPP_Engineering_Change_Notice.Table_Name)) {
 				return new MPP_Engineering_Change_Notice(Env.getCtx(), rs, trxName);
+				
 			} else if (tableName.equals("HX_BoxType")) { // 添加HX_BoxType映射
 				return new MHX_BoxType(Env.getCtx(), rs, trxName);
+				
 			} else if (tableName.equals(MC_WorkTeam.Table_Name)) {
 				return new MC_WorkTeam(Env.getCtx(), rs, trxName);
+				
 			} else if (tableName.equals(MC_WorkTeamMember.Table_Name)) {
 				return new MC_WorkTeamMember(Env.getCtx(), rs, trxName);
+				
+			} else if (tableName.equals(MHFLengbieConfig.Table_Name)) {
+				return new MHFLengbieConfig(Env.getCtx(), rs, trxName);
 			}
 		 
 		   return null;
