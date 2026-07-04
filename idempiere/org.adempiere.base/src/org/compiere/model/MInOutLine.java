@@ -641,14 +641,14 @@ public class MInOutLine extends X_M_InOutLine
 			setMovementQty(getMovementQty());
 
 		// Must fill one of Order Line or RMA Line for sales transaction
-		if (getC_OrderLine_ID() == 0 && getM_RMALine_ID() == 0)
-		{
-			if (getParent().isSOTrx())
-			{
-				log.saveError("FillMandatory", Msg.translate(getCtx(), "C_OrderLine_ID"));
-				return false;
-			}
-		}
+//		if (getC_OrderLine_ID() == 0 && getM_RMALine_ID() == 0)
+//		{
+//			if (getParent().isSOTrx())
+//			{
+//				log.saveError("FillMandatory", Msg.translate(getCtx(), "C_OrderLine_ID"));
+//				return false;
+//			}
+//		}
 		
 		if (getM_Locator_ID() > 0)
 		{

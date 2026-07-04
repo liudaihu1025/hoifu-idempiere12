@@ -1557,28 +1557,37 @@ public class FinReport extends SvrProcess
 		insert.append(") SELECT ")
 			.append(getAD_PInstance_ID()).append(",")
 			.append(m_lines[line].getPA_ReportLine_ID()).append(",")
-			.append(variable).append(",0,")
-			.append("(SELECT rl.C_ElementValue_ID FROM PA_ReportLine rl WHERE rl.PA_ReportLine_ID = ")
-			.append(m_lines[line].getPA_ReportLine_ID()).append("),");
+			.append(variable).append(",0,");
+//			.append("(SELECT rl.C_ElementValue_ID FROM PA_ReportLine rl WHERE rl.PA_ReportLine_ID = ")
+//			.append(m_lines[line].getPA_ReportLine_ID()).append("),");
 		
 		boolean listSourceNoTrx = m_report.isListSourcesXTrx() && variable.equalsIgnoreCase(I_C_ValidCombination.COLUMNNAME_Account_ID);
 		//SQL to get the Account Element which no transaction		
 		StringBuilder unionInsert = listSourceNoTrx ? new StringBuilder() : null;
-		if (listSourceNoTrx) {
-			unionInsert.append(" UNION SELECT ")
-			.append(getAD_PInstance_ID()).append(",")
-			.append(m_lines[line].getPA_ReportLine_ID()).append(",")
-			.append(variable).append(",0,");
+		if (listSourceNoTrx) {  
+		    unionInsert.append(" UNION SELECT ")  
+		    .append(getAD_PInstance_ID()).append(",")  
+		    .append(m_lines[line].getPA_ReportLine_ID()).append(",")  
+		    .append(variable).append(",0,")  ;
+//		    .append("(SELECT rl.C_ElementValue_ID FROM PA_ReportLine rl WHERE rl.PA_ReportLine_ID = ")  
+//		    .append(m_lines[line].getPA_ReportLine_ID()).append("),");  // ← 补上这一列  
 		}
 				
 		if (p_DetailsSourceFirst) {
-			insert.append("-1 ");
+			insert.append("-1, ");
 			if (listSourceNoTrx)
-				unionInsert.append("-1 ");
+				unionInsert.append("-1, ");
 		} else {
-			insert.append("1 ");
+			insert.append("1, ");
 			if (listSourceNoTrx)
-				unionInsert.append("1 ");
+				unionInsert.append("1, ");
+		}
+		// 第 6 列：C_ElementValue_ID（后写）  
+		insert.append("(SELECT rl.C_ElementValue_ID FROM PA_ReportLine rl WHERE rl.PA_ReportLine_ID = ")  
+		    .append(m_lines[line].getPA_ReportLine_ID()).append(") ");  
+		if (listSourceNoTrx) {  
+		    unionInsert.append("(SELECT rl.C_ElementValue_ID FROM PA_ReportLine rl WHERE rl.PA_ReportLine_ID = ")  
+		        .append(m_lines[line].getPA_ReportLine_ID()).append(") ");  
 		}
 
 		String numericType = DB.getDatabase().getNumericDataType();
@@ -2003,11 +2012,11 @@ public class FinReport extends SvrProcess
 		String numericType = DB.getDatabase().getNumericDataType();
 		for (int col = 0; col < m_columns.length; col++) {
 			sql.append(", ");
-			if (m_columns[col].isColumnTypeCalculation()) {
-				sql.append("CAST(NULL AS ").append(numericType).append(")");
-			} else {
-				sql.append("(").append(buildColumnSubqueryForLine(line, col, variable, config.secondaryTableId))
-						.append(") AS Col_").append(col);
+			if (m_columns[col].isColumnTypeCalculation()) {  
+			    sql.append("CAST(NULL AS ").append(numericType).append(") AS Col_").append(col);  // ← 加上别名  
+			} else {  
+			    sql.append("(").append(buildColumnSubqueryForLine(line, col, variable, config.secondaryTableId))  
+			            .append(") AS Col_").append(col);  
 			}
 		}
 
@@ -2293,7 +2302,7 @@ public class FinReport extends SvrProcess
 				+ " INNER JOIN AD_Table t ON (fa.AD_Table_ID = t.AD_Table_ID)"
 				+ " INNER JOIN AD_Element e ON (t.TableName||'_ID' = e.ColumnName)"
 				+ " INNER JOIN PA_ReportLine rl ON rl.PA_ReportLine_ID = r.PA_ReportLine_ID"
-				+ " WHERE fa.Fact_Acct_ID = " + idExtract + ") WHERE r.LevelNo IN (2,3) AND r.Secondary_Record_ID <> 0"
+				+ " WHERE fa.Fact_Acct_ID = (" + idExtract + ")::integer" + ") WHERE r.LevelNo IN (2,3) AND r.Secondary_Record_ID <> 0"
 				+ " AND r.AD_PInstance_ID = ? AND r.PA_ReportLine_ID = ?";
 		DB.executeUpdateEx(sql, new Object[] { getAD_PInstance_ID(), m_lines[line].getPA_ReportLine_ID() },
 				get_TrxName());
@@ -2314,8 +2323,8 @@ public class FinReport extends SvrProcess
 				+ " SELECT CONCAT(rl.Name, '-', r.Secondary_Record_ID), "
 				+ "        CASE WHEN r.LevelNo = 3 THEN COALESCE(t.Name, '') ELSE r.Description END " + " FROM "
 				+ config.secondaryTable + " t"
-				+ " INNER JOIN PA_ReportLine rl ON rl.PA_ReportLine_ID = r.PA_ReportLine_ID" + " WHERE t."
-				+ config.secondaryTableId + " = " + idExtract
+				+ " INNER JOIN PA_ReportLine rl ON rl.PA_ReportLine_ID = r.PA_ReportLine_ID" + " WHERE t."  
+				+ config.secondaryTableId + "::text = (" + idExtract + ")::text"
 				+ ") WHERE r.LevelNo IN (2,3) AND r.Secondary_Record_ID IS NOT NULL"
 				+ " AND r.AD_PInstance_ID = ? AND r.PA_ReportLine_ID = ?";
 		DB.executeUpdateEx(nonNullSql, new Object[] { getAD_PInstance_ID(), m_lines[line].getPA_ReportLine_ID() },

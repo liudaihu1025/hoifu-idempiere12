@@ -45,6 +45,7 @@ import org.compiere.util.DisplayType;
 import org.compiere.util.Evaluator;
 import org.compiere.util.Msg;
 import org.compiere.util.Util;
+import org.idempiere.print.renderer.MultiIdentifierColumn;
 
 /**
  * Export PrintData to Excel (XLS) file
@@ -157,6 +158,29 @@ public class PrintDataExcelExporter extends AbstractExcelExporter
 
 	@Override
 	public Object getValueAt(int row, int col) {
+		Object colObj = columns.get(col);
+		if (colObj instanceof MultiIdentifierColumn) {
+			MultiIdentifierColumn mic = (MultiIdentifierColumn) colObj;
+			// 找到原始 PrintDataElement（用 item 的 ID 查）
+			if (m_printData.getRowIndex() != row)
+				m_printData.setRowIndex(row);
+			Object obj = m_printData.getNodeByPrintFormatItemId(mic.getItem().getAD_PrintFormatItem_ID());
+			if (!(obj instanceof PrintDataElement))
+				return null;
+			PrintDataElement pde = (PrintDataElement) obj;
+			String keyStr = pde.getValueAsString();
+			if (keyStr == null || keyStr.isEmpty())
+				return null;
+			Object keyParam;
+			try {
+				keyParam = Integer.parseInt(keyStr);
+			} catch (NumberFormatException e) {
+				keyParam = keyStr;
+			}
+			return MultiIdentifierColumn.resolveIdentifierColumnValue(mic.getForeignTable(), mic.getForeignKeyCol(), mic.getIdColName(), keyParam,
+					getLanguage());
+		}
+	    
 		PrintDataElement pde = getPDE(row, col);
 		Object value = null;
 		if (pde == null)
@@ -185,7 +209,7 @@ public class PrintDataExcelExporter extends AbstractExcelExporter
 		}
 		//
 		MPrintFormatItem item = null;
-		Object colObj = columns.get(col);
+//		Object colObj = columns.get(col);
 		if (colObj instanceof MPrintFormatItem)
 			item = (MPrintFormatItem) colObj;
 		if(item != null && item.getAD_PrintFormatChild_ID()!=0)
@@ -223,15 +247,15 @@ public class PrintDataExcelExporter extends AbstractExcelExporter
 	@Override
 	public String getHeaderName(int col) {
 		Object colObj = columns.get(col);
-		if (colObj instanceof MPrintFormatItem) {
-			MPrintFormatItem item = (MPrintFormatItem) colObj;
-			return item.getPrintName(getLanguage());
+		if (colObj instanceof MultiIdentifierColumn) {
+			MultiIdentifierColumn mic = (MultiIdentifierColumn) colObj;
+			return mic.getItem().getPrintName(getLanguage()) + "[" + mic.getIdColName() + "]";
+		} else if (colObj instanceof MPrintFormatItem) {
+			return ((MPrintFormatItem) colObj).getPrintName(getLanguage());
 		} else if (colObj instanceof InstanceAttributeColumn) {
-			InstanceAttributeColumn ia = (InstanceAttributeColumn) colObj;
-			return ia.getName();
-		} else {
-			return "";
+			return ((InstanceAttributeColumn) colObj).getName();
 		}
+		return "";
 	}
 
 	@Override
@@ -370,6 +394,48 @@ public class PrintDataExcelExporter extends AbstractExcelExporter
 					columnCreated++;
 				}
 			}
+		}
+		
+		// 展开多标识符字段  
+		int insertOffset = 0;
+		int originalSize = columns.size();
+		for (int i = 0; i < originalSize; i++) {
+			Object colObj = columns.get(i + insertOffset);
+			if (!(colObj instanceof MPrintFormatItem))
+				continue;
+			MPrintFormatItem item = (MPrintFormatItem) colObj;
+			List<MultiIdentifierColumn> mics = MultiIdentifierColumn.getMultiIdentifierColumns(item);
+			if (mics == null || mics.size() <= 1)
+				continue;
+			// 替换原列为多个展开列
+			columns.remove(i + insertOffset);
+			for (int j = 0; j < mics.size(); j++) {
+				columns.add(i + insertOffset + j, mics.get(j));
+			}
+			insertOffset += mics.size() - 1;
+		}
+
+		// 同步扩展 colSuppressRepeats 数组
+		if (colSuppressRepeats != null && columns.size() != colSuppressRepeats.length) {
+			Boolean[] newSuppressRepeats = new Boolean[columns.size()];
+			// 重新映射：MultiIdentifierColumn 继承原列的 suppressRepeats 设置
+			int origIdx = 0;
+			for (int i = 0; i < columns.size(); i++) {
+				Object colObj = columns.get(i);
+				if (colObj instanceof MultiIdentifierColumn) {
+					newSuppressRepeats[i] = origIdx < colSuppressRepeats.length ? colSuppressRepeats[origIdx] : false;
+					// 只有最后一个展开列才推进 origIdx
+					MultiIdentifierColumn mic = (MultiIdentifierColumn) colObj;
+					boolean isLast = (i + 1 >= columns.size() || !(columns.get(i + 1) instanceof MultiIdentifierColumn)
+							|| ((MultiIdentifierColumn) columns.get(i + 1)).getItem() != mic.getItem());
+					if (isLast)
+						origIdx++;
+				} else {
+					newSuppressRepeats[i] = origIdx < colSuppressRepeats.length ? colSuppressRepeats[origIdx] : false;
+					origIdx++;
+				}
+			}
+			colSuppressRepeats = newSuppressRepeats;
 		}
 		
 		super.export(out);
@@ -600,13 +666,16 @@ public class PrintDataExcelExporter extends AbstractExcelExporter
 	{
 		if (m_printData.getRowIndex() != row)
 			m_printData.setRowIndex(row);
-
 		Object colobj = columns.get(col);
-		MPrintFormatItem item = colobj instanceof InstanceAttributeColumn ? ((InstanceAttributeColumn)colobj).getPrintFormatItem()
-				: (MPrintFormatItem)colobj;
+		MPrintFormatItem item;
+		if (colobj instanceof InstanceAttributeColumn)
+			item = ((InstanceAttributeColumn) colobj).getPrintFormatItem();
+		else if (colobj instanceof MultiIdentifierColumn)
+			item = ((MultiIdentifierColumn) colobj).getItem(); // ← 新增
+		else
+			item = (MPrintFormatItem) colobj;
 		if (Util.isEmpty(item.getDisplayLogic()))
 			return true;
-
 		return Evaluator.evaluateLogic(new PrintDataEvaluatee(null, m_printData), item.getDisplayLogic());
 	}
 }

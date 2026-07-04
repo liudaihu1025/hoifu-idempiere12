@@ -267,7 +267,10 @@ public class ModelClassGenerator
 			 .append("    /** Load Meta Data */").append(NL)
 			 .append("    protected POInfo initPO (Properties ctx)").append(NL)
 			 .append("    {").append(NL)
-			 .append("      POInfo poi = POInfo.getPOInfo (ctx, Table_ID, get_TrxName());").append(NL)
+//			 .append("      POInfo poi = POInfo.getPOInfo (ctx, Table_ID, get_TrxName());").append(NL)
+			 .append("      POInfo poi = POInfo.getPOInfo (ctx, ")
+			 .append(AD_Table_ID <= MTable.MAX_OFFICIAL_ID ? "Table_ID" : "MTable.getTable_ID(Table_Name)")
+			 .append(", get_TrxName());").append(NL)
 			 .append("      return poi;").append(NL)
 			 .append("    }").append(NL);
 			// initPO

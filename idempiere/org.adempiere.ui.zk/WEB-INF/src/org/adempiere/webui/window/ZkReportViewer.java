@@ -752,7 +752,12 @@ public class ZkReportViewer extends Window implements EventListener<Event>, IRep
 									if (paramValue != null) {
 										Env.setContext(Env.getCtx(), m_WindowNo, "C_Period_ID", paramValue.toString());
 									}
-									break;
+								}
+								if ("C_AcctSchema_ID".equals(param.getParameterName())) {
+									Object paramValue = param.getParameter();
+									if (paramValue != null) {
+										Env.setContext(Env.getCtx(), m_WindowNo, "C_AcctSchema_ID", paramValue.toString());
+									}
 								}
 							}
 						}

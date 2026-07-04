@@ -29,6 +29,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
+import java.util.regex.Pattern;
 
 import org.adempiere.base.IGridTabExporter;
 import org.adempiere.exceptions.AdempiereException;
@@ -39,10 +40,15 @@ import org.compiere.model.GridTable;
 import org.compiere.model.GridWindow;
 import org.compiere.model.GridWindowVO;
 import org.compiere.model.I_AD_EntityType;
+import org.compiere.model.Lookup;
+import org.compiere.model.LookupDisplayColumn;
 import org.compiere.model.MColumn;
 import org.compiere.model.MLocation;
+import org.compiere.model.MLookup;
+import org.compiere.model.MLookupFactory;
 import org.compiere.model.MQuery;
 import org.compiere.model.MRefList;
+import org.compiere.model.MSysConfig;
 import org.compiere.model.MTab;
 import org.compiere.model.MTable;
 import org.compiere.util.CLogger;
@@ -76,7 +82,7 @@ public class GridTabCSVExporter implements IGridTabExporter
 
 	@Override
 	public void export(GridTab gridTab, List<GridTab> childs, boolean currentRowOnly, File file,int indxDetailSelected) {
-
+		Map<String, List<String>> multiIdentifierMap = new HashMap<>();
 		ICsvMapWriter mapWriter = null;
 		Map<GridTab,GridField[]> tabMapDetails = new HashMap<GridTab, GridField[]>();
 		MTable table= null;
@@ -117,22 +123,44 @@ public class GridTabCSVExporter implements IGridTabExporter
 				} else if (DisplayType.Binary == field.getDisplayType()) {
 				   continue;	
 				}
-				String headName = resolveColumnName(table, column);
-				headArray.add(headName);
-				if (DisplayType.Date == field.getDisplayType()) {
-					procArray.add(new Optional(new FmtDate(DisplayType.DEFAULT_DATE_FORMAT)));
-				} else if (DisplayType.DateTime == field.getDisplayType()) {
-					procArray.add(new Optional(new FmtDate(DisplayType.DEFAULT_TIMESTAMP_FORMAT)));
-				} else if (DisplayType.Time == field.getDisplayType()) {
-					procArray.add(new Optional(new FmtDate(DisplayType.DEFAULT_TIME_FORMAT)));
-				} else if (DisplayType.Integer == field.getDisplayType() || DisplayType.isNumeric(field.getDisplayType())) {
-					DecimalFormat nf = DisplayType.getNumberFormat(field.getDisplayType());
-					nf.setGroupingUsed(false);
-					procArray.add(new Optional(new FmtNumber(nf)));
-				} else if (DisplayType.YesNo == field.getDisplayType()) {
-					procArray.add(new Optional(new FmtBool("Y", "N")));
-				} else { // lookups
-					procArray.add(new Optional());
+				
+				// 新增：检查是否是多标识符外键字段
+				boolean handled = false;
+				if (DisplayType.isLookup(field.getDisplayType()) && !DisplayType.isMultiID(field.getDisplayType())) {
+					Lookup lookup = field.getLookup();
+					if (lookup instanceof MLookup mlookup) {
+						List<String> idColNames = mlookup.getLookupInfo().lookupDisplayColumnNames;
+						if (idColNames != null && idColNames.size() > 1) {
+							String tableKey = table.getTableName() + "." + column.getColumnName();  
+							multiIdentifierMap.put(tableKey, idColNames);  
+							String translatedColName = getElementTranslation(column.getColumnName());  
+							for (String idCol : idColNames) {  
+							    headArray.add(translatedColName + "[" + idCol + "]");  
+							    procArray.add(new Optional());  
+							}
+							handled = true;
+						}
+					}
+				}
+				if (!handled) {
+					String headName = resolveColumnName(table, column);
+					headArray.add(headName);
+					if (DisplayType.Date == field.getDisplayType()) {
+						procArray.add(new Optional(new FmtDate(DisplayType.DEFAULT_DATE_FORMAT)));
+					} else if (DisplayType.DateTime == field.getDisplayType()) {
+						procArray.add(new Optional(new FmtDate(DisplayType.DEFAULT_TIMESTAMP_FORMAT)));
+					} else if (DisplayType.Time == field.getDisplayType()) {
+						procArray.add(new Optional(new FmtDate(DisplayType.DEFAULT_TIME_FORMAT)));
+					} else if (DisplayType.Integer == field.getDisplayType()
+							|| DisplayType.isNumeric(field.getDisplayType())) {
+						DecimalFormat nf = DisplayType.getNumberFormat(field.getDisplayType());
+						nf.setGroupingUsed(false);
+						procArray.add(new Optional(new FmtNumber(nf)));
+					} else if (DisplayType.YesNo == field.getDisplayType()) {
+						procArray.add(new Optional(new FmtBool("Y", "N")));
+					} else { // lookups
+						procArray.add(new Optional());
+					}
 				}
 			}
 			
@@ -142,6 +170,9 @@ public class GridTabCSVExporter implements IGridTabExporter
 				   procArray.add(null);
 			   }	
 			}
+			
+			String separator = MSysConfig.getValue(  
+				    MSysConfig.IDENTIFIER_SEPARATOR, "_", Env.getAD_Client_ID(Env.getCtx())); 
 			//Details up to tab level 1 
 			if(childs.size() > 0){		
 			  int specialDetDispayType = 0; 
@@ -175,23 +206,47 @@ public class GridTabCSVExporter implements IGridTabExporter
 					 }
 //					 String  headNameDetail= detail.getTableName()+">"+resolveColumnName(tableDetail, columnDetail);
 					String translatedTableName = getTranslatedTableName(detail.getTableName());
-					String headNameDetail = translatedTableName + ">" + resolveColumnName(tableDetail, columnDetail);
-					 headArray.add(headNameDetail); 
-					 if (DisplayType.Date == field.getDisplayType()) {
-						 procArray.add(new Optional(new FmtDate(DisplayType.DEFAULT_DATE_FORMAT)));
-					 } else if (DisplayType.DateTime == field.getDisplayType()) {
-						 procArray.add(new Optional(new FmtDate(DisplayType.DEFAULT_TIMESTAMP_FORMAT)));
-					 } else if (DisplayType.Time == field.getDisplayType()) {
-						 procArray.add(new Optional(new FmtDate(DisplayType.DEFAULT_TIME_FORMAT)));
-					 } else if (DisplayType.Integer == field.getDisplayType() || DisplayType.isNumeric(field.getDisplayType())) {
-						 DecimalFormat nf = DisplayType.getNumberFormat(field.getDisplayType());
-						 nf.setGroupingUsed(false);
-						 procArray.add(new Optional(new FmtNumber(nf)));
-					 } else if (DisplayType.YesNo == field.getDisplayType()) {
-						 procArray.add(new Optional(new FmtBool("Y", "N")));
-					 } else { // lookups and text
-						 procArray.add(new Optional());
-					 }
+					boolean detailHandled = false;
+					if (DisplayType.isLookup(field.getDisplayType())
+							&& !DisplayType.isMultiID(field.getDisplayType())) {
+						Lookup lookup = field.getLookup();
+						if (lookup instanceof MLookup mlookup) {
+							List<String> idColNames = mlookup.getLookupInfo().lookupDisplayColumnNames;
+							if (idColNames != null && idColNames.size() > 1) {
+								String tableKey = tableDetail.getTableName() + "." + columnDetail.getColumnName();
+								multiIdentifierMap.put(tableKey, idColNames);
+								String translatedColName = getElementTranslation(columnDetail.getColumnName());
+								for (String idCol : idColNames) {
+									headArray.add(translatedTableName + ">" + translatedColName + "[" + idCol
+											+ "]");
+									procArray.add(new Optional());
+								}
+								detailHandled = true;
+							}
+						}
+					}
+					if (!detailHandled) {
+						String headNameDetail = translatedTableName + ">"
+								+ resolveColumnName(tableDetail, columnDetail);
+						headArray.add(headNameDetail);
+						if (DisplayType.Date == field.getDisplayType()) {
+							procArray.add(new Optional(new FmtDate(DisplayType.DEFAULT_DATE_FORMAT)));
+						} else if (DisplayType.DateTime == field.getDisplayType()) {
+							procArray.add(new Optional(new FmtDate(DisplayType.DEFAULT_TIMESTAMP_FORMAT)));
+						} else if (DisplayType.Time == field.getDisplayType()) {
+							procArray.add(new Optional(new FmtDate(DisplayType.DEFAULT_TIME_FORMAT)));
+						} else if (DisplayType.Integer == field.getDisplayType()
+								|| DisplayType.isNumeric(field.getDisplayType())) {
+							DecimalFormat nf = DisplayType.getNumberFormat(field.getDisplayType());
+							nf.setGroupingUsed(false);
+							procArray.add(new Optional(new FmtNumber(nf)));
+						} else if (DisplayType.YesNo == field.getDisplayType()) {
+							procArray.add(new Optional(new FmtBool("Y", "N")));
+						} else { // lookups and text
+							procArray.add(new Optional());
+						}
+					}
+
 				} 
 			    if(specialDetDispayType > 0){
 				   for(String specialHeader:resolveSpecialColumnName(specialDetDispayType)){
@@ -230,6 +285,25 @@ public class GridTabCSVExporter implements IGridTabExporter
 				gridTab.setCurrentRow(idxrow);
 				for(GridField field : getFields(gridTab)){   
 					MColumn column = MColumn.get(Env.getCtx(), field.getAD_Column_ID());
+					
+					String tableKey = table.getTableName() + "." + column.getColumnName();
+					List<String> idColNames = multiIdentifierMap.get(tableKey);
+					if (idColNames != null) {
+						Object key = gridTab.getValue(idxrow, column.getColumnName());
+						String displayStr = (key != null) ? field.getLookup().getDisplay(key) : null;
+						String[] parts = (displayStr != null)
+								? displayStr.split(Pattern.quote(separator), idColNames.size())
+								: new String[0];
+						String translatedColName = getElementTranslation(column.getColumnName());
+						for (int j = 0; j < idColNames.size(); j++) {
+							String colHead = translatedColName + "[" + idColNames.get(j) + "]";
+							row.put(colHead, (j < parts.length) ? parts[j] : null);
+							idxfld++;
+						}
+						index += idColNames.size();
+						continue;
+					}
+					
 					Object value = null;
 					String headName = header[idxfld];
 					if(DisplayType.Location == field.getDisplayType()){
@@ -293,7 +367,7 @@ public class GridTabCSVExporter implements IGridTabExporter
 					}
 					
 					while(true){
-						 Map<String, Object> tmpRow = resolveMasterDetailRow(rowDetail,tabMapDetails,headArray,index); 					  
+						 Map<String, Object> tmpRow = resolveMasterDetailRow(rowDetail,tabMapDetails,headArray,index, multiIdentifierMap, separator); 					  
 						 if(tmpRow!= null){   							
 						   for(Map.Entry<String, Object> details : tmpRow.entrySet()) {	
 							   String detailColumn = details.getKey();
@@ -349,7 +423,7 @@ public class GridTabCSVExporter implements IGridTabExporter
 	 * @param idxfld
 	 * @return Detail Row(Map{Column Header, Value})
 	 */
-	private Map<String, Object> resolveMasterDetailRow(int currentDetRow,Map<GridTab,GridField[]> tabMapDetails,List<String>headArray,int idxfld){
+	private Map<String, Object> resolveMasterDetailRow(int currentDetRow,Map<GridTab,GridField[]> tabMapDetails,List<String>headArray,int idxfld, Map<String, List<String>> multiIdentifierMap, String separator){
 		Map<String,Object> activeRow = new HashMap<String,Object>();
 		Object value = null;
 		boolean hasDetails = false;
@@ -374,6 +448,27 @@ public class GridTabCSVExporter implements IGridTabExporter
 				       
 					   continue;
 				    }
+					// 多标识符字段处理
+					String tableKey = childTab.getTableName() + "." + column.getColumnName();
+					List<String> idColNames = multiIdentifierMap.get(tableKey);
+					if (idColNames != null) {
+						Object key = childTab.getValue(currentDetRow, column.getColumnName());
+						String displayStr = (key != null) ? field.getLookup().getDisplay(key) : null;
+						String[] parts = (displayStr != null)
+								? displayStr.split(Pattern.quote(separator), idColNames.size())
+								: new String[0];
+						String translatedColName = getElementTranslation(column.getColumnName());
+						String translatedTableName = getTranslatedTableName(childTab.getTableName());
+						for (int j = 0; j < idColNames.size(); j++) {
+							String colHead = translatedTableName + ">" + translatedColName + "[" + idColNames.get(j)
+									+ "]";
+							Object partValue = (j < parts.length) ? parts[j] : null;
+							row.put(colHead, partValue);
+							if (partValue != null)
+								hasDetails = true;
+						}
+						continue;
+					}
 				    MTable tableDetail = MTable.get(Env.getCtx(), childTab.getTableName());
 //				    String headName = headArray.get(headArray.indexOf(childTab.getTableName()+">"+resolveColumnName(tableDetail,column))); 
 					String englishName = childTab.getTableName() + ">" + resolveColumnName(tableDetail, column);
@@ -382,6 +477,9 @@ public class GridTabCSVExporter implements IGridTabExporter
 					int index = headArray.indexOf(chineseName);
 					if (index < 0) {
 						index = headArray.indexOf(englishName);
+					}
+					if (index < 0) {
+						continue; // 外键表未在 AD_Table 注册，跳过该字段
 					}
 					String headName = headArray.get(index);
 				    value = resolveValue(childTab, MTable.get(Env.getCtx(),childTab.getTableName()), column, currentDetRow, headName.substring(headName.indexOf(">")+ 1,headName.length()));
@@ -516,15 +614,30 @@ public class GridTabCSVExporter implements IGridTabExporter
 			} else if (!("AD_Language".equals(foreignTable) || "AD_EntityType".equals(foreignTable)
 					|| "AD_Ref_List".equals(foreignTable))) {
 				MTable fTable = MTable.get(Env.getCtx(), foreignTable);
-				if ("AD_Element".equals(foreignTable)) {
+				if (fTable == null) {
+					// foreign table not registered in AD_Table, skip identifier suffix
+				} else if ("AD_Element".equals(foreignTable)) {
 					name.append("[ColumnName]");
-				} else if (!("AD_Org".equals(foreignTable) || "AD_User".equals(foreignTable))
-						&& fTable.getColumn("Value") != null) {
-					name.append("[Value]");
-				} else if (fTable.getColumn("Name") != null) {
-					name.append("[Name]");
-				} else if (fTable.getColumn("DocumentNo") != null) {
-					name.append("[DocumentNo]");
+				} else {
+					// 查询第一个标识符字段
+					String identifierColName = DB.getSQLValueString(null, "SELECT c.ColumnName FROM AD_Column c "
+							+ "INNER JOIN AD_Table t ON c.AD_Table_ID = t.AD_Table_ID "
+							+ "WHERE t.TableName=? AND c.IsIdentifier='Y' AND c.IsActive='Y' " + "ORDER BY c.SeqNo",
+							foreignTable);
+					if (identifierColName != null && !identifierColName.isEmpty()) {
+						name.append("[").append(identifierColName).append("]");
+					} else {
+						// 兜底：原有逻辑
+						if (fTable != null) {
+							if (!("AD_Org".equals(foreignTable) || "AD_User".equals(foreignTable))
+									&& fTable.getColumn("Value") != null)
+								name.append("[Value]");
+							else if (fTable.getColumn("Name") != null)
+								name.append("[Name]");
+							else if (fTable.getColumn("DocumentNo") != null)
+								name.append("[DocumentNo]");
+						}
+					}
 				}
 			}
 		} else if (DisplayType.Account == column.getAD_Reference_ID()) {
@@ -552,7 +665,7 @@ public class GridTabCSVExporter implements IGridTabExporter
 	private String getElementTranslation(String columnName) {
 		String adLanguage = Env.getAD_Language(Env.getCtx());
 		if (Env.isBaseLanguage(adLanguage, "AD_Element")) {
-			return ""; // 基础语言不需要翻译
+			 return columnName; // 基础语言直接返回原列名
 		}
 
 		String sql = "SELECT Name FROM AD_Element_Trl WHERE AD_Element_ID = "

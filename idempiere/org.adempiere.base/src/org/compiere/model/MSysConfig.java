@@ -301,6 +301,10 @@ public class MSysConfig extends X_AD_SysConfig
     public static final String OA_TOKEN_PASSWORD = "OA_TOKEN_PASSWORD"; // OA系统获取token 密码
     public static final String OA_TOKEN_EXPIRE_SECONDS = "OA_TOKEN_EXPIRE_SECONDS"; //超时时间
 	public static final String BOM_AUTO_VERIFY = "BOM_AUTO_VERIFY";// BOM自动校验
+	public static final String HR_API_USER_ID = "HR_API_USER_ID"; // HR系统用户
+	public static final String HR_API_PASSWORD = "HR_API_PASSWORD"; // HR系统密码
+	public static final String HR_API_COMPANY_ID_JS = "HR_API_COMPANY_ID_JS"; // HR系统公司ID-江苏
+	public static final String HR_API_BASE_URL = "HR_API_BASE_URL"; // HR系统域名
 
     /**
      * UUID based Constructor

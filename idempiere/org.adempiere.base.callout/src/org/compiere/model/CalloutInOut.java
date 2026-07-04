@@ -112,7 +112,7 @@ public class CalloutInOut extends CalloutEngine
 			return "";
 		}
         
-        mTab.setValue("C_DocType_ID", relatedDocTypeId);
+        //mTab.setValue("C_DocType_ID", relatedDocTypeId);
 		return "";
 	}	//	order
 

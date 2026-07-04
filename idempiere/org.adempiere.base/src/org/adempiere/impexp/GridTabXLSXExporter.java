@@ -13,6 +13,7 @@
 package org.adempiere.impexp;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 
@@ -21,10 +22,15 @@ import org.adempiere.exceptions.AdempiereException;
 import org.compiere.model.GridField;
 import org.compiere.model.GridTab;
 import org.compiere.model.Lookup;
+import org.compiere.model.MColumn;
 import org.compiere.model.MLookup;
 import org.compiere.model.MLookupFactory;
+import org.compiere.model.MLookupInfo;
+import org.compiere.model.MTable;
+import org.compiere.util.DB;
 import org.compiere.util.DisplayType;
 import org.compiere.util.Env;
+import org.compiere.util.Language;
 import org.compiere.util.Msg;
 
 /**
@@ -35,6 +41,8 @@ import org.compiere.util.Msg;
 public class GridTabXLSXExporter extends AbstractXLSXExporter implements IGridTabExporter
 {
 	private GridTab m_tab = null;
+	
+	private List<VirtualColumn> virtualColumns = new ArrayList<>();
 
 	/**
 	 * Default constructor
@@ -47,19 +55,29 @@ public class GridTabXLSXExporter extends AbstractXLSXExporter implements IGridTa
 	@Override
 	public int getColumnCount()
 	{
-		return m_tab.getFieldCount();
+//		return m_tab.getFieldCount();
+		return virtualColumns.isEmpty() ? m_tab.getFieldCount() : virtualColumns.size();
 	}
 
 	@Override
 	public int getDisplayType(int row, int col)
 	{
-		return m_tab.getField(col).getDisplayType();
+//		return m_tab.getField(col).getDisplayType();
+		VirtualColumn vc = virtualColumns.get(col);
+		if (vc.idColName != null)
+			return DisplayType.String; // 已解析为字符串
+		return m_tab.getField(vc.fieldIndex).getDisplayType();
 	}
 
 	@Override
 	public String getHeaderName(int col)
 	{
-		return m_tab.getField(col).getHeader();
+//		return m_tab.getField(col).getHeader();
+		VirtualColumn vc = virtualColumns.get(col);
+		GridField f = m_tab.getField(vc.fieldIndex);
+		if (vc.idColName == null)
+			return f.getHeader();
+		return f.getHeader() + "[" + vc.idColName + "]";
 	}
 
 	@Override
@@ -69,32 +87,74 @@ public class GridTabXLSXExporter extends AbstractXLSXExporter implements IGridTa
 	}
 
 	@Override
-	public Object getValueAt(int row, int col)
-	{
-		GridField f = m_tab.getField(col);
+	public Object getValueAt(int row, int col) {
+		VirtualColumn vc = virtualColumns.get(col);
+		GridField f = m_tab.getField(vc.fieldIndex);
 		Object key = m_tab.getValue(row, f.getColumnName());
-		Object value = key;
-		Lookup lookup = f.getLookup();
-		if (lookup != null)
-		{
-			;
-		}
-		else if (f.getDisplayType() == DisplayType.Button)
-		{
-			lookup = getButtonLookup(f);
+
+		if (vc.idColName == null) {
+			// 原有逻辑
+			Lookup lookup = f.getLookup();
+			if (lookup == null && f.getDisplayType() == DisplayType.Button)
+				lookup = getButtonLookup(f);
+			if (lookup != null)
+				return lookup.getDisplay(key);
+			return key;
 		}
 
-		if (lookup != null)
-		{
-			value = lookup.getDisplay(key);
+		// 多标识符展开列：直接 SQL 查询对应标识符列
+		if (key == null)
+			return null;
+		Lookup lookup = f.getLookup();
+		if (!(lookup instanceof MLookup))
+			return null;
+		MLookupInfo info = ((MLookup) lookup).getLookupInfo();
+		if (info == null)
+			return null;
+		String foreignTable = info.TableName;
+		String foreignKeyCol = info.KeyColumn;
+		MTable fTable = MTable.get(Env.getCtx(), foreignTable);
+		if (fTable == null)
+			return null;
+		MColumn idColumn = fTable.getColumn(vc.idColName);
+		if (idColumn == null)
+			return null;
+
+		int displayType = idColumn.getAD_Reference_ID();
+		String selectExpr;
+		Language lang = getLanguage();
+		if ((displayType == DisplayType.TableDir || displayType == DisplayType.Search) && vc.idColName.endsWith("_ID")
+				&& idColumn.getAD_Reference_Value_ID() == 0) {
+			String embedded = MLookupFactory.getLookup_TableDirEmbed(lang, vc.idColName, foreignTable);
+			selectExpr = (embedded != null && !embedded.isEmpty()) ? "(" + embedded + ")" : vc.idColName;
+		} else if ((displayType == DisplayType.TableDirUU || displayType == DisplayType.SearchUU)
+				&& vc.idColName.endsWith("_UU")) {
+			String embedded = MLookupFactory.getLookup_TableDirEmbed(lang, vc.idColName, foreignTable);
+			selectExpr = (embedded != null && !embedded.isEmpty()) ? "(" + embedded + ")" : vc.idColName;
+		} else if ((displayType == DisplayType.Table || displayType == DisplayType.Search)
+				&& idColumn.getAD_Reference_Value_ID() != 0) {
+			String embedded = MLookupFactory.getLookup_TableEmbed(lang, vc.idColName, foreignTable,
+					idColumn.getAD_Reference_Value_ID());
+			selectExpr = (embedded != null && !embedded.isEmpty()) ? "(" + embedded + ")" : vc.idColName;
+		} else {
+			selectExpr = vc.idColName;
 		}
-		return value;
+
+		String sql = "SELECT " + selectExpr + " FROM " + foreignTable + " WHERE " + foreignKeyCol + "=?";
+		Object keyParam;
+		try {
+			keyParam = Integer.parseInt(key.toString());
+		} catch (NumberFormatException e) {
+			keyParam = key.toString();
+		}
+		return DB.getSQLValueStringEx(null, sql, keyParam);
 	}
 
 	@Override
 	public boolean isColumnPrinted(int col)
 	{
-		GridField f = m_tab.getField(col);
+		VirtualColumn vc = virtualColumns.get(col);
+		GridField f = m_tab.getField(vc.fieldIndex);
 		// Hide not displayed fields
 		if (!f.isDisplayed())
 			return false;
@@ -163,6 +223,7 @@ public class GridTabXLSXExporter extends AbstractXLSXExporter implements IGridTa
 	public void export(GridTab gridTab, List<GridTab> childs, boolean currentRowOnly, File file, int indxDetailSelected)
 	{
 		m_tab = gridTab;
+		buildVirtualColumns(); // ← 新增
 		setCurrentRowOnly(currentRowOnly);
 		try
 		{
@@ -211,5 +272,40 @@ public class GridTabXLSXExporter extends AbstractXLSXExporter implements IGridTa
 	public boolean isDisplayed(int row, int col)
 	{
 		return true;
+	}
+	
+	private static class VirtualColumn {
+		final int fieldIndex; // m_tab.getField(fieldIndex) 对应的原始字段
+		final String idColName; // null = 普通字段；非null = 多标识符展开列的标识符列名
+
+		VirtualColumn(int fieldIndex, String idColName) {
+			this.fieldIndex = fieldIndex;
+			this.idColName = idColName;
+		}
+	}
+	
+	private void buildVirtualColumns() {
+		virtualColumns = new ArrayList<>();
+		for (int i = 0; i < m_tab.getFieldCount(); i++) {
+			GridField f = m_tab.getField(i);
+			if (!DisplayType.isLookup(f.getDisplayType()) || DisplayType.isMultiID(f.getDisplayType())) {
+				virtualColumns.add(new VirtualColumn(i, null));
+				continue;
+			}
+			Lookup lookup = f.getLookup();
+			if (!(lookup instanceof MLookup)) {
+				virtualColumns.add(new VirtualColumn(i, null));
+				continue;
+			}
+			MLookupInfo info = ((MLookup) lookup).getLookupInfo();
+			if (info == null || info.lookupDisplayColumnNames == null || info.lookupDisplayColumnNames.size() <= 1) {
+				virtualColumns.add(new VirtualColumn(i, null));
+				continue;
+			}
+			// 多标识符字段：展开为多个虚拟列
+			for (String idCol : info.lookupDisplayColumnNames) {
+				virtualColumns.add(new VirtualColumn(i, idCol));
+			}
+		}
 	}
 }

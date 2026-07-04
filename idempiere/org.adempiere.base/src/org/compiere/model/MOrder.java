@@ -2953,6 +2953,9 @@ public class MOrder extends X_C_Order implements DocAction
 		for (int i = 0; i < lines.length; i++)
 		{
 			MOrderLine line = lines[i];
+			// 跳过已单独关闭的行
+			if ("CL".equals(line.get_Value("OrderLineStatus")))
+				continue;
 			BigDecimal old = line.getQtyOrdered();
 			if (old.compareTo(line.getQtyDelivered()) != 0)
 			{				
@@ -3011,6 +3014,9 @@ public class MOrder extends X_C_Order implements DocAction
 		for (int i = 0; i < lines.length; i++)
 		{
 			MOrderLine line = lines[i];
+			// 跳过已单独关闭的行
+			if ("CL".equals(line.get_Value("OrderLineStatus")))
+				continue;
 			if (Env.ZERO.compareTo(line.getQtyLostSales()) != 0)
 			{
 				line.setQtyOrdered(line.getQtyLostSales().add(line.getQtyDelivered()));

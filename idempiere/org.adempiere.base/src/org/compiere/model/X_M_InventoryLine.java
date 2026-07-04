@@ -20,6 +20,7 @@ package org.compiere.model;
 import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.util.Properties;
+
 import org.compiere.util.Env;
 import org.compiere.util.KeyNamePair;
 
@@ -575,4 +576,50 @@ public class X_M_InventoryLine extends PO implements I_M_InventoryLine, I_Persis
 	{
 		return (String)get_Value(COLUMNNAME_Value);
 	}
+
+	/**
+	 * Set UOM.
+	 * 
+	 * @param C_UOM_ID Unit of Measure
+	 */
+	public void setC_UOM_ID(int C_UOM_ID) {
+		if (C_UOM_ID < 1)
+			set_Value(COLUMNNAME_C_UOM_ID, null);
+		else
+			set_Value(COLUMNNAME_C_UOM_ID, Integer.valueOf(C_UOM_ID));
+	}
+
+	/**
+	 * Get UOM.
+	 * 
+	 * @return Unit of Measure
+	 */
+	public int getC_UOM_ID() {
+		Integer ii = (Integer) get_Value(COLUMNNAME_C_UOM_ID);
+		if (ii == null)
+			return 0;
+		return ii.intValue();
+	}
+
+	/**
+	 * Set Quantity Entered.
+	 * 
+	 * @param QtyEntered The Quantity Entered is based on the selected UoM
+	 */
+	public void setQtyEntered(BigDecimal QtyEntered) {
+		set_Value(COLUMNNAME_QtyEntered, QtyEntered);
+	}
+
+	/**
+	 * Get Quantity Entered.
+	 * 
+	 * @return The Quantity Entered is based on the selected UoM
+	 */
+	public BigDecimal getQtyEntered() {
+		BigDecimal bd = (BigDecimal) get_Value(COLUMNNAME_QtyEntered);
+		if (bd == null)
+			return Env.ZERO;
+		return bd;
+	}
+
 }

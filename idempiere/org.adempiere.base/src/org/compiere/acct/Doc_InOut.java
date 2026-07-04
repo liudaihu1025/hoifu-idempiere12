@@ -30,9 +30,11 @@ import org.compiere.model.I_M_InOutLine;
 import org.compiere.model.I_M_RMALine;
 import org.compiere.model.MAccount;
 import org.compiere.model.MAcctSchema;
+import org.compiere.model.MAcctSchemaElement;
 import org.compiere.model.MConversionRate;
 import org.compiere.model.MCostDetail;
 import org.compiere.model.MCurrency;
+import org.compiere.model.MDocType;
 import org.compiere.model.MInOut;
 import org.compiere.model.MInOutLine;
 import org.compiere.model.MInOutLineMA;
@@ -60,6 +62,10 @@ import org.compiere.util.Util;
  */
 public class Doc_InOut extends Doc
 {
+
+	public static final String DOCSUBTYPE_InterOrgTransfer = "IG";
+	public static final String DOCSUBTYPE_Default = "D";
+
 	/**
 	 *  Constructor
 	 * 	@param as accounting schema
@@ -109,7 +115,20 @@ public class Doc_InOut extends Doc
 				}
 			}
 		}
-		
+
+		// 新增逻辑：G+ 集团内入库，检查对应 G- 出库是否已过账
+		// G+ 需要从 G- 的 MCostDetail 取成本，所以必须等 G- 先过账
+		if (DOCSUBTYPE_InterOrgTransfer.equals(getDocSubTypeInOut()) && !inout.isSOTrx()) {
+			int counterInOut_ID = inout.getRef_InOut_ID(); // G- 单据 ID（标准字段，双向互指）
+			if (counterInOut_ID > 0) {
+				String sql = "SELECT COUNT(*) FROM M_InOut WHERE M_InOut_ID=? AND Posted<>'Y'";
+				int count = DB.getSQLValueEx(getTrxName(), sql, counterInOut_ID);
+				if (count > 0) {
+					m_deferPosting = true; // G- 未过账，推迟本单过账
+				}
+			}
+		}
+
 		return null;
 	}   //  loadDocumentDetails
 
@@ -195,19 +214,22 @@ public class Doc_InOut extends Doc
 		FactLine cr = null;
 
 		//  *** Sales - Shipment
-		if (getDocumentType().equals(DOCTYPE_MatShipment) && isSOTrx())
+		if (isCustomDocSubTypeInOut())
+		{
+			return createFactsCustomSubType(as, fact, facts);
+		} else if (getDocumentType().equals(DOCTYPE_MatShipment) && isSOTrx())
 		{
 			for (int i = 0; i < p_lines.length; i++)
 			{
 				Map<String, BigDecimal> batchLotCostMap = null;
-				DocLine_InOut line = (DocLine_InOut) p_lines[i];				
+				DocLine_InOut line = (DocLine_InOut) p_lines[i];
 				MProduct product = line.getProduct();
 				BigDecimal costs = null;
 				if (!isReversal(line))
 				{
-					if (MAcctSchema.COSTINGLEVEL_BatchLot.equals(product.getCostingLevel(as)) ) 
-					{	
-						if (line.getM_AttributeSetInstance_ID() == 0 ) 
+					if (MAcctSchema.COSTINGLEVEL_BatchLot.equals(product.getCostingLevel(as)) )
+					{
+						if (line.getM_AttributeSetInstance_ID() == 0 )
 						{
 							MInOutLine ioLine = (MInOutLine) line.getPO();
 							MInOutLineMA mas[] = MInOutLineMA.get(getCtx(), ioLine.get_ID(), getTrxName());
@@ -225,28 +247,28 @@ public class Doc_InOut extends Doc
 									BigDecimal maCosts = line.getProductCosts(as, line.getAD_Org_ID(), true, "M_InOutLine_ID=?");
 									batchLotCostMap.put(ma.getM_InOutLineMA_UU(), maCosts);
 									costs = costs.add(maCosts);
-								}						
+								}
 							}
-						} 
-						else 
-						{							
-							costs = line.getProductCosts(as, line.getAD_Org_ID(), true, "M_InOutLine_ID=?");				
 						}
-					} 
+						else
+						{
+							costs = line.getProductCosts(as, line.getAD_Org_ID(), true, "M_InOutLine_ID=?");
+						}
+					}
 					else
 					{
 						// MZ Goodwill
 						// if Shipment CostDetail exist then get Cost from Cost Detail
-						costs = line.getProductCosts(as, line.getAD_Org_ID(), true, "M_InOutLine_ID=?");			
+						costs = line.getProductCosts(as, line.getAD_Org_ID(), true, "M_InOutLine_ID=?");
 					}
-			
+
 					// end MZ
 					if (costs == null || costs.signum() == 0)	//	zero costs OK
 					{
 						if (product.isStocked())
 						{
 							//ok if we have purchased zero cost item from vendor before
-							int count = DB.getSQLValue(null, "SELECT Count(*) FROM M_CostDetail WHERE M_Product_ID=? AND Processed='Y' AND Amt=0.00 AND Qty > 0 AND (C_OrderLine_ID > 0 OR C_InvoiceLine_ID > 0)", 
+							int count = DB.getSQLValue(null, "SELECT Count(*) FROM M_CostDetail WHERE M_Product_ID=? AND Processed='Y' AND Amt=0.00 AND Qty > 0 AND (C_OrderLine_ID > 0 OR C_InvoiceLine_ID > 0)",
 									product.getM_Product_ID());
 							if (count > 0)
 							{
@@ -268,7 +290,7 @@ public class Doc_InOut extends Doc
 					//temp to avoid NPE
 					costs = BigDecimal.ZERO;
 				}
-				
+
 				//  CoGS            DR
 				dr = fact.createLine(line,
 					line.getAccount(ProductCost.ACCTTYPE_P_Cogs, as),
@@ -284,7 +306,7 @@ public class Doc_InOut extends Doc
 				dr.setLocationFromBPartner(getC_BPartner_Location_ID(), false);  //  to Loc
 				dr.setAD_Org_ID(line.getOrder_Org_ID());		//	Revenue X-Org
 				dr.setQty(line.getQty().negate());
-				
+
 				if (isReversal(line))
 				{
 					//	Set AmtAcctDr from Original Shipment/Receipt
@@ -313,7 +335,7 @@ public class Doc_InOut extends Doc
 				cr.setM_Locator_ID(line.getM_Locator_ID());
 				cr.setLocationFromLocator(line.getM_Locator_ID(), true);    // from Loc
 				cr.setLocationFromBPartner(getC_BPartner_Location_ID(), false);  // to Loc
-				
+
 				if (isReversal(line))
 				{
 					//	Set AmtAcctCr from Original Shipment/Receipt
@@ -325,9 +347,9 @@ public class Doc_InOut extends Doc
 					}
 					costs = cr.getAcctBalance(); //get original cost
 				}
-				if (MAcctSchema.COSTINGLEVEL_BatchLot.equals(product.getCostingLevel(as)) ) 
-				{	
-					if (line.getM_AttributeSetInstance_ID() == 0 ) 
+				if (MAcctSchema.COSTINGLEVEL_BatchLot.equals(product.getCostingLevel(as)) )
+				{
+					if (line.getM_AttributeSetInstance_ID() == 0 )
 					{
 						MInOutLine ioLine = (MInOutLine) line.getPO();
 						MInOutLineMA mas[] = MInOutLineMA.get(getCtx(), ioLine.get_ID(), getTrxName());
@@ -346,7 +368,7 @@ public class Doc_InOut extends Doc
 									if (amt != null)
 										amt = amt.negate();
 								}
-								if (amt == null) 
+								if (amt == null)
 								{
 									amt = costs.divide(line.getProductCost().getQty(), RoundingMode.HALF_UP);
 									amt = amt.multiply(qty);
@@ -373,10 +395,10 @@ public class Doc_InOut extends Doc
 								{
 									p_Error = Msg.getMsg(getCtx(),"Failed to create cost detail record");
 									return null;
-								}							
-							}						
+								}
+							}
 						}
-					} 
+					}
 					else
 					{
 						//
@@ -404,7 +426,7 @@ public class Doc_InOut extends Doc
 							}
 						}
 					}
-				} 
+				}
 				else
 				{
 					//
@@ -1118,6 +1140,309 @@ public class Doc_InOut extends Doc
 		return facts;
 	}   //  createFact
 
+	/** 返回 C_DocType.DocSubTypeInOut，无则返回空字符串 */
+	private String getDocSubTypeInOut() {
+		if (getC_DocType_ID() == 0)
+			return "";
+		MDocType docType = MDocType.get(getC_DocType_ID());
+		String v = docType.get_ValueAsString("DocSubTypeInOut");
+		return v != null ? v : "";
+	}
+
+	/** 是否属于自定义收发子类型 */
+	private boolean isCustomDocSubTypeInOut() {
+		return !getDocSubTypeInOut().isEmpty() && !DOCSUBTYPE_Default.equals(getDocSubTypeInOut());
+	}
+
+	/**
+	 * 第一层：按 DocSubTypeInOut 值分发
+	 * 新增子类型时在此追加 else if 分支
+	 */
+	private ArrayList<Fact> createFactsCustomSubType(MAcctSchema as, Fact fact, ArrayList<Fact> facts) {
+		String subType = getDocSubTypeInOut();
+		if (DOCSUBTYPE_InterOrgTransfer.equals(subType)) {
+			return createFactsIG(as, fact, facts);
+		}
+		// else if (DOCSUBTYPE_XXX.equals(subType)) {
+		//     return createFactsXXX(as, fact, facts);
+		// }
+		p_Error = "Unknown DocSubTypeInOut: " + subType;
+		log.log(Level.SEVERE, p_Error);
+		return null;
+	}
+
+	/**
+	 * 第二层：IG（集团内调拨）—— 按 isSOTrx 分发 G-/G+
+	 */
+	private ArrayList<Fact> createFactsIG(MAcctSchema as, Fact fact, ArrayList<Fact> facts) {
+		if (getDocumentType().equals(DOCTYPE_MatShipment) && isSOTrx()) {
+			return createFactsIG_Outbound(as, fact, facts);   // G- 集团内出库
+		} else if (getDocumentType().equals(DOCTYPE_MatReceipt) && !isSOTrx()) {
+			return createFactsIG_Inbound(as, fact, facts);    // G+ 集团内入库
+		}
+		p_Error = "IG: unexpected DocType/isSOTrx combination";
+		log.log(Level.SEVERE, p_Error);
+		return null;
+	}
+
+	/**
+	 * G- 集团内出库过账（MMS + isSOTrx=Y）。
+	 * 参考 Doc_Movement.createFacts 跨组织 "from" 侧逻辑。
+	 *
+	 * 分录：
+	 *   InterOrg Due-From (C_AcctSchema_GL)   DR   costs   ← Org A 对 Org B 的集团内应收
+	 *   Inventory (ACCTTYPE_P_Asset, Org A)   CR   costs   ← Org A 库存减少
+	 */
+	private ArrayList<Fact> createFactsIG_Outbound(MAcctSchema as, Fact fact, ArrayList<Fact> facts) {
+		for (int i = 0; i < p_lines.length; i++) {
+			Map<String, BigDecimal> batchLotCostMap = null;
+			DocLine_InOut line = (DocLine_InOut) p_lines[i];
+			MProduct product = line.getProduct();
+			BigDecimal costs = null;
+
+			if (!isReversal(line)) {
+				// 取成本：与 Sales Shipment 分支一致，取 Org A 的产品成本
+				if (MAcctSchema.COSTINGLEVEL_BatchLot.equals(product.getCostingLevel(as))) {
+					if (line.getM_AttributeSetInstance_ID() == 0) {
+						MInOutLine ioLine = (MInOutLine) line.getPO();
+						MInOutLineMA[] mas = MInOutLineMA.get(getCtx(), ioLine.get_ID(), getTrxName());
+						if (mas != null && mas.length > 0) {
+							batchLotCostMap = new HashMap<>();
+							costs = BigDecimal.ZERO;
+							for (MInOutLineMA ma : mas) {
+								BigDecimal QtyMA = ma.getMovementQty();
+								ProductCost pc = line.getProductCost();
+								pc.setQty(QtyMA);
+								pc.setM_M_AttributeSetInstance_ID(ma.getM_AttributeSetInstance_ID());
+								BigDecimal maCosts = line.getProductCosts(as, line.getAD_Org_ID(), true, "M_InOutLine_ID=?");
+								batchLotCostMap.put(ma.getM_InOutLineMA_UU(), maCosts);
+								costs = costs.add(maCosts);
+							}
+						}
+					} else {
+						costs = line.getProductCosts(as, line.getAD_Org_ID(), true, "M_InOutLine_ID=?");
+					}
+				} else {
+					costs = line.getProductCosts(as, line.getAD_Org_ID(), true, "M_InOutLine_ID=?");
+				}
+
+				if (costs == null || costs.signum() == 0) {
+					if (product.isStocked()) {
+						p_Error = Msg.getMsg(getCtx(), "No Costs for") + " " + product.getName();
+						log.log(Level.WARNING, p_Error);
+						return null;
+					} else {
+						continue; // service: ignore
+					}
+				}
+			} else {
+				costs = BigDecimal.ZERO;
+			}
+
+			// InterOrg Due-From   DR
+			FactLine dr = fact.createLine(line,
+					as.getDueFrom_Acct(MAcctSchemaElement.ELEMENTTYPE_Organization),
+					as.getC_Currency_ID(), costs, null);
+			if (dr == null) {
+				p_Error = Msg.getMsg(getCtx(), "FactLine DR not created: ") + line;
+				log.log(Level.WARNING, p_Error);
+				return null;
+			}
+			dr.setM_Locator_ID(line.getM_Locator_ID());
+			dr.setAD_Org_ID(line.getAD_Org_ID());
+			dr.setQty(line.getQty().negate()); // outgoing
+			if (isReversal(line)) {
+				if (!dr.updateReverseLine(MInOut.Table_ID,
+						m_Reversal_ID, line.getReversalLine_ID(), Env.ONE)) {
+					if (!product.isStocked()) { fact.remove(dr); continue; }
+					p_Error = Msg.getMsg(getCtx(), "Original Shipment/Receipt not posted yet");
+					return null;
+				}
+			}
+
+			// Inventory (Org A)   CR
+			FactLine cr = fact.createLine(line,
+					line.getAccount(ProductCost.ACCTTYPE_P_Asset, as),
+					as.getC_Currency_ID(), null, costs);
+			if (cr == null) {
+				p_Error = Msg.getMsg(getCtx(), "FactLine CR not created: ") + line;
+				log.log(Level.WARNING, p_Error);
+				return null;
+			}
+			cr.setM_Locator_ID(line.getM_Locator_ID());
+			cr.setAD_Org_ID(line.getAD_Org_ID());
+			if (isReversal(line)) {
+				if (!cr.updateReverseLine(MInOut.Table_ID,
+						m_Reversal_ID, line.getReversalLine_ID(), Env.ONE, dr)) {
+					p_Error = Msg.getMsg(getCtx(), "Original Shipment/Receipt not posted yet");
+					return null;
+				}
+				costs = cr.getAcctBalance(); // 冲销时从原始行取实际金额
+			}
+
+			// MCostDetail：参考 Doc_Movement 跨组织 "from" 侧
+			// isSOTrx=true（G- 定义为 isSOTrx=Y），Amt/Qty 取负（出库）
+			if (line.getM_Product_ID() != 0) {
+				if (MAcctSchema.COSTINGLEVEL_BatchLot.equals(product.getCostingLevel(as))
+						&& line.getM_AttributeSetInstance_ID() == 0) {
+					MInOutLine ioLine = (MInOutLine) line.getPO();
+					MInOutLineMA[] mas = MInOutLineMA.get(getCtx(), ioLine.get_ID(), getTrxName());
+					if (mas != null && mas.length > 0) {
+						for (MInOutLineMA ma : mas) {
+							BigDecimal qty = ma.getMovementQty().negate();
+							BigDecimal amt = batchLotCostMap != null ? batchLotCostMap.get(ma.getM_InOutLineMA_UU()) : null;
+							if (amt == null) amt = BigDecimal.ZERO;
+							amt = amt.negate();
+							int Ref_CostDetail_ID = 0;
+							if (line.getReversalLine_ID() > 0 && line.get_ID() > line.getReversalLine_ID()) {
+								MCostDetail cd = MCostDetail.getShipment(as, line.getM_Product_ID(),
+										ma.getM_AttributeSetInstance_ID(), line.getReversalLine_ID(), 0, getTrxName());
+								if (cd != null) Ref_CostDetail_ID = cd.getM_CostDetail_ID();
+							}
+							if (!MCostDetail.createShipment(as, line.getAD_Org_ID(),
+									line.getM_Product_ID(), ma.getM_AttributeSetInstance_ID(),
+									line.get_ID(), 0, amt, qty,
+									line.getDescription(), true, line.getDateAcct(), Ref_CostDetail_ID, getTrxName())) {
+								p_Error = Msg.getMsg(getCtx(), "Failed to create cost detail record");
+								return null;
+							}
+						}
+					}
+				} else {
+					BigDecimal amt = costs.negate();
+					int Ref_CostDetail_ID = 0;
+					if (line.getReversalLine_ID() > 0 && line.get_ID() > line.getReversalLine_ID()) {
+						MCostDetail cd = MCostDetail.getShipment(as, line.getM_Product_ID(),
+								line.getM_AttributeSetInstance_ID(), line.getReversalLine_ID(), 0, getTrxName());
+						if (cd != null) Ref_CostDetail_ID = cd.getM_CostDetail_ID();
+					}
+					if (!MCostDetail.createShipment(as, line.getAD_Org_ID(),
+							line.getM_Product_ID(), line.getM_AttributeSetInstance_ID(),
+							line.get_ID(), 0,
+							amt, line.getQty().negate(), // "from" 侧：出库为负
+							line.getDescription(), true, line.getDateAcct(), Ref_CostDetail_ID, getTrxName())) {
+						p_Error = Msg.getMsg(getCtx(), "Failed to create cost detail record");
+						return null;
+					}
+				}
+			}
+		} // for all lines
+
+		facts.add(fact);
+		return facts;
+	}
+
+	/**
+	 * G+ 集团内入库过账（MMR + isSOTrx=N）。
+	 * 参考 Doc_Movement.createFacts 跨组织 "to" 侧逻辑。
+	 *
+	 * 分录：
+	 *   Inventory (ACCTTYPE_P_Asset, Org B)   DR   costs   ← Org B 库存增加
+	 *   InterOrg Due-To (C_AcctSchema_GL)     CR   costs   ← Org B 对 Org A 的集团内应付
+	 *
+	 * 成本来源：从对应 G- 单据的 MCostDetail 取（通过 M_InOutLine.Ref_InOutLine_ID 关联）。
+	 * 前提：G- 必须先过账（由 loadDocumentDetails 中的 m_deferPosting 保证）。
+	 */
+	private ArrayList<Fact> createFactsIG_Inbound(MAcctSchema as, Fact fact, ArrayList<Fact> facts) {
+		for (int i = 0; i < p_lines.length; i++) {
+			DocLine_InOut line = (DocLine_InOut) p_lines[i];
+			MProduct product = line.getProduct();
+			BigDecimal costs = null;
+
+			if (!isReversal(line)) {
+				// 从对应 G- 行的 MCostDetail 取成本，保证两侧金额一致
+				MInOutLine ioLine = (MInOutLine) line.getPO();
+				int counterInOutLine_ID = ioLine.getRef_InOutLine_ID(); // 标准字段，指向 G- 行
+				if (counterInOutLine_ID <= 0) {
+					p_Error = "IG Inbound: Ref_InOutLine_ID not set on " + line;
+					log.log(Level.WARNING, p_Error);
+					return null;
+				}
+				MCostDetail counterCD = MCostDetail.getShipment(as,
+						line.getM_Product_ID(), line.getM_AttributeSetInstance_ID(),
+						counterInOutLine_ID, 0, getTrxName());
+				if (counterCD == null) {
+					if (!product.isStocked()) {
+						continue; // service: ignore
+					}
+					p_Error = "IG Inbound: G- cost detail not found (G- not posted yet?) for " + line;
+					log.log(Level.WARNING, p_Error);
+					return null;
+				}
+				// G- 的 MCostDetail.Amt 是负数（出库），取反得到入库成本
+				costs = counterCD.getAmt().negate();
+				if (costs.signum() == 0 && product.isStocked()) {
+					p_Error = "IG Inbound: zero cost from G- for " + line;
+					log.log(Level.WARNING, p_Error);
+					return null;
+				}
+			} else {
+				costs = BigDecimal.ZERO;
+			}
+
+			// Inventory (Org B)   DR
+			FactLine dr = fact.createLine(line,
+					line.getAccount(ProductCost.ACCTTYPE_P_Asset, as),
+					as.getC_Currency_ID(), costs, null);
+			if (dr == null) {
+				p_Error = Msg.getMsg(getCtx(), "FactLine DR not created: ") + line;
+				log.log(Level.WARNING, p_Error);
+				return null;
+			}
+			dr.setM_Locator_ID(line.getM_Locator_ID());
+			dr.setAD_Org_ID(line.getAD_Org_ID());
+			if (isReversal(line)) {
+				if (!dr.updateReverseLine(MInOut.Table_ID,
+						m_Reversal_ID, line.getReversalLine_ID(), Env.ONE)) {
+					if (!product.isStocked()) { fact.remove(dr); continue; }
+					p_Error = Msg.getMsg(getCtx(), "Original Shipment/Receipt not posted yet");
+					return null;
+				}
+			}
+
+			// InterOrg Due-To   CR
+			FactLine cr = fact.createLine(line,
+					as.getDueTo_Acct(MAcctSchemaElement.ELEMENTTYPE_Organization),
+					as.getC_Currency_ID(), null, costs);
+			if (cr == null) {
+				p_Error = Msg.getMsg(getCtx(), "FactLine CR not created: ") + line;
+				log.log(Level.WARNING, p_Error);
+				return null;
+			}
+			cr.setM_Locator_ID(line.getM_Locator_ID());
+			cr.setAD_Org_ID(line.getAD_Org_ID());
+			if (isReversal(line)) {
+				if (!cr.updateReverseLine(MInOut.Table_ID,
+						m_Reversal_ID, line.getReversalLine_ID(), Env.ONE, dr)) {
+					p_Error = Msg.getMsg(getCtx(), "Original Shipment/Receipt not posted yet");
+					return null;
+				}
+				costs = cr.getAcctBalance();
+			}
+
+			// MCostDetail：参考 Doc_Movement 跨组织 "to" 侧
+			// isSOTrx=false（G+ 定义为 isSOTrx=N），Amt/Qty 取正（入库）
+			if (line.getM_Product_ID() != 0) {
+				int Ref_CostDetail_ID = 0;
+				if (line.getReversalLine_ID() > 0 && line.get_ID() > line.getReversalLine_ID()) {
+					MCostDetail cd = MCostDetail.getShipment(as, line.getM_Product_ID(),
+							line.getM_AttributeSetInstance_ID(), line.getReversalLine_ID(), 0, getTrxName());
+					if (cd != null) Ref_CostDetail_ID = cd.getM_CostDetail_ID();
+				}
+				if (!MCostDetail.createShipment(as, line.getAD_Org_ID(),
+						line.getM_Product_ID(), line.getM_AttributeSetInstance_ID(),
+						line.get_ID(), 0,
+						costs, line.getQty(), // "to" 侧：入库为正
+						line.getDescription(), false, line.getDateAcct(), Ref_CostDetail_ID, getTrxName())) {
+					p_Error = Msg.getMsg(getCtx(), "Failed to create cost detail record");
+					return null;
+				}
+			}
+		} // for all lines
+
+		facts.add(fact);
+		return facts;
+	}
 	/**
 	 * @param as
 	 * @param M_Product_ID

@@ -282,7 +282,7 @@ public class MCost extends X_M_Cost implements ICostInfo
 		}
 
 		if (count > 1)	//	Print summary
-			if (s_log.isLoggable(Level.FINEST)) s_log.finest("MaterialCost=" + materialCostEach
+			if (s_log.isLoggable(Level.FINEST)) s_log.finest("MaterialCost1=" + materialCostEach
 				+ ", OtherCosts=" + otherCostEach
 				+ ", Percentage=" + percentage);
 

@@ -116,6 +116,7 @@ import org.compiere.model.Lookup;
 import org.compiere.model.MAttachment;
 import org.compiere.model.MAuthorizationAccount;
 import org.compiere.model.MClient;
+import org.compiere.model.MColumn;
 import org.compiere.model.MInfoColumn;
 import org.compiere.model.MInfoWindow;
 import org.compiere.model.MLookup;
@@ -133,10 +134,12 @@ import org.compiere.util.DB;
 import org.compiere.util.DisplayType;
 import org.compiere.util.Env;
 import org.compiere.util.KeyNamePair;
+import org.compiere.util.Language;
 import org.compiere.util.Msg;
 import org.compiere.util.Trx;
 import org.compiere.util.Util;
 import org.compiere.util.ValueNamePair;
+import org.idempiere.print.renderer.MultiIdentifierColumn;
 import org.idempiere.ui.zk.media.IMediaView;
 import org.idempiere.ui.zk.media.Medias;
 import org.idempiere.ui.zk.media.WMediaOptions;
@@ -255,6 +258,32 @@ public class InfoWindow extends InfoPanel implements ValueChangeListener, EventL
 	
 	/** true to auto collapse parameter panel after execution of query */
 	private boolean autoCollapsedParameterPanel = false;
+
+	private List<VirtualColumn> virtualColumns = null;
+
+	private static class VirtualColumn {
+		final int origColIndex; // 在 columnInfos 中的原始索引
+		final String idColName; // null = 普通列；非 null = 展开的标识符列名
+		final String foreignTable;
+		final String foreignKeyCol;
+		final String header;
+
+		VirtualColumn(int origColIndex) {
+			this.origColIndex = origColIndex;
+			this.idColName = null;
+			this.foreignTable = null;
+			this.foreignKeyCol = null;
+			this.header = null;
+		}
+
+		VirtualColumn(int origColIndex, String idColName, String foreignTable, String foreignKeyCol, String header) {
+			this.origColIndex = origColIndex;
+			this.idColName = idColName;
+			this.foreignTable = foreignTable;
+			this.foreignKeyCol = foreignKeyCol;
+			this.header = header;
+		}
+	}
 	
 	/**
 	 * @param WindowNo
@@ -3523,7 +3552,7 @@ public class InfoWindow extends InfoPanel implements ValueChangeListener, EventL
 		@Override
 		public int getColumnCount()
 		{			
-			return columnInfos.length;
+			return virtualColumns != null ? virtualColumns.size() : columnInfos.length;
 		}
 
 		@Override
@@ -3565,74 +3594,81 @@ public class InfoWindow extends InfoPanel implements ValueChangeListener, EventL
 		@Override
 		public boolean isColumnPrinted(int col)
 		{
-			return (columnInfos[col].getGridField() != null);
+			if (virtualColumns == null)
+				return columnInfos[col].getGridField() != null;
+			VirtualColumn vc = virtualColumns.get(col);
+			return columnInfos[vc.origColIndex].getGridField() != null;
 		}
 
 		@Override
 		public String getHeaderName(int col)
 		{			
-			return columnInfos[col].getColHeader();
+			if (virtualColumns == null)
+				return columnInfos[col].getColHeader();
+			VirtualColumn vc = virtualColumns.get(col);
+			return vc.idColName != null ? vc.header : columnInfos[vc.origColIndex].getColHeader();
 		}
 
 		@Override
 		public int getDisplayType(int row, int col)
 		{
-			int displayType = -1;
-			GridField gridField = columnInfos[col].getGridField();
-			displayType = gridField.getDisplayType();
-						
-			return displayType;
+			if (virtualColumns == null)
+				return columnInfos[col].getGridField().getDisplayType();
+			VirtualColumn vc = virtualColumns.get(col);
+			if (vc.idColName != null)
+				return DisplayType.String;
+			return columnInfos[vc.origColIndex].getGridField().getDisplayType();
 		}
 
 		@Override
-		public Object getValueAt(int row, int col)
-		{
-		    Object val = null;  
-		      
-		    int columnIndex = 1;  // ResultSet columns start at 1 (after key column)  
-		    int printedColFound = 0;  
-		      
-		    for (int idx = 0; idx < getColumnCount(); idx++) {  
-		        if (isColumnPrinted(idx)) {  
-		            columnIndex++;  // Increment FIRST 
-		            printedColFound++;  
-		            if (printedColFound == col) {  
-		                // Found the column we want - break AFTER incrementing  
-		                break;  
-		            }  
-		      
-		            if (columnInfos[idx].isKeyPairCol()) {  
-		                columnIndex++;  
-		            }  
-		        }  
-		    }  
-		      
-		    try  
-		    {  
-		        val = m_rs.getObject(columnIndex);  
-		        if (columnInfos[col].isKeyPairCol()) {  
-		            m_rs.getObject(columnIndex+1);  
-		            if (m_rs.wasNull()) {  
-		                val = null;  
-		            }  
-		        }  
-		    }  
-		    catch(SQLException e)  
-		    {  
-		        throw new AdempiereException(e);  
-		    }  
-		      
-		    if(val != null && !columnInfos[col].isKeyPairCol()   
-		            && columnInfos[col].getGridField().getLookup() != null)  
-		    {  
-		        Lookup lookup = columnInfos[col].getGridField().getLookup();  
-		        if (lookup != null)  
-		        {  
-		            val = lookup.getDisplay(val);  
-		        }  
-		    }   
-		      
-		    return val; 
+		public Object getValueAt(int row, int col) {
+			VirtualColumn vc = virtualColumns.get(col);
+			int origColIndex = vc.origColIndex;
+
+			// 用原始 columnInfos 索引计算 RS 列索引（原有逻辑不变，只是把 col 换成 origColIndex）
+			int columnIndex = 1;
+			int printedColFound = 0;
+			for (int idx = 0; idx < columnInfos.length; idx++) {
+				if (columnInfos[idx].getGridField() != null) {
+					columnIndex++;
+					printedColFound++;
+					if (printedColFound == origColIndex) {
+						break;
+					}
+					if (columnInfos[idx].isKeyPairCol()) {
+						columnIndex++;
+					}
+				}
+			}
+
+			Object val = null;
+			try {
+				val = m_rs.getObject(columnIndex);
+				if (columnInfos[origColIndex].isKeyPairCol()) {
+					m_rs.getObject(columnIndex + 1);
+					if (m_rs.wasNull())
+						val = null;
+				}
+			} catch (SQLException e) {
+				throw new AdempiereException(e);
+			}
+
+			if (vc.idColName != null) {
+				// 展开的标识符列：直接查外键表
+				if (val == null)
+					return null;
+				return MultiIdentifierColumn.resolveIdentifierColumnValue(vc.foreignTable, vc.foreignKeyCol, vc.idColName, val,
+						Env.getLanguage(Env.getCtx()));
+			}
+
+			// 普通列：原有 lookup.getDisplay() 逻辑
+			if (val != null && !columnInfos[origColIndex].isKeyPairCol()
+					&& columnInfos[origColIndex].getGridField().getLookup() != null) {
+				Lookup lookup = columnInfos[origColIndex].getGridField().getLookup();
+				if (lookup != null)
+					val = lookup.getDisplay(val);
+			}
+			return val;
 		}
 
 		@Override
@@ -3673,6 +3709,7 @@ public class InfoWindow extends InfoPanel implements ValueChangeListener, EventL
 	                pstmt.setFetchSize(100);  
 	                m_rs = pstmt.executeQuery();  
 	  
+					buildVirtualColumns(); // ← 新增
 	                exportToPdf(file);  
 	            } catch(SQLException e) {  
 	                log.log(Level.SEVERE, dataSql, e);  
@@ -3857,19 +3894,8 @@ public class InfoWindow extends InfoPanel implements ValueChangeListener, EventL
 					pstmt.setFetchSize(100);
 					m_rs = pstmt.executeQuery();
 
+					buildVirtualColumns(); // ← 新增
 					export(file, null);
-					
-					// 添加Excel后处理
-					if (MSysConfig.getBooleanValue(MSysConfig.EXPORT_INCLUDE_REFERENCE_FIELDS, false,
-							Env.getAD_Client_ID(Env.getCtx()))) {
-						ExcelPostProcessor processor = new ExcelPostProcessor();
-						File processedFile = processor.processExcel(file);
-						if (processedFile != null && processedFile.exists()) {
-							// 删除原文件，重命名处理后的文件
-							file.delete();
-							file = processedFile;
-						} 
-	                }  
 				}
 				catch(SQLException e)
 				{
@@ -3913,8 +3939,8 @@ public class InfoWindow extends InfoPanel implements ValueChangeListener, EventL
 
 		@Override
 		public int getColumnCount()
-		{			
-			return columnInfos.length;
+		{
+			return virtualColumns != null ? virtualColumns.size() : columnInfos.length;
 		}
 
 		@Override
@@ -3949,37 +3975,87 @@ public class InfoWindow extends InfoPanel implements ValueChangeListener, EventL
 		@Override
 		public boolean isColumnPrinted(int col)
 		{
-			return (columnInfos[col].getGridField() != null);
+			if (virtualColumns == null)
+				return columnInfos[col].getGridField() != null;
+			VirtualColumn vc = virtualColumns.get(col);
+			return columnInfos[vc.origColIndex].getGridField() != null;
 		}
 
 		@Override
 		public String getHeaderName(int col)
 		{			
-			return columnInfos[col].getColHeader();
+			if (virtualColumns == null)
+				return columnInfos[col].getColHeader();
+			VirtualColumn vc = virtualColumns.get(col);
+			return vc.idColName != null ? vc.header : columnInfos[vc.origColIndex].getColHeader();
 		}
 
 		@Override
 		public int getDisplayType(int row, int col)
 		{
-			int displayType = -1;
-			GridField gridField = columnInfos[col].getGridField();
-			displayType = gridField.getDisplayType();
-						
-			return displayType;
+			if (virtualColumns == null)
+				return columnInfos[col].getGridField().getDisplayType();
+			VirtualColumn vc = virtualColumns.get(col);
+			if (vc.idColName != null)
+				return DisplayType.String;
+			return columnInfos[vc.origColIndex].getGridField().getDisplayType();
 		}
 
 		@Override
 		public Object getValueAt(int row, int col)
 		{
-			Object val = null;
+			if (virtualColumns == null) {
+				Object val = null;
 
+				int columnIndex = 1;
+				int colFound = 0;
+				for (int idx = 0; idx < getColumnCount(); idx++) {
+					if (isColumnPrinted(idx)) {
+						columnIndex++;
+						colFound++;
+						if (colFound >= col) {
+							break;
+						}
+						if (columnInfos[idx].isKeyPairCol()) {
+							columnIndex++;
+						}
+					}
+				}
+
+				try {
+					val = m_rs.getObject(columnIndex);
+					if (columnInfos[col].isKeyPairCol()) {
+						m_rs.getObject(columnIndex + 1);
+						if (m_rs.wasNull()) {
+							val = null;
+						}
+					}
+				} catch (SQLException e) {
+					throw new AdempiereException(e);
+				}
+
+				if (val != null && !columnInfos[col].isKeyPairCol()
+						&& columnInfos[col].getGridField().getLookup() != null) {
+					Lookup lookup = columnInfos[col].getGridField().getLookup();
+					if (lookup != null) {
+						val = lookup.getDisplay(val);
+					}
+				}
+
+				return val;
+			}
+			
+			VirtualColumn vc = virtualColumns.get(col);
+			int origColIndex = vc.origColIndex;
+
+			// 计算 ResultSet 列索引（基于原始 columnInfos）
 			int columnIndex = 1;
 			int colFound = 0;
-			for (int idx = 0; idx < getColumnCount(); idx++) {
-				if (isColumnPrinted(idx)) {
+			for (int idx = 0; idx < columnInfos.length; idx++) {
+				if (columnInfos[idx].getGridField() != null) {
 					columnIndex++;
 					colFound++;
-					if (colFound >= col) {
+					if (colFound >= origColIndex) {
 						break;
 					}
 					if (columnInfos[idx].isKeyPairCol()) {
@@ -3988,32 +4064,34 @@ public class InfoWindow extends InfoPanel implements ValueChangeListener, EventL
 				}
 			}
 
-			try
-			{
+			Object val = null;
+			try {
 				val = m_rs.getObject(columnIndex);
-				if (columnInfos[col].isKeyPairCol()) {
-					m_rs.getObject(columnIndex+1);
-					if (m_rs.wasNull()) {
+				if (columnInfos[origColIndex].isKeyPairCol()) {
+					m_rs.getObject(columnIndex + 1);
+					if (m_rs.wasNull())
 						val = null;
-					}
 				}
-			}
-			catch(SQLException e)
-			{
+			} catch (SQLException e) {
 				throw new AdempiereException(e);
 			}
-			
-			if(val != null && !columnInfos[col].isKeyPairCol() 
-					&& columnInfos[col].getGridField().getLookup() != null)
-			{
-				Lookup lookup = columnInfos[col].getGridField().getLookup();
+
+			if (vc.idColName != null) {
+				// 展开的标识符列：直接查外键表
+				if (val == null)
+					return null;
+				return MultiIdentifierColumn.resolveIdentifierColumnValue(vc.foreignTable, vc.foreignKeyCol, vc.idColName, val,
+						Env.getLanguage(Env.getCtx()));
+			}
+
+			// 普通列：原有 lookup.getDisplay() 逻辑
+			if (val != null && !columnInfos[origColIndex].isKeyPairCol()
+					&& columnInfos[origColIndex].getGridField().getLookup() != null) {
+				Lookup lookup = columnInfos[origColIndex].getGridField().getLookup();
 				if (lookup != null)
-				{
 					val = lookup.getDisplay(val);
-				}
-			} 
-			
-			return val; 
+			}
+			return val;
 		}
 
 		@Override
@@ -4045,6 +4123,51 @@ public class InfoWindow extends InfoPanel implements ValueChangeListener, EventL
 			if (editorTo != null && editorTo.isMandatory() && editorTo.getValue() == null)
 				throw new WrongValueException(editorTo.getComponent(), Msg.getMsg(Env.getCtx(), "Missing required parameters"));
 				
+		}
+	}
+
+	// 构建虚拟列字段，拆分标识符字段
+	private void buildVirtualColumns() {
+		virtualColumns = new ArrayList<>();
+		for (int i = 0; i < columnInfos.length; i++) {
+			GridField gf = columnInfos[i].getGridField();
+			if (gf == null) {
+				virtualColumns.add(new VirtualColumn(i));
+				continue;
+			}
+			int displayType = gf.getDisplayType();
+			if (!DisplayType.isLookup(displayType) || DisplayType.isMultiID(displayType)) {
+				virtualColumns.add(new VirtualColumn(i));
+				continue;
+			}
+			Lookup lookup = gf.getLookup();
+			if (!(lookup instanceof MLookup)) {
+				virtualColumns.add(new VirtualColumn(i));
+				continue;
+			}
+			MLookupInfo info = ((MLookup) lookup).getLookupInfo();
+			if (info == null || info.lookupDisplayColumnNames == null || info.lookupDisplayColumnNames.size() <= 1) {
+				virtualColumns.add(new VirtualColumn(i));
+				continue;
+			}
+			// 多标识符：展开
+			String foreignTable = info.TableName;
+			MTable fTable = MTable.get(Env.getCtx(), foreignTable);
+			if (fTable == null) {
+				virtualColumns.add(new VirtualColumn(i));
+				continue;
+			}
+			String[] keyCols = fTable.getKeyColumns();
+			if (keyCols == null || keyCols.length == 0) {
+				virtualColumns.add(new VirtualColumn(i));
+				continue;
+			}
+			String foreignKeyCol = keyCols[0];
+			String baseHeader = columnInfos[i].getColHeader();
+			for (String idCol : info.lookupDisplayColumnNames) {
+				virtualColumns
+						.add(new VirtualColumn(i, idCol, foreignTable, foreignKeyCol, baseHeader + "[" + idCol + "]"));
+			}
 		}
 	}
 

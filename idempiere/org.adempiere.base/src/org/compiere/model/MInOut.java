@@ -513,7 +513,11 @@ public class MInOut extends X_M_InOut implements DocAction, IDocsPostProcess
 		if (!to.save(trxName))
 			throw new IllegalStateException("Could not create Shipment");
 		if (counter)
+		{
 			from.setRef_InOut_ID(to.getM_InOut_ID());
+			from.saveEx(trxName);
+		}
+
 
 		if (to.copyLinesFrom(from, counter, setOrder) <= 0)
 			throw new IllegalStateException("Could not create Shipment Lines");
@@ -1271,10 +1275,11 @@ public class MInOut extends X_M_InOut implements DocAction, IDocsPostProcess
 		MDocType docType = MDocType.get(C_DocType_ID);
 		
 		if (docType == null) return null;
-		
-		if (docType.getDocBaseType().equals(MDocType.DOCBASETYPE_MaterialReceipt) && docType.getName().contains("委外")) {
-			return null;
-		}
+		// 优先读取自定义字段，配置业务类型
+		String docMovementType = docType.get_ValueAsString("DocMovementType");
+		if (docMovementType != null && !docMovementType.isEmpty())
+			return docMovementType;
+
         if (docType.getDocBaseType().equals(MDocType.DOCBASETYPE_MaterialDelivery)) 
             movementType = docType.isSOTrx() ? MOVEMENTTYPE_CustomerShipment : MOVEMENTTYPE_VendorReturns; 
         else if (docType.getDocBaseType().equals(MDocType.DOCBASETYPE_MaterialReceipt)) 
@@ -2378,7 +2383,8 @@ public class MInOut extends X_M_InOut implements DocAction, IDocsPostProcess
 		if (product != null && line.getM_AttributeSetInstance_ID() == 0)
 		{
 			//Validate Transaction
-			if (getMovementType().compareTo(MInOut.MOVEMENTTYPE_VendorReceipts) == 0 )
+			//if (getMovementType().compareTo(MInOut.MOVEMENTTYPE_VendorReceipts) == 0)
+			if (MovementType.charAt(1) == '+' && getMovementType().compareTo(MInOut.MOVEMENTTYPE_CustomerReturns) != 0)
 			{
 				//auto balance negative on hand
 				BigDecimal qtyToReceive = autoBalanceNegative(line, product,qty);
@@ -2422,7 +2428,8 @@ public class MInOut extends X_M_InOut implements DocAction, IDocsPostProcess
 				}	
 			}
 			// Create consume the Attribute Set Instance using policy FIFO/LIFO
-			else if(getMovementType().compareTo(MInOut.MOVEMENTTYPE_VendorReturns) == 0 || getMovementType().compareTo(MInOut.MOVEMENTTYPE_CustomerShipment) == 0)
+			//else if(getMovementType().compareTo(MInOut.MOVEMENTTYPE_VendorReturns) == 0 || getMovementType().compareTo(MInOut.MOVEMENTTYPE_CustomerShipment) == 0 )
+			else if(MovementType.charAt(1) == '-')
 			{
 				String MMPolicy = product.getMMPolicy();
 				Timestamp minGuaranteeDate = getMovementDate();

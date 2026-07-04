@@ -347,16 +347,17 @@ public class GridTabCSVImporter implements IGridTabImporter
 			return null;
 
 		Map<String, Object> rowMap = data.get(idx);
-		// 尝试从导入数据中获取Value字段
+		// 1. 先从导入数据中获取
 		Object value = rowMap.get("Value");
 		if (value != null)
 			return value.toString();
 
-		// 如果导入数据中没有，尝试从当前记录获取
-		if (gridTab.getCurrentRow() >= 0) {
-			value = gridTab.getValue("Value");
-			if (value != null)
-				return value.toString();
+		// 2. 从已保存的 PO 对象读取（PO_BEFORE_NEW 生成的编码在这里）
+		PO po = gridTab.getTableModel().getPO(gridTab.getCurrentRow());
+		if (po != null) {
+			Object poValue = po.get_Value("Value");
+			if (poValue != null)
+				return poValue.toString();
 		}
 
 		return "";

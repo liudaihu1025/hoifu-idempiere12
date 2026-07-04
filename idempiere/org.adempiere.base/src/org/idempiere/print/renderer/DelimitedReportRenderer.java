@@ -25,10 +25,16 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Level;
 
+import org.compiere.model.MColumn;
+import org.compiere.model.MLookupFactory;
+import org.compiere.model.MLookupInfo;
+import org.compiere.model.MTable;
 import org.compiere.print.MPrintFormat;
 import org.compiere.print.MPrintFormatItem;
 import org.compiere.print.PrintData;
@@ -38,6 +44,8 @@ import org.compiere.print.layout.InstanceAttributeColumn;
 import org.compiere.print.layout.InstanceAttributeData;
 import org.compiere.print.layout.LayoutEngine;
 import org.compiere.util.CLogger;
+import org.compiere.util.DB;
+import org.compiere.util.DisplayType;
 import org.compiere.util.Env;
 import org.compiere.util.Ini;
 import org.compiere.util.Language;
@@ -110,8 +118,16 @@ public abstract class DelimitedReportRenderer<C extends DelimitedReportRendererC
 					}
 					else 
 					{
-						columns.add(item);
-						columnCount++;
+//						columns.add(item);
+//						columnCount++;
+						List<MultiIdentifierColumn> multiCols = MultiIdentifierColumn.getMultiIdentifierColumns(item);
+						if (multiCols != null) {
+							columns.addAll(multiCols);
+							columnCount += multiCols.size();
+						} else {
+							columns.add(item);
+							columnCount++;
+						}
 					}
 				}
 			}
@@ -161,6 +177,41 @@ public abstract class DelimitedReportRenderer<C extends DelimitedReportRendererC
 					{
 						item = (MPrintFormatItem)colObj;
 					}
+					else if (colObj instanceof MultiIdentifierColumn)
+					{
+						MultiIdentifierColumn mic = (MultiIdentifierColumn) colObj;
+						if (first)
+							first = false;
+						else
+							sb.append(delimiter);
+
+						if (row == -1) {
+							addDelimitedValue(sb, delimiter,
+									mic.getItem().getPrintName(language) + "[" + mic.getIdColName() + "]");
+						} else {
+							String data = "";
+							Object obj = printData.getNodeByPrintFormatItemId(mic.getItem().getAD_PrintFormatItem_ID());
+							if (obj instanceof PrintDataElement && ReportEngine.isDisplayPFItem(printData, mic.getItem())) {
+								PrintDataElement pde = (PrintDataElement) obj;
+								String keyStr = pde.getValueAsString();
+								if (keyStr != null && !keyStr.isEmpty()) {
+									Object keyParam;
+									try {
+										keyParam = Integer.parseInt(keyStr);
+									} catch (NumberFormatException e) {
+										keyParam = keyStr;
+									}
+									String val = MultiIdentifierColumn.resolveIdentifierColumnValue(mic.getForeignTable(), mic.getForeignKeyCol(),
+											mic.getIdColName(), keyParam, language);
+									if (val != null)
+										data = val;
+								}
+							}
+							addDelimitedValue(sb, delimiter, data);
+						}
+						// item 仍为 null，if (item != null) 块自然跳过，无需 continue
+					}
+					
 					if (item != null)
 					{
 						//	column delimiter (comma or tab)
