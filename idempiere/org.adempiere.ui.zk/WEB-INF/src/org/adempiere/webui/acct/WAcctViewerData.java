@@ -178,8 +178,19 @@ public class WAcctViewerData
 		
 		AD_Table_ID = ad_Table_ID;
 
+//		ASchemas = MAcctSchema.getClientAcctSchema(ctx, AD_Client_ID);
+//		ASchema = ASchemas[0];
 		ASchemas = MAcctSchema.getClientAcctSchema(ctx, AD_Client_ID);
-		ASchema = ASchemas[0];
+		ASchema = ASchemas[0]; // 默认兜底
+		int preferredSchemaId = Env.getContextAsInt(ctx, Env.C_ACCTSCHEMA_ID);
+		if (preferredSchemaId > 0) {
+			for (MAcctSchema as : ASchemas) {
+				if (as.getC_AcctSchema_ID() == preferredSchemaId) {
+					ASchema = as;
+					break;
+				}
+			}
+		}
 	} // AcctViewerData
 	
 	/**
@@ -435,8 +446,8 @@ public class WAcctViewerData
 				whereClause.append(RModel.TABLE_ALIAS).append(".Record_ID=").append(Record_ID);
 			}
 		}
-		else
-		{
+//		else
+//		{
 			//  get values (Queries)
 			
 			Iterator<String> it = whereInfo.values().iterator();
@@ -479,7 +490,7 @@ public class WAcctViewerData
 			
 				whereClause.append(RModel.TABLE_ALIAS).append(".AD_Org_ID=").append(AD_Org_ID);
 			}
-		}
+//		}
 
 		// === 凭证搜索条件 ==
 		if (VoucherType != null && VoucherType.trim().length() > 0) {
@@ -573,8 +584,9 @@ public class WAcctViewerData
 		if (orderClause.length() > 0) {
 			orderClause.append(",");
 		}
-		// 始终添加先借后贷的排序逻辑
-		orderClause.append(RModel.TABLE_ALIAS).append(".Gl_Voucher_ID,");
+		// 始终添加：过账日期降序、凭证ID降序、先借后贷
+		orderClause.append(RModel.TABLE_ALIAS).append(".DateAcct DESC,");
+		orderClause.append(RModel.TABLE_ALIAS).append(".Gl_Voucher_ID DESC,");
 		orderClause.append("CASE WHEN ").append(RModel.TABLE_ALIAS).append(".AmtAcctDr > 0 THEN 0 ELSE 1 END, ");
 		orderClause.append(RModel.TABLE_ALIAS).append(".Fact_Acct_ID");
 

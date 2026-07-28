@@ -1,24 +1,20 @@
 package org.libero.process;  
   
-import java.math.BigDecimal;  
-import java.sql.Timestamp;  
-import java.util.HashSet;  
-import java.util.Set;  
-  
-import org.compiere.model.MBPartner;  
-import org.compiere.model.MPriceList;  
-import org.compiere.model.MPriceListVersion;  
-import org.compiere.model.MProduct;  
-import org.compiere.model.MProductPO;  
-import org.compiere.model.MProductPrice;  
-import org.compiere.model.MReplenish;  
-import org.compiere.model.Query;  
-import org.compiere.process.ProcessInfoParameter;  
-import org.compiere.process.SvrProcess;  
-import org.compiere.util.DB;  
-import org.compiere.util.Env;  
-import org.eevolution.model.MPPProductBOM;  
-import org.eevolution.model.MPPProductBOMLine;  
+import java.math.BigDecimal;
+import java.util.HashSet;
+import java.util.Set;
+
+import org.compiere.model.MProduct;
+import org.compiere.model.MProductPO;
+import org.compiere.model.MProductPrice;
+import org.compiere.model.MReplenish;
+import org.compiere.model.Query;
+import org.compiere.process.ProcessInfoParameter;
+import org.compiere.process.SvrProcess;
+import org.compiere.util.DB;
+import org.compiere.util.Env;
+import org.eevolution.model.MPPProductBOM;
+import org.eevolution.model.MPPProductBOMLine;
 import org.eevolution.model.X_PP_Product_Planning;  
   
 /**  
@@ -34,8 +30,11 @@ public class CreateMRPDefaultConfiguration extends SvrProcess {
     private int p_AD_Workflow_ID = 0;  
     private int AD_Org_ID = 0;  
     private int AD_User_ID = 0;  
-    private int S_Resource_ID = 0;  
-    private int M_Warehouse_ID = 0;  
+	private int p_S_Resource_ID = 0;
+	private int p_M_Warehouse_ID = 0;
+
+	private BigDecimal p_DeliveryTime_Promised = new BigDecimal(7); // 默认7天
+	private String p_Order_Policy = "LFL"; // 默认按需求数量
   
     /** 默认供应商ID */  
     private int defaultBPartnerID = 0;  
@@ -54,6 +53,14 @@ public class CreateMRPDefaultConfiguration extends SvrProcess {
                 ;  
             else if (name.equals("AD_Workflow_ID"))  
                 p_AD_Workflow_ID = para[i].getParameterAsInt();  
+			else if (name.equals("M_Warehouse_ID")) // 新增
+				p_M_Warehouse_ID = para[i].getParameterAsInt();
+			else if (name.equals("S_Resource_ID")) // 新增
+				p_S_Resource_ID = para[i].getParameterAsInt();
+			else if (name.equals("DeliveryTime_Promised")) // 新增
+				p_DeliveryTime_Promised = (BigDecimal) para[i].getParameter();
+			else if (name.equals("Order_Policy")) // 新增
+				p_Order_Policy = (String) para[i].getParameter();
             else  
                 log.warning("未知参数: " + name);  
         }  
@@ -75,15 +82,13 @@ public class CreateMRPDefaultConfiguration extends SvrProcess {
         AD_Org_ID = Env.getAD_Org_ID(getCtx());  
         AD_User_ID = Env.getAD_User_ID(getCtx());  
   
-        // 预先获取资源和仓库信息  
-        S_Resource_ID = getResourceByValue("P10");  
-        if (S_Resource_ID == 0) {  
-            throw new Exception("请先维护'基地一车间'的厂房【P10】（即10号厂房）");  
+		// 改为从参数获取，并做必填校验
+		if (p_S_Resource_ID == 0) {
+			throw new Exception("请选择资源");
         }  
-        M_Warehouse_ID = getWarehouseFromResource(S_Resource_ID);  
-        if (M_Warehouse_ID == 0) {  
-            throw new Exception("未找到资源对应的仓库");  
-        }  
+		if (p_M_Warehouse_ID == 0) {
+			throw new Exception("请选择仓库");
+		}
   
         // 预先获取默认供应商  
         defaultBPartnerID = getDefaultBPartner();  
@@ -200,9 +205,10 @@ public class CreateMRPDefaultConfiguration extends SvrProcess {
         planning.setAD_Org_ID(AD_Org_ID);  
         planning.setM_Product_ID(M_Product_ID);  
         planning.setPlanner_ID(AD_User_ID);  
-        planning.setOrder_Policy("LFL");  
-        planning.setS_Resource_ID(S_Resource_ID);  
-        planning.setM_Warehouse_ID(M_Warehouse_ID);  
+		planning.setOrder_Policy(p_Order_Policy);
+		planning.setDeliveryTime_Promised(p_DeliveryTime_Promised);
+		planning.setS_Resource_ID(p_S_Resource_ID);
+		planning.setM_Warehouse_ID(p_M_Warehouse_ID);
         planning.setIsRequiredMRP(true);  
         planning.setIsCreatePlan(true);  
         planning.setIsMPS(true);  
@@ -226,7 +232,7 @@ public class CreateMRPDefaultConfiguration extends SvrProcess {
         MReplenish replenish = new MReplenish(getCtx(), 0, get_TrxName());  
         replenish.setAD_Org_ID(AD_Org_ID);  
         replenish.setM_Product_ID(M_Product_ID);  
-        replenish.setM_Warehouse_ID(M_Warehouse_ID);  
+		replenish.setM_Warehouse_ID(p_M_Warehouse_ID);
         replenish.setReplenishType("1");  
         replenish.saveEx();  
     }  
@@ -263,18 +269,16 @@ public class CreateMRPDefaultConfiguration extends SvrProcess {
     // ==================== 存在性检查方法 ====================  
   
     private boolean existsProductPlanning(int M_Product_ID, int AD_Org_ID) {  
-        X_PP_Product_Planning existing = new Query(getCtx(), X_PP_Product_Planning.Table_Name,  
-                "M_Product_ID = ? AND AD_Org_ID = ?", get_TrxName())  
-            .setParameters(M_Product_ID, AD_Org_ID)  
-            .first();  
+		X_PP_Product_Planning existing = new Query(getCtx(), X_PP_Product_Planning.Table_Name,
+				"M_Product_ID = ? AND AD_Org_ID = ? AND M_Warehouse_ID = ? AND S_Resource_ID = ?", get_TrxName())
+				.setParameters(M_Product_ID, AD_Org_ID, p_M_Warehouse_ID, p_S_Resource_ID).first();
         return existing != null;  
     }  
   
     private boolean existsReplenish(int M_Product_ID, int AD_Org_ID) {  
-        MReplenish existing = new Query(getCtx(), MReplenish.Table_Name,  
-                "M_Product_ID = ? AND AD_Org_ID = ?", get_TrxName())  
-            .setParameters(M_Product_ID, AD_Org_ID)  
-            .first();  
+		MReplenish existing = new Query(getCtx(), MReplenish.Table_Name,
+				"M_Product_ID = ? AND AD_Org_ID = ? AND M_Warehouse_ID = ?", get_TrxName())
+				.setParameters(M_Product_ID, AD_Org_ID, p_M_Warehouse_ID).first();
         return existing != null;  
     }  
   
@@ -304,17 +308,6 @@ public class CreateMRPDefaultConfiguration extends SvrProcess {
         return DB.getSQLValue(get_TrxName(), sql, M_Product_ID);  
     }  
   
-    private int getResourceByValue(String value) {  
-        String sql = "SELECT S_Resource_ID FROM S_Resource " +  
-                     "WHERE Value = ? AND IsActive = 'Y'";  
-        return DB.getSQLValue(get_TrxName(), sql, value);  
-    }  
-  
-    private int getWarehouseFromResource(int S_Resource_ID) {  
-        String sql = "SELECT M_Warehouse_ID FROM S_Resource " +  
-                     "WHERE S_Resource_ID = ?";  
-        return DB.getSQLValue(get_TrxName(), sql, S_Resource_ID);  
-    }  
   
     /**  
      * 获取名为'默认业务伙伴'的供应商ID  

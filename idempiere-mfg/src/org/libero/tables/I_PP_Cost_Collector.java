@@ -670,4 +670,13 @@ public interface I_PP_Cost_Collector
 	public void setIsSubstitute(boolean IsSubstitute);  
 	  
 	public boolean getIsSubstitute();
+
+	/** Column name HF_WorkReportType */
+	public static final String COLUMNNAME_HF_WorkReportType = "HF_WorkReportType";
+
+	/** Set HF_WorkReportType */
+	public void setHF_WorkReportType(String HF_WorkReportType);
+
+	/** Get HF_WorkReportType */
+	public String getHF_WorkReportType();
 }

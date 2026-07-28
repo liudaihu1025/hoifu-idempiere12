@@ -150,6 +150,7 @@ public class QuickGridTabRowRenderer
 		if (editor != null) {
 			prepareFieldEditor(gridField, editor);
 			editor.setValue(object);
+			editor.updateStyle(); // 值设置后重新刷新样式，移除错误的红框
 		}
 		return editor;
 	}

@@ -517,7 +517,7 @@ public class MInventory extends X_M_Inventory implements DocAction
 				return DocAction.STATUS_Invalid;
 			}
 		}
-
+		
 		StringBuilder errors = new StringBuilder();
 		MInventoryLine[] lines = getLines(false);
 		for (MInventoryLine line : lines)
@@ -529,8 +529,15 @@ public class MInventory extends X_M_Inventory implements DocAction
 			try
 			{
 				BigDecimal qtyDiff = Env.ZERO;
+				String docMovementType = MDocType.get(getCtx(), getC_DocType_ID()).get_ValueAsString("DocMovementType");
 				if (MDocType.DOCSUBTYPEINV_InternalUseInventory.equals(docSubTypeInv))
-					qtyDiff = line.getQtyInternalUse().negate();
+				{
+					// If DocMovementType is configured, use it to decide direction; otherwise keep original logic (negate for outgoing)
+					if (isIncomingMovement(docMovementType))
+						qtyDiff = line.getQtyInternalUse();
+					else
+						qtyDiff = line.getQtyInternalUse().negate();
+				}
 				else if (MDocType.DOCSUBTYPEINV_PhysicalInventory.equals(docSubTypeInv))
 					qtyDiff = line.getQtyCount().subtract(line.getQtyBook());
 				else if (MDocType.DOCSUBTYPEINV_CostAdjustment.equals(docSubTypeInv))
@@ -642,8 +649,10 @@ public class MInventory extends X_M_Inventory implements DocAction
 								return DocAction.STATUS_Invalid;
 							}
 	
-							String m_MovementType =null;
-							if(QtyMA.negate().compareTo(Env.ZERO) > 0 )
+							String m_MovementType = null;
+							if (docMovementType != null && !docMovementType.isEmpty())
+								m_MovementType = docMovementType;
+							else if (QtyMA.negate().compareTo(Env.ZERO) > 0)
 								m_MovementType = MTransaction.MOVEMENTTYPE_InventoryIn;
 							else
 								m_MovementType = MTransaction.MOVEMENTTYPE_InventoryOut;
@@ -688,7 +697,9 @@ public class MInventory extends X_M_Inventory implements DocAction
 						}
 	
 						String m_MovementType = null;
-						if(qtyDiff.compareTo(Env.ZERO) > 0 )
+						if (docMovementType != null && !docMovementType.isEmpty())
+							m_MovementType = docMovementType;
+						else if (qtyDiff.compareTo(Env.ZERO) > 0 )
 							m_MovementType = MTransaction.MOVEMENTTYPE_InventoryIn;
 						else
 							m_MovementType = MTransaction.MOVEMENTTYPE_InventoryOut;
@@ -719,7 +730,7 @@ public class MInventory extends X_M_Inventory implements DocAction
 			m_processMsg = errors.toString();
 			return DocAction.STATUS_Invalid;
 		}
-		
+
 		//	User Validation
 		String valid = ModelValidationEngine.get().fireDocValidate(this, ModelValidator.TIMING_AFTER_COMPLETE);
 		if (valid != null)
@@ -734,6 +745,18 @@ public class MInventory extends X_M_Inventory implements DocAction
 		return DocAction.STATUS_Completed;
 	}	//	completeIt
 	
+	/**
+	 * 	Check if the document movement type indicates an incoming transaction (ends with '+').
+	 * 	Applies to values like "I+", "H+", etc.
+	 * 	@return true if the last character is '+', false if '-' or not configured
+	 */
+	private boolean isIncomingMovement(String docMovementType)
+	{
+		if (docMovementType == null || docMovementType.isEmpty())
+			return false;
+		return docMovementType.charAt(docMovementType.length() - 1) == '+';
+	}
+
 	/**
 	 * 	Set the definite document number after completed
 	 */
@@ -1246,7 +1269,29 @@ public class MInventory extends X_M_Inventory implements DocAction
 	{
 		return getUpdatedBy();
 	}	//	getDoc_User_ID
-		
+
+	/**
+	 * 	Set Ref Inventory ID (关联领用单ID)
+	 *	@param Ref_Inventory_ID requisition inventory ID
+	 */
+	public void setRef_Inventory_ID(int Ref_Inventory_ID)
+	{
+		if (Ref_Inventory_ID <= 0)
+			set_Value("Ref_Inventory_ID", null);
+		else
+			set_Value("Ref_Inventory_ID", Integer.valueOf(Ref_Inventory_ID));
+	}	//	setRef_Inventory_ID
+
+	/**
+	 * 	Get Ref Inventory ID (关联领用单ID)
+	 *	@return requisition inventory ID
+	 */
+	public int getRef_Inventory_ID()
+	{
+		Integer ii = (Integer) get_Value("Ref_Inventory_ID");
+		return ii == null ? 0 : ii.intValue();
+	}	//	getRef_Inventory_ID
+
 	/** Reversal Flag		*/
 	protected boolean m_reversal = false;
 	

@@ -134,6 +134,40 @@ public class MPPProductBOM extends X_PP_Product_BOM implements DocAction, Immuta
 		}
 		return bom;
 	}
+	
+	/**  
+	 * 查找默认 BOM，先用当前登录组织查，找不到再用产品自身组织查。  
+	 * 适用于跨组织场景。  
+	 */  
+	public static MPPProductBOM getDefaultV2(MProduct product, String trxName) {  
+	    // 第一次：用当前登录组织（与 getDefault 行为一致）  
+	    MPPProductBOM bom = getDefault(product, trxName);  
+	    if (bom != null)  
+	        return bom;  
+	  
+	    // 第二次：用产品自身组织 fallback  
+	    int AD_Org_ID = product.getAD_Org_ID();  
+	    if (AD_Org_ID <= 0)  
+	        return null; // 产品也是跨组织的，没有意义再查  
+	  
+	    String filter = "M_Product_ID=? AND " + COLUMNNAME_BOMUse + "=? AND " + COLUMNNAME_BOMType + "=? "  
+	            + "AND AD_Org_ID IN (0, " + AD_Org_ID + ") ";  
+	    Query query = new Query(product.getCtx(), Table_Name, filter, trxName)  
+	            .setParameters(product.getM_Product_ID(), BOMUSE_Master, BOMTYPE_CurrentActive)  
+	            .setOnlyActiveRecords(true)  
+	            .setClient_ID()  
+	            .setOrderBy("AD_Org_ID Desc");  
+	  
+	    List<MPPProductBOM> list = query.list();  
+	    if (!list.isEmpty()) {  
+	        bom = list.get(0);  
+	        // 与 getDefault 保持一致：无事务时缓存  
+	        if (trxName == null)  
+	            s_cache.put(bom.get_ID(), bom);  
+	    }  
+	    return bom;  
+	}
+	
 
 	public static MPPProductBOM get(MProduct product, int ad_org_id, String trxName) {
 		MPPProductBOM bom = null;
@@ -226,13 +260,13 @@ public class MPPProductBOM extends X_PP_Product_BOM implements DocAction, Immuta
 	}
 
 	public boolean isValidFromTo(Timestamp date) {
-		Timestamp validFrom = getValidFrom();
-		Timestamp validTo = getValidTo();
-
-		if (validFrom != null && date.before(validFrom))
-			return false;
-		if (validTo != null && date.after(validTo))
-			return false;
+//		Timestamp validFrom = getValidFrom();
+//		Timestamp validTo = getValidTo();
+//
+//		if (validFrom != null && date.before(validFrom))
+//			return false;
+//		if (validTo != null && date.after(validTo))
+//			return false;
 		return true;
 	}
 

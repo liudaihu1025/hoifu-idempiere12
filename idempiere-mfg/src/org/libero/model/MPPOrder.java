@@ -28,11 +28,14 @@ import org.compiere.model.MDocType;
 import org.compiere.model.MLocator;
 import org.compiere.model.MOrder;
 import org.compiere.model.MOrderLine;
+import org.compiere.model.MOrg;
 import org.compiere.model.MProduct;
 import org.compiere.model.MProject;
 import org.compiere.model.MResource;
+import org.compiere.model.MRole;
 import org.compiere.model.MStorageOnHand;
 import org.compiere.model.MStorageReservation;
+import org.compiere.model.MSysConfig;
 import org.compiere.model.MTable;
 import org.compiere.model.MUOM;
 import org.compiere.model.MWarehouse;
@@ -1141,7 +1144,9 @@ public class MPPOrder extends X_PP_Order implements DocAction
 			throw new AdempiereException(" 由于存在销售明细，无法使此工单作废"); // 
 		}
 
-		createVariances();
+		if (!MSysConfig.getBooleanValue("SKIP_VARIANCE_PP_COST_COLLECTOR", false, getAD_Client_ID())) {
+			createVariances();
+		}
 
 		for(MPPOrderBOMLine line : getLines())
 		{
@@ -1547,6 +1552,21 @@ public class MPPOrder extends X_PP_Order implements DocAction
 					+ ", 有效期: " + PP_Product_BOMline.getValidFrom() + " - " + PP_Product_BOMline.getValidTo());
 	          
 			if (PP_Product_BOMline.isValidFromTo(getDateStartSchedule())) {
+			    // ===== 校验当前角色对物料所属组织的访问权限 =====  
+			    MProduct bomProduct = MProduct.get(getCtx(), PP_Product_BOMline.getM_Product_ID());  
+			    int productOrgId = bomProduct.getAD_Org_ID();  
+			    MRole currentRole = MRole.getDefault(getCtx(), false);  
+			    if (currentRole.isUseUserOrgAccess()) {  
+			        currentRole.setAD_User_ID(Env.getAD_User_ID(getCtx()));  
+			    }  
+			    if (!currentRole.isOrgAccess(productOrgId, false)) {  
+			        MOrg org = MOrg.get(getCtx(), productOrgId);  
+			        throw new AdempiereException(  
+			            "BOM行物料【" + bomProduct.getValue() + "】所属组织【"   
+			            + (org != null ? org.getName() : productOrgId)   
+			            + "】，当前角色无访问权限，无法展开BOM");  
+			    } 
+			    
 				try {
 					// creating new children for PPOrderBOM
 					MPPOrderBOMLine obl = new MPPOrderBOMLine(PP_Product_BOMline, getPP_Order_ID(),
@@ -1757,7 +1777,10 @@ public class MPPOrder extends X_PP_Order implements DocAction
 					if (PP_orderbomLine.getQtyBatch().signum() == 0 && PP_orderbomLine.getQtyBOM().signum() == 0) {
 						CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_MethodChangeVariance;
 					} else if (PP_orderbomLine.isComponentType(MPPOrderBOMLine.COMPONENTTYPE_Co_Product)) {
-						CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_MixVariance;
+//						CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_MixVariance;
+						CostCollectorType = MSysConfig.getBooleanValue("SKIP_VARIANCE_PP_COST_COLLECTOR", false, order.getAD_Client_ID()) 
+								? MPPCostCollector.COSTCOLLECTORTYPE_ComponentIssue
+								: MPPCostCollector.COSTCOLLECTORTYPE_MixVariance;
 					} else {
 						CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_ComponentIssue;
 					}
@@ -1811,7 +1834,10 @@ public class MPPOrder extends X_PP_Order implements DocAction
 				if (PP_orderbomLine.getQtyBatch().signum() == 0 && PP_orderbomLine.getQtyBOM().signum() == 0) {
 					CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_MethodChangeVariance;
 				} else if (PP_orderbomLine.isComponentType(MPPOrderBOMLine.COMPONENTTYPE_Co_Product)) {
-					CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_MixVariance;
+//					CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_MixVariance;
+					CostCollectorType = MSysConfig.getBooleanValue("SKIP_VARIANCE_PP_COST_COLLECTOR", false, order.getAD_Client_ID()) 
+							? MPPCostCollector.COSTCOLLECTORTYPE_ComponentIssue
+							: MPPCostCollector.COSTCOLLECTORTYPE_MixVariance;
 				} else {
 					CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_ComponentIssue;
 				}
@@ -1928,7 +1954,10 @@ public class MPPOrder extends X_PP_Order implements DocAction
 	                if (PP_orderbomLine.getQtyBatch().signum() == 0 && PP_orderbomLine.getQtyBOM().signum() == 0) {  
 	                    CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_MethodChangeVariance;  
 	                } else if (PP_orderbomLine.isComponentType(MPPOrderBOMLine.COMPONENTTYPE_Co_Product)) {  
-	                    CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_MixVariance;  
+//	                    CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_MixVariance;  
+						CostCollectorType = MSysConfig.getBooleanValue("SKIP_VARIANCE_PP_COST_COLLECTOR", false, order.getAD_Client_ID()) 
+								? MPPCostCollector.COSTCOLLECTORTYPE_ComponentIssue
+								: MPPCostCollector.COSTCOLLECTORTYPE_MixVariance;
 	                } else {  
 	                    CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_ComponentIssue;  
 	                }  
@@ -1979,7 +2008,10 @@ public class MPPOrder extends X_PP_Order implements DocAction
 	            if (PP_orderbomLine.getQtyBatch().signum() == 0 && PP_orderbomLine.getQtyBOM().signum() == 0) {  
 	                CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_MethodChangeVariance;  
 	            } else if (PP_orderbomLine.isComponentType(MPPOrderBOMLine.COMPONENTTYPE_Co_Product)) {  
-	                CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_MixVariance;  
+//	                CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_MixVariance;  
+	            	CostCollectorType = MSysConfig.getBooleanValue("SKIP_VARIANCE_PP_COST_COLLECTOR", false, order.getAD_Client_ID()) 
+							? MPPCostCollector.COSTCOLLECTORTYPE_ComponentIssue
+							: MPPCostCollector.COSTCOLLECTORTYPE_MixVariance;
 	            } else {  
 	                CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_ComponentIssue;  
 	            }  
@@ -2082,7 +2114,10 @@ public class MPPOrder extends X_PP_Order implements DocAction
 	                if (PP_orderbomLine.getQtyBatch().signum() == 0 && PP_orderbomLine.getQtyBOM().signum() == 0) {    
 	                    CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_MethodChangeVariance;    
 	                } else if (PP_orderbomLine.isComponentType(MPPOrderBOMLine.COMPONENTTYPE_Co_Product)) {    
-	                    CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_MixVariance;    
+//	                    CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_MixVariance;    
+	                	CostCollectorType = MSysConfig.getBooleanValue("SKIP_VARIANCE_PP_COST_COLLECTOR", false, order.getAD_Client_ID()) 
+								? MPPCostCollector.COSTCOLLECTORTYPE_ComponentIssue
+								: MPPCostCollector.COSTCOLLECTORTYPE_MixVariance;
 	                } else {    
 	                    CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_ComponentIssue;    
 	                }    
@@ -2135,7 +2170,10 @@ public class MPPOrder extends X_PP_Order implements DocAction
 	            if (PP_orderbomLine.getQtyBatch().signum() == 0 && PP_orderbomLine.getQtyBOM().signum() == 0) {    
 	                CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_MethodChangeVariance;    
 	            } else if (PP_orderbomLine.isComponentType(MPPOrderBOMLine.COMPONENTTYPE_Co_Product)) {    
-	                CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_MixVariance;    
+//	                CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_MixVariance;    
+	            	CostCollectorType = MSysConfig.getBooleanValue("SKIP_VARIANCE_PP_COST_COLLECTOR", false, order.getAD_Client_ID()) 
+							? MPPCostCollector.COSTCOLLECTORTYPE_ComponentIssue
+							: MPPCostCollector.COSTCOLLECTORTYPE_MixVariance;
 	            } else {    
 	                CostCollectorType = MPPCostCollector.COSTCOLLECTORTYPE_ComponentIssue;    
 	            }    

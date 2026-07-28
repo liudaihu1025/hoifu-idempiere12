@@ -190,12 +190,42 @@ public class MPPOrderBOMLine extends X_PP_Order_BOMLine
 
 		return true;
 	}
+
 	@Override
-	protected boolean afterSave(boolean newRecord, boolean success)
-	{
+	protected boolean afterSave(boolean newRecord, boolean success) {
 		if (!success)
 			return false;
 		explodePhantom();
+
+		if (!newRecord && "Y".equals(getKeymat()) && is_ValueChanged("QtyPaperTotalScrap")) {
+			MPPOrder order = getParent();
+			if (order != null) {
+				BigDecimal qtyOrdered = order.getQtyOrdered();
+
+				// 重算主料自身 QtyRequiered（直接SQL，避免递归）
+				BigDecimal qtyBatchSize = DB.getSQLValueBD(get_TrxName(),
+						"SELECT NULLIF(QtyBatchSize, 0) FROM PP_Order WHERE PP_Order_ID=?", getPP_Order_ID());
+				if (qtyBatchSize == null)
+					qtyBatchSize = Env.ONE;
+				Object val = get_Value("QtyPaperTotalScrap");
+				BigDecimal paperScrap = val != null ? new BigDecimal(val.toString()) : Env.ZERO;
+				if (paperScrap == null)
+					paperScrap = Env.ZERO;
+				BigDecimal newKeymatQty = qtyOrdered.divide(qtyBatchSize, 8, RoundingMode.HALF_UP).add(paperScrap)
+						.setScale(0, RoundingMode.CEILING);
+				DB.executeUpdate("UPDATE PP_Order_BOMLine SET QtyRequiered=? WHERE PP_Order_BOMLine_ID=?",
+						new Object[] { newKeymatQty, get_ID() }, false, get_TrxName());
+
+				// 重算所有辅料行
+				final String whereClause = COLUMNNAME_PP_Order_ID + "=? AND Keymat<>'Y' AND IsActive='Y'";
+				java.util.List<MPPOrderBOMLine> lines = new Query(getCtx(), Table_Name, whereClause, get_TrxName())
+						.setParameters(getPP_Order_ID()).list();
+				for (MPPOrderBOMLine line : lines) {
+					line.setQtyPlusScrap(qtyOrdered);
+					line.saveEx(get_TrxName());
+				}
+			}
+		}
 		return true;
 	}
 	
@@ -349,31 +379,51 @@ public class MPPOrderBOMLine extends X_PP_Order_BOMLine
 	 */
 	public void setQtyPlusScrap(BigDecimal QtyOrdered)
 	{
-		BigDecimal multiplier = getQtyMultiplier();	
-		BigDecimal qty = QtyOrdered.multiply(multiplier).setScale(8, RoundingMode.UP);
-		
-		if (isComponentType(COMPONENTTYPE_Component,COMPONENTTYPE_Phantom
-							,COMPONENTTYPE_Packing
-							,COMPONENTTYPE_By_Product
-							,COMPONENTTYPE_Co_Product))
-		{
-			setQtyRequiered(qty);
+		// 取联数（PP_Order.QtyBatchSize）
+		BigDecimal qtyBatchSize = Env.ONE;
+		if (getPP_Order_ID() > 0) {
+			BigDecimal val = DB.getSQLValueBD(get_TrxName(),
+					"SELECT NULLIF(QtyBatchSize, 0) FROM PP_Order WHERE PP_Order_ID=?",
+					getPP_Order_ID());
+			if (val != null) qtyBatchSize = val;
 		}
-		else if (isComponentType(COMPONENTTYPE_Tools))
-		{
-			setQtyRequiered(multiplier);
-		}
-		else
-		{
-			throw new AdempiereException("@NotSupported@ @ComponentType@ "+getComponentType());
-		}
-		//
-		// Set Scrap of Component
-		BigDecimal qtyScrap = getScrap();
-		if (qtyScrap.signum() != 0)
-		{
-			qtyScrap = qtyScrap.divide(Env.ONEHUNDRED, 8, BigDecimal.ROUND_UP);
-			setQtyRequiered(getQtyRequiered().divide(Env.ONE.subtract(qtyScrap), 8, BigDecimal.ROUND_HALF_UP));
+
+		if ("Y".equals(getKeymat())) {
+			// 主料新公式：QtyOrdered / QtyBatchSize + QtyPaperTotalScrap
+			BigDecimal paperScrap = DB.getSQLValueBD(get_TrxName(),
+					"SELECT COALESCE(QtyPaperTotalScrap, 0) FROM PP_Order_BOMLine WHERE PP_Order_BOMLine_ID=?",
+					get_ID());
+			if (paperScrap == null) paperScrap = Env.ZERO;
+			BigDecimal qty = QtyOrdered.divide(qtyBatchSize, 8, RoundingMode.HALF_UP).add(paperScrap);
+			setQtyRequiered(qty.setScale(0, RoundingMode.CEILING));
+		} else {
+			// 辅料新公式：(QtyOrdered + QtyPaperTotalScrap × QtyBatchSize) × QtyBOM
+			BigDecimal paperScrap = Env.ZERO;
+			if (getPP_Order_ID() > 0) {
+				BigDecimal val = DB.getSQLValueBD(get_TrxName(),
+						"SELECT COALESCE(QtyPaperTotalScrap, 0) FROM PP_Order_BOMLine "
+								+ "WHERE PP_Order_ID=? AND Keymat='Y' AND IsActive='Y' FETCH FIRST 1 ROWS ONLY",
+						getPP_Order_ID());
+				if (val != null) paperScrap = val;
+			}
+			BigDecimal multiplier = getQtyMultiplier();
+			BigDecimal qty = QtyOrdered.add(paperScrap.multiply(qtyBatchSize))
+					.multiply(multiplier)
+					.setScale(8, RoundingMode.UP);
+			if (isComponentType(COMPONENTTYPE_Component, COMPONENTTYPE_Phantom,
+					COMPONENTTYPE_Packing, COMPONENTTYPE_By_Product, COMPONENTTYPE_Co_Product)) {
+				setQtyRequiered(qty);
+			} else if (isComponentType(COMPONENTTYPE_Tools)) {
+				setQtyRequiered(multiplier);
+			} else {
+				throw new AdempiereException("@NotSupported@ @ComponentType@ " + getComponentType());
+			}
+			// Scrap 报废率调整（辅料保留）
+			BigDecimal qtyScrap = getScrap();
+			if (qtyScrap.signum() != 0) {
+				qtyScrap = qtyScrap.divide(Env.ONEHUNDRED, 8, BigDecimal.ROUND_UP);
+				setQtyRequiered(getQtyRequiered().divide(Env.ONE.subtract(qtyScrap), 8, BigDecimal.ROUND_HALF_UP));
+			}
 		}
 	}
 	

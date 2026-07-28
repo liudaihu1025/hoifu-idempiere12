@@ -3,6 +3,7 @@ package org.libero.model;
 import java.util.Properties;
 
 import org.compiere.util.DB;
+import org.libero.tables.X_C_WorkTeam;
 
 @org.adempiere.base.Model(table = "C_WorkTeam")
 public class MC_WorkTeam extends X_C_WorkTeam {

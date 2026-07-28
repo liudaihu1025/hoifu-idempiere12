@@ -1,4 +1,4 @@
-/******************************************************************************
+﻿/******************************************************************************
  * Product: Adempiere ERP & CRM Smart Business Solution                       *
  * This program is free software; you can redistribute it and/or modify it    *
  * under the terms version 2 of the GNU General Public License as published   *
@@ -47,6 +47,7 @@ import org.compiere.model.MPeriod;
 import org.compiere.model.MProduct;
 import org.compiere.model.MProductPO;
 import org.compiere.model.MResource;
+import org.compiere.model.MSysConfig;
 import org.compiere.model.MTransaction;
 import org.compiere.model.MUOM;
 import org.compiere.model.MWarehouse;
@@ -83,6 +84,13 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 	public static final String COSTCOLLECTORTYPE_SUBCONTRACTING_ISSUE = "131"; // 委外发料
 	public static final String COSTCOLLECTORTYPE_SUBCONTRACTING_RETURN = "132"; // 委外退料
 	public static final String COSTCOLLECTORTYPE_SUBCONTRACTING_REPLENISHMENT = "133"; // 委外补领
+
+	// 报工类型（CostCollectorType=160 的子类型）
+	public static final String HF_WORKREPORTTYPE_Setup    = "ZJB"; // 装校版
+
+	public static final String HF_WORKREPORTTYPE_Produce  = "SC";  // 生产报工
+
+	public static final String HF_WORKREPORTTYPE_WaitMat  = "DL";  // 生产待料
 
 	private boolean isReversal = false;
 	
@@ -287,12 +295,11 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 	public void setC_DocTypeTarget_ID(String docBaseType)
 	{
 		MDocType[] doc = MDocType.getOfDocBaseType(getCtx(), docBaseType);	
-		if(doc == null)
-		{
+
+		if (doc == null || doc.length == 0) {
 			throw new DocTypeNotFoundException(docBaseType, "");
 		}
-		else
-		{	
+		else {
 			setC_DocTypeTarget_ID(doc[0].get_ID());
 		}
 	}
@@ -531,8 +538,9 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 	            order.setQtyScrap(order.getQtyScrap().add(getScrappedQty()));
 	            order.setQtyReject(order.getQtyReject().add(getQtyReject()));     
 	            // 检查并更新Orderstatus  
-	            if (!"Stored".equals(order.get_ValueAsString("Orderstatus"))) {  
-	                order.set_ValueOfColumn("Orderstatus", "Stored");
+	            if (!"Stored".equals(order.get_ValueAsString("Orderstatus"))  
+	                    && order.getQtyDelivered().compareTo(order.getQtyEntered()) >= 0) {  
+	                order.set_ValueOfColumn("Orderstatus", "Stored");  
 	            }
 	            
 	            // 更新PP Order日期
@@ -677,10 +685,11 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 	        }
 	    }
 	    
-	    // 原有的差异计算
-	    CostEngineFactory.getCostEngine(getAD_Client_ID()).createRateVariances(this);
-	    CostEngineFactory.getCostEngine(getAD_Client_ID()).createMethodVariances(this);
-
+		if (!MSysConfig.getBooleanValue("SKIP_VARIANCE_PP_COST_COLLECTOR", false, getAD_Client_ID())) {
+			// 原有的差异计算
+			CostEngineFactory.getCostEngine(getAD_Client_ID()).createRateVariances(this);
+			CostEngineFactory.getCostEngine(getAD_Client_ID()).createMethodVariances(this);
+		}
 	    m_processMsg = ModelValidationEngine.get().fireDocValidate(this, ModelValidator.TIMING_AFTER_COMPLETE);
 	    if (m_processMsg != null)
 	        return DocAction.STATUS_Invalid;
@@ -859,6 +868,31 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 //			return false;
 //		}
 //		
+
+		// 移动数量必须 > 0
+		// 跳过条件1：冲销单（红字更正自动生成），MovementQty 为负数是合法的
+		boolean isReversalDoc = getReversal_ID() > 0;
+
+		// 跳过条件2：作废操作，voidIt() 在 save() 前已将 DocStatus 置为 VO，MovementQty 置 0 合法
+		boolean isVoidOp = DOCSTATUS_Voided.equals(getDocStatus());
+
+		// 跳过条件3：修改时 MovementQty 字段本身未变更，无需重复校验（含重新激活场景）
+		boolean qtyUnchanged = !newRecord && !is_ValueChanged("MovementQty");
+
+		// 跳过条件4：差异类型（系统自动生成），MovementQty 可能为负数（如用量差异）
+		boolean isVarianceType = isVariance();
+
+		// 跳过条件5：生产报工草稿状态允许数量为0（创建报工单时默认值为0）
+		boolean isActivityControlDraft = isActivityControl() && DOCSTATUS_Drafted.equals(getDocStatus());
+
+		if (!isReversalDoc && !isVoidOp && !qtyUnchanged && !isVarianceType && !isActivityControlDraft) {
+
+			BigDecimal qty = getMovementQty();
+			if (qty == null || qty.compareTo(BigDecimal.ZERO) <= 0) {
+				log.saveError("ValidationError", "移动数量必须大于0（当前值：" + (qty != null ? qty.toPlainString() : "null") + "）");
+				return false;
+			}
+		}
 
 		return true;
 	}
@@ -1151,17 +1185,32 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 	        return BigDecimal.ZERO;  
 	    }  
 	  
-	    // 计算时间差（毫秒）转换为小时  
-	    long diffMillis = actualFinishDate.getTime() - actualStartDate.getTime();  
-	    double hours = (double) diffMillis / (3600.0 * 1000.0);  
+	    java.util.Calendar noon = java.util.Calendar.getInstance();  
+	    noon.setTime(actualFinishDate);  
+	    noon.set(java.util.Calendar.HOUR_OF_DAY, 12);  
+	    noon.set(java.util.Calendar.MINUTE, 0);  
+	    noon.set(java.util.Calendar.SECOND, 0);  
+	    noon.set(java.util.Calendar.MILLISECOND, 0);  
+	    Timestamp t1200 = new Timestamp(noon.getTimeInMillis());  
 	  
-	    // 按0.5小时向下取整  
-	    double roundedHours = Math.floor(hours * 2) / 2.0;  
+	    java.util.Calendar noon45 = (java.util.Calendar) noon.clone();  
+	    noon45.set(java.util.Calendar.MINUTE, 45);  
+	    Timestamp t1245 = new Timestamp(noon45.getTimeInMillis());  
 	  
-	    if (roundedHours < 0)  
-	    {  
-	        roundedHours = 0;  
+	    long durationMs;  
+	    if (actualFinishDate.after(t1245)) {  
+	        durationMs = actualFinishDate.getTime() - actualStartDate.getTime() - 45 * 60 * 1000L;  
+	    } else if (actualFinishDate.after(t1200)) {  
+	        durationMs = t1200.getTime() - actualStartDate.getTime();  
+	    } else {  
+	        durationMs = actualFinishDate.getTime() - actualStartDate.getTime();  
 	    }  
+	  
+	    if (durationMs < 0)  
+	        durationMs = 0;  
+	  
+	    double hours = (double) durationMs / (3600.0 * 1000.0);  
+	    double roundedHours = Math.floor(hours * 2) / 2.0;  
 	  
 	    setDurationReal(BigDecimal.valueOf(roundedHours));  
 	    return BigDecimal.valueOf(roundedHours);  
@@ -1445,7 +1494,7 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 			// 创建负数库存事务来回滚原始事务
 			StorageEngine.createTransaction(this, getMovementType(), // 保持原始类型
 					getMovementDate(), getMovementQty().negate(), // 使用负数
-					false, // IsReversal=true
+					true, // IsReversal=true
 					getM_Warehouse_ID(), getPP_Order().getM_AttributeSetInstance_ID(),
 					getPP_Order().getM_Warehouse_ID(), false);
 		}

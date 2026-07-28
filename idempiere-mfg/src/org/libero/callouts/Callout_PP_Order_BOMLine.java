@@ -19,9 +19,6 @@ public class Callout_PP_Order_BOMLine extends CalloutBOM implements IColumnCallo
 			return qtyLine(ctx, WindowNo, mTab, mField,value);
 		if (mField.getColumnName().equals("M_Product_ID")) // ← 新增
 			return applyRoutingNode(ctx, WindowNo, mTab, mField, value);
-		// ★ 新增
-		if (mField.getColumnName().equals("PP_Order_Node_ID"))
-			return nodeChanged(mTab, value);
 		return null;
 		 
 	}
@@ -61,33 +58,5 @@ public class Callout_PP_Order_BOMLine extends CalloutBOM implements IColumnCallo
 		return "";
 	}
 
-	// ★ 新增方法
-	private String nodeChanged(GridTab mTab, Object value) {
-		Integer nodeId = (Integer) value;
-		// 先清空，防止切换后无数据时残留旧值
-		mTab.setValue("QtyPaperTotalScrap", null);
-		mTab.setValue("RatePaperTotalScrap", null);
 
-		if (nodeId == null || nodeId <= 0)
-			return "";
-
-		String sql = "SELECT QtyPaperTotalScrap, RatePaperTotalScrap "
-				+ "FROM PP_Order_Node WHERE PP_Order_Node_ID=? AND IsActive='Y'";
-		java.sql.PreparedStatement pstmt = null;
-		java.sql.ResultSet rs = null;
-		try {
-			pstmt = org.compiere.util.DB.prepareStatement(sql, null);
-			pstmt.setInt(1, nodeId);
-			rs = pstmt.executeQuery();
-			if (rs.next()) {
-				mTab.setValue("QtyPaperTotalScrap", rs.getBigDecimal(1));
-				mTab.setValue("RatePaperTotalScrap", rs.getBigDecimal(2));
-			}
-		} catch (Exception e) {
-			// ignore
-		} finally {
-			org.compiere.util.DB.close(rs, pstmt);
-		}
-		return "";
-	}
 }

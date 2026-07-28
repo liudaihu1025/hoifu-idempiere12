@@ -291,7 +291,7 @@ public class GridTabCSVImporter implements IGridTabImporter
 //					rawLine = rawLine + delimiterChar + quoteChar + rowResult.toString().replaceAll(delimiterChar, "") + quoteChar + "\n";
 					if ("M_Product".equals(gridTab.getTableName())) {
 						String productValue = getProductValue(gridTab, idx);
-						rawLine = rawLine + delimiterChar + quoteChar + (productValue != null ? productValue : "")
+						rawLine = rawLine + delimiterChar + quoteChar + productValue
 								+ quoteChar + delimiterChar + quoteChar
 								+ rowResult.toString().replaceAll(delimiterChar, "") + quoteChar + "\n";
 					} else {
@@ -344,7 +344,10 @@ public class GridTabCSVImporter implements IGridTabImporter
 
 	private String getProductValue(GridTab gridTab, int idx) {
 		if (!"M_Product".equals(gridTab.getTableName()) || data == null || idx >= data.size())
-			return null;
+			return "";
+		
+		if (isError() || gridTab.getCurrentRow() < 0)
+			return "";
 
 		Map<String, Object> rowMap = data.get(idx);
 		// 1. 先从导入数据中获取

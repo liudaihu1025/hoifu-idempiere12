@@ -107,6 +107,7 @@ public class CreateSubcontractOrderProcess extends SvrProcess {
 		subOrder.setM_Warehouse_ID(so.getM_Warehouse_ID());
 		subOrder.setLink_Order_ID(so.getC_Order_ID());
 		subOrder.setPOReference(so.getDocumentNo());
+		subOrder.setDescription(so.getDescription());
 
 		subOrder.setDocStatus(MOrder.DOCSTATUS_Drafted);
 		subOrder.setDocAction(MOrder.DOCACTION_Complete);
@@ -133,7 +134,7 @@ public class CreateSubcontractOrderProcess extends SvrProcess {
 			subLine.setQtyEntered(soLine.getQtyEntered()); // 数量
 			subLine.setQtyOrdered(soLine.getQtyOrdered());
 			subLine.setPrice(soLine.getPriceActual()); // 单价
-
+			subLine.setDescription(soLine.getDescription());
 			// 关联单号：存入自定义列 RelatedOrderNo
 			subLine.set_ValueOfColumn(COL_RELATED_ORDER_NO, so.getDocumentNo());
 			// 客户：取销售订单表头客户，存入自定义列 Customer_ID

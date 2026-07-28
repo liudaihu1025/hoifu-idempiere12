@@ -35,6 +35,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map.Entry;
 import java.util.Properties;
@@ -42,8 +43,10 @@ import java.util.logging.Level;
 import java.util.stream.Collectors;
 
 import org.adempiere.exceptions.AdempiereException;
+import org.compiere.model.MAcctSchema;
 import org.compiere.model.MAcctSchemaElement;
 import org.compiere.model.MColumn;
+import org.compiere.model.MElement;
 import org.compiere.model.MProcess;
 import org.compiere.model.MProcessDrillRule;
 import org.compiere.model.MProcessDrillRulePara;
@@ -52,6 +55,8 @@ import org.compiere.model.MQuery;
 import org.compiere.model.MReportView;
 import org.compiere.model.MRole;
 import org.compiere.model.MTable;
+import org.compiere.model.MTree;
+import org.compiere.model.MTreeNode;
 import org.compiere.model.PrintInfo;
 import org.compiere.model.Query;
 import org.compiere.process.ProcessInfo;
@@ -534,28 +539,43 @@ public class DrillReportCtl {
 //			if(processPara.getColumnName().equals(m_ColumnName))
 
 			if ("Account_ID".equals(mapColumnName(processPara.getColumnName()))) {
-				if (m_Value == null) {
+				if (m_Value == null)
 					continue;
-				}
 
-				// 检查目标参数是否为多选类型
-				int displayType = processPara.getAD_Reference_ID();
-				boolean isMultiSelection = DisplayType.isChosenMultipleSelection(displayType);
+				if (DisplayType.isChosenMultipleSelection(processPara.getAD_Reference_ID())) {
+					int accountId = Integer.parseInt(m_Value.toString());
 
-				if (isMultiSelection) {
-					// 多选参数：获取科目及其子科目
-					Integer accountId = Integer.valueOf(m_Value.toString());
-					Integer[] childIds = MReportTree.getChildIDs(Env.getCtx(), 0,
-							MAcctSchemaElement.ELEMENTTYPE_Account, accountId);
+					// 根据当前账套获取对应科目树的 AD_Tree_ID
+					int acctSchemaId = Env.getContextAsInt(Env.getCtx(), m_WindowNo, "C_AcctSchema_ID");
+					MAcctSchema acctSchema = MAcctSchema.get(Env.getCtx(), acctSchemaId);
+					int treeId = Arrays.stream(MAcctSchemaElement.getAcctSchemaElements(acctSchema))
+							.filter(ase -> MAcctSchemaElement.ELEMENTTYPE_Account.equals(ase.getElementType()))
+							.findFirst()
+							.map(ase -> new MElement(Env.getCtx(), ase.getC_Element_ID(), null))
+							.map(MElement::getAD_Tree_ID)
+							.orElse(0);
 
-					if (childIds != null && childIds.length > 0) {
-						String csvIds = Arrays.stream(childIds).map(String::valueOf).collect(Collectors.joining(","));
+					// 用指定科目树查子科目（复现 MReportTree.getChildIDs 逻辑）
+					if (treeId > 0) {
+						MTree tree = new MTree(Env.getCtx(), treeId, true, true, false, null);
+						tree.trimTree();
+						MTreeNode node = tree.getRoot().findNode(accountId);
 
-						iPara.setParameter(csvIds);
-						iPara.setInfo("Account_ID (" + childIds.length + " accounts)");
-						iParams.add(iPara);
-						processParasExclDrillRuleParas.remove(processPara);
-						continue;
+						Integer[] childIds = (node != null && node.isSummary())
+								? Collections.list(node.preorderEnumeration()).stream()
+										.map(n -> (MTreeNode) n)
+										.filter(n -> !n.isSummary())
+										.map(MTreeNode::getNode_ID)
+										.toArray(Integer[]::new)
+								: new Integer[] { accountId };
+
+						if (childIds.length > 0) {
+							iPara.setParameter(Arrays.stream(childIds).map(String::valueOf).collect(Collectors.joining(",")));
+							iPara.setInfo("Account_ID (" + childIds.length + " accounts)");
+							iParams.add(iPara);
+							processParasExclDrillRuleParas.remove(processPara);
+							continue;
+						}
 					}
 				}
 			}

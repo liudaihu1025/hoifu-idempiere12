@@ -138,6 +138,12 @@ public class Doc_Movement extends Doc
 		for (int i = 0; i < p_lines.length; i++)
 		{
 			DocLine line = p_lines[i];
+			// 客供料跳过会计分录 
+			MProduct lineProduct = (MProduct) line.getProduct(); 
+			
+			if (lineProduct != null && lineProduct.isCSMAndNotNeedPost()) continue;  
+			
+			
 			BigDecimal costs = null;
 			
 			if (!isReversal(line))

@@ -12,7 +12,6 @@ import org.adempiere.webui.util.ZKUpdateUtil;
 import org.compiere.model.MAttachment;
 import org.compiere.model.MAttachmentEntry;
 import org.compiere.util.CLogger;
-import org.compiere.util.DB;
 import org.compiere.util.Env;
 import org.idempiere.ui.zk.media.IMediaView;
 import org.zkoss.util.media.AMedia;
@@ -78,73 +77,50 @@ public class WAttachmentViewerForm extends ADForm implements EventListener<Event
 			if (page != null)
 				setPage(page);
 		}
-  
+
 		buildUI();
-  
+
 		if (getProcessInfo() == null) {
 			showStatus("ProcessInfo 为空");
 			return;
 		}
-  
-		int pInstanceID = getProcessInfo().getAD_PInstance_ID();
-		if (pInstanceID <= 0) {
-			showStatus("无效的 PInstance ID");
+
+		int tableId = getProcessInfo().getTable_ID();
+		int recordId = getProcessInfo().getRecord_ID();
+
+		if (tableId <= 0 || recordId <= 0) {
+			showStatus("无法获取当前记录信息");
 			return;
 		}
-  
-		// 1. 从 T_Selection 取选中行的 Record_ID（评审明细 ID）
-		int reviewLineId = DB.getSQLValue(null, "SELECT T_Selection_ID FROM T_Selection WHERE AD_PInstance_ID=?",
-				pInstanceID);
-  
-		if (reviewLineId <= 0) {
-			showStatus("无法获取记录信息");
-			return;
-		}
-  
-		// 2. 通过评审明细找到任务 ID
-		int taskId = DB.getSQLValue(null,
-				"SELECT dy_samplingtask_ID FROM dy_samplingreviewline WHERE dy_samplingreviewline_ID=?", reviewLineId);
-  
-		if (taskId <= 0) {
-			showStatus("该明细未关联任务");
-			return;
-		}
-  
-		// 3. 查询 dy_samplingtask 表的 AD_Table_ID
-		int taskTableId = DB.getSQLValue(null, "SELECT AD_Table_ID FROM AD_Table WHERE TableName='dy_samplingtask'");
-  
-		if (taskTableId <= 0) {
-			showStatus("无法获取任务表信息");
-			return;
-		}
-  
-		// 4. 加载任务的附件
-		m_attachment = MAttachment.get(Env.getCtx(), taskTableId, taskId, null, null);
-  
+
+		// 加载当前记录的附件
+		m_attachment = MAttachment.get(Env.getCtx(), tableId, recordId, null, null);
+
 		if (m_attachment == null || m_attachment.getEntryCount() == 0) {
-			showStatus("该任务暂无附件");
+			showStatus("该记录暂无附件");
 			return;
 		}
-  
-		// 加载附件后，将附件的提交备注显示到 noteBox
+
+		// 将附件的提交备注显示到 noteBox
 		String textMsg = m_attachment.getTextMsg();
 		noteBox.setText(textMsg != null ? textMsg : "");
-  
-		// 5. 填充附件列表，并更新抬头
+
+		// 填充附件列表，并更新抬头
 		MAttachmentEntry[] entries = m_attachment.getEntries();
 		attachmentHeader.setValue("附件（" + entries.length + "个）");
-  
+
 		for (int i = 0; i < entries.length; i++) {
 			Listitem item = new Listitem();
 			item.setValue(i);
 			item.appendChild(new Listcell(entries[i].getName()));
 			fileList.appendChild(item);
 		}
-  
+
 		// 默认预览第一个
 		fileList.setSelectedIndex(0);
 		previewEntry(0);
 	}
+
   
 	// -----------------------------------------------------------------------
 	private void buildUI() {

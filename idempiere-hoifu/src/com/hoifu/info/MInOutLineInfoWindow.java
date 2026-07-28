@@ -2,12 +2,14 @@ package com.hoifu.info;
 
 import java.util.List;
 
+import org.adempiere.webui.LayoutUtils;
 import org.adempiere.webui.component.Button;
 import org.adempiere.webui.info.InfoWindow;
 import org.compiere.model.GridField;
 import org.compiere.model.MProcess;
 import org.compiere.util.DB;
 import org.compiere.util.Env;
+import org.zkoss.zk.ui.event.Event;
 
 public class MInOutLineInfoWindow extends InfoWindow {
 
@@ -19,6 +21,78 @@ public class MInOutLineInfoWindow extends InfoWindow {
 				field, predefinedContextVariables);
 	}
 
+	//收发明细批量设置意向库位流程
+	private static final String InOutLineBatchSetIntendedLocator_process_classname = "com.hoifu.process.InOutLineBatchSetIntendedLocator";
+	//收发明细批量更新库位流程
+	private static final String InOutLineBatchUpdateLocator_process_classname = "com.hoifu.process.InOutLineBatchUpdateLocator";
+	//根据信息窗口AD_InfoColumn.ColumnName='IntendedLocation_ID'、AD_InfoColumn.ColumnName='QtyEntered'更新明细库位和数量
+	private static final String InOutLineBatchUpdateProcess_process_classname = "com.hoifu.process.InOutLineBatchUpdateProcess";
+	
+	@Override  
+	protected void renderWindow() {  
+	    super.renderWindow();  
+	    //打开信息窗口直接执行查询
+	    onUserQuery();  
+	}
+	
+	@Override    
+	public void onQueryCallback(Event event) {    
+	    super.onQueryCallback(event);    
+	    // 信息窗口弹窗居中  
+	    if (this.getParent() != null) {  
+	        LayoutUtils.positionWindow(this.getParent(), this, "middle_center");  
+	    }  
+	}
+	
+    @Override  
+	protected void runProcess(Object processIdObj) {
+		if (processIdObj instanceof Integer) {
+			int processId = (Integer) processIdObj;
+			MProcess process = MProcess.get(Env.getCtx(), processId);
+            String classname = process.getClassname();  
+			if (classname != null && classname.equals(InOutLineBatchSetIntendedLocator_process_classname)) {
+				// 批量设置库位流程：执行后不关闭窗口，刷新数据
+				setCloseAfterExecutionOfProcess(false);
+			} else {
+				// 其他流程正常关闭窗口
+				setCloseAfterExecutionOfProcess(true);
+            }  
+        }  
+		super.runProcess(processIdObj);
+    } 
+    
+	/**
+	 * 重写：将流程按钮放到左下角，而不是右下角
+	 */
+	@Override
+	public void moveProcessButtonsToBeforeRight() {
+		if (btProcessList == null || btProcessList.isEmpty())
+			return;
+		for (Button btProcess : btProcessList) {
+			// 从按钮属性中取出对应的 MProcess 对象
+	        Integer processId = (Integer) btProcess.getAttribute(PROCESS_ID_KEY);  
+			if (processId != null) {
+	            MProcess process = MProcess.get(Env.getCtx(), processId);  
+	            String classname = process.getClassname();  
+	            if (classname == null) continue;  
+				if (classname.equals(InOutLineBatchSetIntendedLocator_process_classname)) {
+					// 批量设置意向库位按钮 → 放左边
+					confirmPanel.addComponentsLeft(btProcess);
+					continue;
+				}
+				if (classname.equals(InOutLineBatchUpdateLocator_process_classname)) {
+					// 执行更新库位放右边
+					confirmPanel.addComponentsBeforeRight(btProcess);
+					continue;
+				}
+				if (classname.equals(InOutLineBatchUpdateProcess_process_classname)) {
+					confirmPanel.addComponentsBeforeRight(btProcess);
+					continue;
+				}
+			}
+		}
+	}
+	
 	@Override  
 	protected void enableButtons() {  
 	    super.enableButtons();  

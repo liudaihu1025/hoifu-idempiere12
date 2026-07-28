@@ -64,11 +64,11 @@ public class SalesOrderLinePriceEnteredValidator implements ModelValidator {
                 String docTypeName = rs.getString("Name");
 
                 if (isSOTrx) {
-                    boolean isSampleOrder = docTypeName != null && (docTypeName.contains("打样订单") || docTypeName.contains("研发单"));
+                    boolean isSampleOrder = docTypeName != null && (docTypeName.contains("打样订单") || docTypeName.contains("研发单") || docTypeName.contains("内部"));
                     
                     // 如果不是打样订单且价格小于等于0，返回错误阻止保存
                     if (!isSampleOrder && line.getPriceEntered().compareTo(Env.ZERO) <= 0) {
-                        return "销售订单单价必须大于0（打样订单、研发单除外）";
+                        return "销售订单单价必须大于0（打样订单、研发单、内部订单除外）";
                     }
                 }
             }

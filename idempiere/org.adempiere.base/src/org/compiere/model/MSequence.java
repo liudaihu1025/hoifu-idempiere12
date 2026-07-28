@@ -354,20 +354,34 @@ public class MSequence extends X_AD_Sequence
 		if (isUseCustomColumn) {
 			if (po != null && customColumn != null && customColumn.length() > 0) {
 				try {
-					Object val = po.get_Value(customColumn);
-					if (val != null && !val.toString().isEmpty()) {
-						// 如果是外键列（以 _ID 结尾），查询对应的名称
-						if (customColumn.endsWith("_ID") && val instanceof Integer && (Integer) val > 0) {
-							String tableName = customColumn.substring(0, customColumn.length() - 3);
-							// 使用 DB.getSQLValueString 获取名称
-							String name = DB.getSQLValueString(null,
-									"SELECT Name FROM " + tableName + " WHERE " + customColumn + " = ?",
-									new Object[] { val });
-							customValue = (name != null && !name.isEmpty()) ? name : val.toString();
-						} else {
-							customValue = val.toString();
+					String[] columns = customColumn.split(",");
+					StringBuilder compositeValue = new StringBuilder();
+					for (String col : columns) {
+						col = col.trim();
+						Object val = po.get_Value(col);
+						if (val != null && !val.toString().isEmpty()) {
+							String part;
+							if (col.endsWith("_ID") && val instanceof Integer && (Integer) val > 0) {
+								String tableName = col.substring(0, col.length() - 3);
+								if (!tableName.matches("[A-Za-z0-9_]+") || !col.matches("[A-Za-z0-9_]+")) {
+									s_log.warning("非法列名，跳过自定义列查询: " + col);
+									part = val.toString();
+								} else {
+									String name = DB.getSQLValueString(trxName,
+											"SELECT Name FROM " + tableName + " WHERE " + col + " = ?",
+											new Object[] { val });
+									part = (name != null && !name.isEmpty()) ? name : val.toString();
+								}
+							} else {
+								part = val.toString();
+							}
+							if (compositeValue.length() > 0)
+								compositeValue.append("|");
+							compositeValue.append(part);
 						}
 					}
+					if (compositeValue.length() > 0)
+						customValue = compositeValue.toString();
 				} catch (Exception e) {
 					s_log.log(Level.SEVERE, "获取自定义序列列值失败: " + customColumn, e);
 				}

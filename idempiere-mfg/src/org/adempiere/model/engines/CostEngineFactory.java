@@ -1,6 +1,6 @@
 package org.adempiere.model.engines;
 
-import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 
@@ -8,7 +8,7 @@ import java.util.HashMap;
  */
 public class CostEngineFactory
 {
-	private static final HashMap<Integer, CostEngine> s_engines = new HashMap<Integer, CostEngine>();
+	private static final ConcurrentHashMap<Integer, CostEngine> s_engines = new ConcurrentHashMap<>();
 	
 	public static CostEngine getCostEngine(int AD_Client_ID)
 	{
@@ -21,7 +21,8 @@ public class CostEngineFactory
 		// Create Default Engine
 		if (engine == null)
 		{
-			engine = new CostEngine();
+			// computeIfAbsent 保证原子性，不会重复创建
+			engine = s_engines.computeIfAbsent(AD_Client_ID, k -> new CostEngine());
 			s_engines.put(AD_Client_ID, engine);
 		}
 		return engine;

@@ -18,6 +18,7 @@ import org.compiere.model.MInOut;
 import org.compiere.model.MInOutLine;
 import org.compiere.model.MInvoice;
 import org.compiere.model.MInvoiceLine;
+import org.compiere.model.MOrder;
 import org.compiere.process.SvrProcess;
 import org.compiere.util.DB;
 
@@ -126,9 +127,11 @@ public class ReconciliationCreateInvoiceProcess extends SvrProcess {
     }    
         
     private String createInvoiceForGroup(MReconciliation reconciliation,     
-                                       List<MReconciliationLine> lines, String docType) throws Exception {    
+                                       List<MReconciliationLine> lines, String docType) throws Exception {
+		// 从明细行的收发单关联订单头取 IsTaxIncluded
+		boolean isTaxIncluded = resolveIsTaxIncluded(lines);
         // 创建发票/贷项通知单头    
-        MInvoice invoice = createInvoiceHeader(reconciliation, docType);    
+        MInvoice invoice = createInvoiceHeader(reconciliation, docType, isTaxIncluded);    
             
         // 创建发票/贷项通知单明细    
         createInvoiceLines(invoice, lines);    
@@ -141,7 +144,7 @@ public class ReconciliationCreateInvoiceProcess extends SvrProcess {
         return invoice.getDocumentNo();    
     }    
         
-    private MInvoice createInvoiceHeader(MReconciliation reconciliation, String docType) {    
+    private MInvoice createInvoiceHeader(MReconciliation reconciliation, String docType, boolean isTaxIncluded) {    
         // 创建新的发票/贷项通知单实例    
         MInvoice invoice = new MInvoice(getCtx(), 0, get_TrxName());    
         invoice.setClientOrg(reconciliation.getAD_Client_ID(), reconciliation.getAD_Org_ID());    
@@ -215,7 +218,10 @@ public class ReconciliationCreateInvoiceProcess extends SvrProcess {
 
         //设置默认汇率类型  
         invoice.setC_ConversionType_ID(MConversionType.getDefault(reconciliation.getAD_Client_ID()));
-            
+
+		// 设置含税标志
+		invoice.setIsTaxIncluded(isTaxIncluded);
+
         invoice.saveEx();    
         return invoice;    
     }    
@@ -261,4 +267,21 @@ public class ReconciliationCreateInvoiceProcess extends SvrProcess {
             
         return message.toString();    
     }    
+
+	/**
+	 * 从对账明细列表中，取第一条有关联订单的收发行，读取订单头的 IsTaxIncluded 若无法取到，默认返回 false（不含税）
+	 */
+	private boolean resolveIsTaxIncluded(List<MReconciliationLine> lines) {
+		for (MReconciliationLine reconLine : lines) {
+			if (reconLine.getM_InOutLine_ID() <= 0)
+				continue;
+			MInOutLine inoutLine = new MInOutLine(getCtx(), reconLine.getM_InOutLine_ID(), get_TrxName());
+			MInOut inout = new MInOut(getCtx(), inoutLine.getM_InOut_ID(), get_TrxName());
+			if (inout.getC_Order_ID() > 0) {
+				MOrder order = new MOrder(getCtx(), inout.getC_Order_ID(), get_TrxName());
+				return order.isTaxIncluded();
+			}
+		}
+		return false; // 默认不含税
+	}
 }

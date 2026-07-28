@@ -125,19 +125,18 @@ public class Doc_PPCostCollector extends Doc
 		}
 		else if (MPPCostCollector.COSTCOLLECTORTYPE_MethodChangeVariance.equals(m_cc.getCostCollectorType()))
 		{
-			facts.add(createVariance(as, ProductCost.ACCTTYPE_P_MethodChangeVariance));
+			if (isStandardCosting(as))
+				facts.add(createVariance(as, ProductCost.ACCTTYPE_P_MethodChangeVariance));
 		}
 		else if (MPPCostCollector.COSTCOLLECTORTYPE_UsegeVariance.equals(m_cc.getCostCollectorType()))
 		{
-			facts.add(createVariance(as, ProductCost.ACCTTYPE_P_UsageVariance));
-		}
-		else if (MPPCostCollector.COSTCOLLECTORTYPE_UsegeVariance.equals(m_cc.getCostCollectorType()))
-		{
-			facts.add(createVariance(as, ProductCost.ACCTTYPE_P_UsageVariance));
+			if (isStandardCosting(as))
+				facts.add(createVariance(as, ProductCost.ACCTTYPE_P_UsageVariance));
 		}
 		else if (MPPCostCollector.COSTCOLLECTORTYPE_RateVariance.equals(m_cc.getCostCollectorType()))
 		{
-			facts.add(createVariance(as, ProductCost.ACCTTYPE_P_RateVariance));
+			if (isStandardCosting(as))
+				facts.add(createVariance(as, ProductCost.ACCTTYPE_P_RateVariance));
 		}
 		else if (MPPCostCollector.COSTCOLLECTORTYPE_MixVariance.equals(m_cc.getCostCollectorType()))
 		{
@@ -146,6 +145,14 @@ public class Doc_PPCostCollector extends Doc
 		else if (MPPCostCollector.COSTCOLLECTORTYPE_ActivityControl.equals(m_cc.getCostCollectorType()))
 		{
 			facts.addAll(createActivityControl(as));
+		} 
+		else if (MPPCostCollector.COSTCOLLECTORTYPE_ProductionReplenishment.equals(m_cc.getCostCollectorType())) 
+		{
+			facts.add(createComponentIssue(as)); // 116 补料：逻辑与领料相同
+		} 
+		else if (MPPCostCollector.COSTCOLLECTORTYPE_ProductionReturn.equals(m_cc.getCostCollectorType())) 
+		{
+			facts.add(createProductionReturn(as)); // 115 退料：逻辑与领料相反
 		}
 		//
 		return facts;
@@ -215,16 +222,16 @@ public class Doc_PPCostCollector extends Doc
 		final MProduct product = m_cc.getM_Product();
 		final MAccount credit = m_line.getAccount(ProductCost.ACCTTYPE_P_WorkInProcess, as);
 
-		for (MCostDetail cd : getCostDetails())
+		for (MCostDetail cd : getCostDetails(as))
 		{
 			MCostElement element = MCostElement.get(getCtx(), cd.getM_CostElement_ID());
-			if (m_cc.getMovementQty().signum() != 0)
+			if (cd.getQty().signum() != 0)
 			{
 				MAccount debit = m_line.getAccount(ProductCost.ACCTTYPE_P_Asset, as);
 				BigDecimal cost = cd.getAmt(); 
 				if (cost.scale() > as.getStdPrecision())
 					cost = cost.setScale(as.getStdPrecision(), RoundingMode.HALF_UP);
-				createLines(element, as, fact, product, debit, credit, cost, m_cc.getMovementQty());
+				createLines(element, as, fact, product, debit, credit, cost, cd.getQty());
 			}
 			if(m_cc.getScrappedQty().signum() != 0)
 			{
@@ -267,6 +274,10 @@ public class Doc_PPCostCollector extends Doc
 		final Fact fact = new Fact(this, as, Fact.POST_Actual);
 		final MProduct product = m_cc.getM_Product();
 		
+	    // 客供料跳过会计分录  
+	    if (product != null && product.isCSMAndNotNeedPost())  
+	        return fact;   // 直接返回空 Fact，不生成任何分录  
+	    
 		MAccount debit = m_line.getAccount(ProductCost.ACCTTYPE_P_WorkInProcess, as);
 		MAccount credit = m_line.getAccount(ProductCost.ACCTTYPE_P_Asset, as);
 		if(m_cc.isFloorStock())
@@ -274,13 +285,16 @@ public class Doc_PPCostCollector extends Doc
 			credit = m_line.getAccount(ProductCost.ACCTTYPE_P_FloorStock, as);
 		}
 
-		for (MCostDetail cd : getCostDetails())
+		for (MCostDetail cd : getCostDetails(as))
 		{
 			MCostElement element = MCostElement.get(getCtx(), cd.getM_CostElement_ID());
+			if (!element.getCostElementType().equals(MCostElement.COSTELEMENTTYPE_Material))
+				continue;
+			
 			BigDecimal cost = cd.getAmt().negate();
 			if (cost.scale() > as.getStdPrecision())
 				cost = cost.setScale(as.getStdPrecision(), RoundingMode.HALF_UP);
-			createLines(element, as, fact, product, debit, credit, cost, m_cc.getMovementQty());
+			createLines(element, as, fact, product, debit, credit, cost, cd.getQty().negate());
 		}
 
 		return fact;
@@ -307,7 +321,7 @@ public class Doc_PPCostCollector extends Doc
 
 		MAccount debit = m_line.getAccount(ProductCost.ACCTTYPE_P_WorkInProcess, as);
 		
-		for (MCostDetail cd : getCostDetails())
+		for (MCostDetail cd : getCostDetails(as))
 		{
 			BigDecimal costs = cd.getAmt();
 			
@@ -315,7 +329,7 @@ public class Doc_PPCostCollector extends Doc
 				continue;
 			MCostElement element = MCostElement.get(getCtx(), cd.getM_CostElement_ID());
 			MAccount credit = m_line.getAccount(as, element);
-			createLines(element, as, fact, product, debit, credit, costs, m_cc.getMovementQty());
+			createLines(element, as, fact, product, debit, credit, costs, cd.getQty());
 		}
 		//
 		
@@ -330,7 +344,7 @@ public class Doc_PPCostCollector extends Doc
 		MAccount debit = m_line.getAccount(VarianceAcctType, as);
 		MAccount credit = m_line.getAccount(ProductCost.ACCTTYPE_P_WorkInProcess, as);
 
-		for (MCostDetail cd : getCostDetails())
+		for (MCostDetail cd : getCostDetails(as))
 		{
 			MCostElement element = MCostElement.get(getCtx(), cd.getM_CostElement_ID());
 			BigDecimal costs = cd.getAmt().negate();
@@ -359,17 +373,51 @@ public class Doc_PPCostCollector extends Doc
 		return MProduct.get(ctx, M_Product_ID);
 	}
 	
-	private List<MCostDetail> getCostDetails()
+	private List<MCostDetail> getCostDetails(MAcctSchema as)
 	{
 		if (m_costDetails == null)
 		{
-			String whereClause = MCostDetail.COLUMNNAME_PP_Cost_Collector_ID+"=?";
+			String whereClause = MCostDetail.COLUMNNAME_PP_Cost_Collector_ID + "=? AND C_AcctSchema_ID=? ";  
 			m_costDetails = new Query(getCtx(), MCostDetail.Table_Name, whereClause, getTrxName())
-			.setParameters(new Object[]{m_cc.getPP_Cost_Collector_ID()})
+			.setParameters(m_cc.getPP_Cost_Collector_ID(), as.getC_AcctSchema_ID())
 			.setOrderBy(MCostDetail.COLUMNNAME_M_CostDetail_ID)
 			.list();
 		}
 		return m_costDetails;
 	}
 	private List<MCostDetail> m_costDetails = null;
+
+	/**
+	 * 生产退料（116 补料的反向） 
+	 * 借方：存货资产账户（P_Asset_Acct）或线边仓库存（P_FloorStock_Acct）
+	 * 贷方：在制品账户（P_WIP_Acct）
+	 */
+	protected Fact createProductionReturn(MAcctSchema as) {
+		final Fact fact = new Fact(this, as, Fact.POST_Actual);
+		final MProduct product = m_cc.getM_Product();
+
+		// 退料：借方是库存（或线边仓），贷方是 WIP —— 与 createComponentIssue 完全相反
+		MAccount debit = m_line.getAccount(ProductCost.ACCTTYPE_P_Asset, as);
+		MAccount credit = m_line.getAccount(ProductCost.ACCTTYPE_P_WorkInProcess, as);
+		if (m_cc.isFloorStock()) {
+			debit = m_line.getAccount(ProductCost.ACCTTYPE_P_FloorStock, as);
+		}
+
+		for (MCostDetail cd : getCostDetails(as)) {
+			MCostElement element = MCostElement.get(getCtx(), cd.getM_CostElement_ID());
+			if (!element.getCostElementType().equals(MCostElement.COSTELEMENTTYPE_Material))
+				continue;
+			
+			BigDecimal cost = cd.getAmt();
+			if (cost.scale() > as.getStdPrecision())
+				cost = cost.setScale(as.getStdPrecision(), RoundingMode.HALF_UP);
+			createLines(element, as, fact, product, debit, credit, cost, cd.getQty());
+		}
+
+		return fact;
+	}
+
+	protected boolean isStandardCosting(MAcctSchema as) {
+		return MAcctSchema.COSTINGMETHOD_StandardCosting.equals(as.getCostingMethod());
+	}
 }   //  Doc Cost Collector

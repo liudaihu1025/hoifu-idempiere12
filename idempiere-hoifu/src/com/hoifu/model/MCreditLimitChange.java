@@ -8,13 +8,15 @@ import java.util.logging.Level;
   
 import org.adempiere.model.DocActionDelegate;  
 import org.compiere.model.MBPartner;  
-import org.compiere.process.DocAction;  
+import org.compiere.process.DocAction;
+import org.compiere.process.DocOptions;
+import org.compiere.process.DocumentEngine;
 import org.compiere.util.DB;  
 import org.compiere.util.Env;  
 import org.compiere.util.Msg;  
 import org.compiere.util.Util;  
   
-public class MCreditLimitChange extends X_C_CreditLimitChange implements DocAction {  
+public class MCreditLimitChange extends X_C_CreditLimitChange implements DocAction , DocOptions{  
   
     private static final long serialVersionUID = 1L;  
   
@@ -127,11 +129,14 @@ public class MCreditLimitChange extends X_C_CreditLimitChange implements DocActi
     @Override public boolean processIt(String action) throws Exception { return docActionDelegate.processIt(action); }  
     @Override public boolean unlockIt()          { return docActionDelegate.unlockIt(); }  
     @Override public boolean invalidateIt()      { return docActionDelegate.invalidateIt(); }  
-    @Override public String  prepareIt()         { return docActionDelegate.prepareIt(); }  
+    @Override public String  prepareIt()         { 
+    	return docActionDelegate.prepareIt(); 
+    	}  
     @Override public boolean approveIt()         { return docActionDelegate.approveIt(); }  
     @Override public boolean rejectIt()          { return docActionDelegate.rejectIt(); }  
     @Override public String  completeIt()        { return docActionDelegate.completeIt(); }  
-    @Override public boolean voidIt()            { return docActionDelegate.voidIt(); }  
+    @Override public boolean voidIt()            { 
+    	return docActionDelegate.voidIt(); }  
     @Override public boolean closeIt()           { return docActionDelegate.closeIt(); }  
     @Override public boolean reverseCorrectIt()  { return docActionDelegate.reverseCorrectIt(); }  
     @Override public boolean reverseAccrualIt()  { return docActionDelegate.reverseAccrualIt(); }  
@@ -153,4 +158,27 @@ public class MCreditLimitChange extends X_C_CreditLimitChange implements DocActi
     public int getDoc_User_ID()     { return getSalesRep_ID(); }  
     @Override  
     public BigDecimal getApprovalAmt() { return getCreditLimitChange(); }  
+    
+    
+    @Override  
+    public int customizeValidActions(String docStatus, Object processing, String orderType,  
+            String isSOTrx, int AD_Table_ID, String[] docAction, String[] options, int index) {  
+        if (DocumentEngine.STATUS_Drafted.equals(docStatus)  
+                || DocumentEngine.STATUS_InProgress.equals(docStatus)  
+                || DocumentEngine.STATUS_Invalid.equals(docStatus)) {  
+            // 从 options 中移除 ACTION_Void  
+            for (int i = 0; i < index; i++) {  
+                if (DocumentEngine.ACTION_Void.equals(options[i])) {  
+                    // 将后面的元素前移  
+                    for (int j = i; j < index - 1; j++) {  
+                        options[j] = options[j + 1];  
+                    }  
+                    options[index - 1] = null;  
+                    index--;  
+                    break;  
+                }  
+            }  
+        }  
+        return index;  
+    }
 }

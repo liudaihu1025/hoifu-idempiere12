@@ -653,6 +653,18 @@ public class X_M_Product extends PO implements I_M_Product, I_Persistent
 		return false;
 	}
 
+	public boolean isCSM()
+	{
+		Object oo = get_Value("IsCSM");
+		if (oo != null)
+		{
+			 if (oo instanceof Boolean)
+				 return ((Boolean)oo).booleanValue();
+			return "Y".equals(oo);
+		}
+		return false;
+	}
+	
 	/** Set Drop Shipment.
 		@param IsDropShip Drop Shipments are sent directly to the Drop Shipment Location
 	*/

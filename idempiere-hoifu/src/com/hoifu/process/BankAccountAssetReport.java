@@ -28,6 +28,7 @@ public class BankAccountAssetReport extends SvrProcess
     private String p_AssetType  = null;   // A or B; null = both  
     private int    p_AD_Org_ID  = 0;      // 0 = no filter  
     private int    p_C_Bank_ID  = 0;      // 0 = no filter  
+    private int    p_C_AcctSchema_ID  = 0;      // 0 = no filter  
     private int    p_C_Currency_ID  = 0;      // 0 = no filter  
   
     private long m_start = System.currentTimeMillis();  
@@ -54,6 +55,8 @@ public class BankAccountAssetReport extends SvrProcess
             	p_C_Bank_ID = p.getParameterAsInt();  
             else if (name.equals("C_Currency_ID"))  
             	p_C_Currency_ID = p.getParameterAsInt();  
+            else if (name.equals("C_AcctSchema_ID"))  
+            	p_C_AcctSchema_ID = p.getParameterAsInt();  
             else  
                 MProcessPara.validateUnknownParameter(getProcessInfo().getAD_Process_ID(), p);  
         }  
@@ -95,62 +98,85 @@ public class BankAccountAssetReport extends SvrProcess
   
     /**  
      * Insert bank deposit summary rows (AssetType = 'A').  
-     * Source: Fact_Acct -> C_Payment -> C_BankAccount -> C_Bank  
-     * BeginBalance : DateAcct < DateFrom  
-     * PeriodBalance: DateFrom <= DateAcct < DateTo  
+     * BeginBalance: latest completed C_BankStatement.EndingBalance (DateAcct < DateFrom)  
+     *               + SUM(Fact_Acct) where DateAcct > StmtDateAcct AND DateAcct < DateFrom  
+     *               If no statement exists, falls back to SUM of all Fact_Acct before DateFrom.  
+     * PeriodBalance: DateFrom <= DateAcct < DateTo (unchanged)  
      */  
     private void insertBankDeposit()  
     {  
         int clientId = Env.getAD_Client_ID(getCtx());  
-  
+      
         StringBuilder sb = new StringBuilder(  
               "INSERT INTO T_BankAccountAsset "  
             + "(AD_PInstance_ID, AD_Client_ID, AD_Org_ID,"  
             + " AssetType, C_Bank_ID, RoutingNo, BankName,"  
             + " C_BankAccount_ID, AccountName, AccountNo, AccountValue, C_Currency_ID,"  
             + " BeginBalance, PeriodBalance) ");  
-  
+      
         sb.append("SELECT ")  
           .append(getAD_PInstance_ID()).append(", ")  
           .append(clientId).append(", ")  
-          .append(Env.getAD_Org_ID(getCtx())).append(", ")  
-          .append("'A', ")                                   // AssetType = A (银行存款)  
+          .append(p_AD_Org_ID).append(", ")  
+          .append("'A', ")  
           .append("b.C_Bank_ID, b.RoutingNo, b.Name, ")  
           .append("ba.C_BankAccount_ID, ba.Name, ba.AccountNo, ba.Value, ba.C_Currency_ID, ")  
-          // BeginBalance: DateAcct < DateFrom  
-          .append("COALESCE(SUM(CASE WHEN TRUNC(fa.DateAcct) < ").append(DB.TO_DATE(p_DateFrom))  
-          .append("              THEN fa.AmtAcctDr - fa.AmtAcctCr ELSE 0 END), 0), ")  
-          // PeriodBalance: DateFrom <= DateAcct < DateTo  
+          // BeginBalance = latest stmt EndingBalance + increment after stmt date  
+          .append("COALESCE(latest_stmt.EndingBalance, 0) + ")  
+          .append("COALESCE(SUM(CASE ")  
+          .append(  "WHEN TRUNC(fa.DateAcct) > COALESCE(TRUNC(latest_stmt.StmtDateAcct), TO_DATE('0001-01-01','YYYY-MM-DD')) ")  
+          .append(    "AND TRUNC(fa.DateAcct) < ").append(DB.TO_DATE(p_DateFrom))  
+          .append(  "THEN fa.AmtAcctDr - fa.AmtAcctCr ELSE 0 END), 0), ")  
+          // PeriodBalance: DateFrom <= DateAcct < DateTo (unchanged)  
           .append("COALESCE(SUM(CASE WHEN TRUNC(fa.DateAcct) >= ").append(DB.TO_DATE(p_DateFrom))  
-          .append("              AND TRUNC(fa.DateAcct) <  ").append(DB.TO_DATE(p_DateTo))  
-          .append("              THEN fa.AmtAcctDr - fa.AmtAcctCr ELSE 0 END), 0) ")  
+          .append(              " AND TRUNC(fa.DateAcct) <  ").append(DB.TO_DATE(p_DateTo))  
+          .append(              " THEN fa.AmtAcctDr - fa.AmtAcctCr ELSE 0 END), 0) ")  
           .append("FROM Fact_Acct fa ")  
           .append("INNER JOIN C_Payment p   ON p.C_Payment_ID = fa.Record_ID AND p.DocStatus IN ('CO','CL') ")  
           .append("INNER JOIN C_BankAccount ba ON ba.C_BankAccount_ID = p.C_BankAccount_ID ")  
           .append("INNER JOIN C_Bank b          ON b.C_Bank_ID = ba.C_Bank_ID ")  
           .append("INNER JOIN C_BankAccount_Acct baa ON p.C_BankAccount_ID = baa.C_BankAccount_ID ")  
           .append("INNER JOIN C_ValidCombination vc  ON (vc.C_ValidCombination_ID = baa.B_InTransit_Acct ")  
-          .append("                                   OR vc.C_ValidCombination_ID = baa.B_Asset_Acct) ")  
+          .append(                                    "OR vc.C_ValidCombination_ID = baa.B_Asset_Acct) ")  
+          // LATERAL: find the most recent completed bank statement before DateFrom, per bank account  
+          .append("LEFT JOIN LATERAL ( ")  
+          .append(  "SELECT bs.EndingBalance, bs.DateAcct AS StmtDateAcct ")  
+          .append(  "FROM C_BankStatement bs ")  
+          .append(  "WHERE bs.C_BankAccount_ID = ba.C_BankAccount_ID ")  
+          .append(    "AND bs.AD_Client_ID = ").append(clientId).append(" ")  
+          .append(    "AND bs.DocStatus IN ('CO','CL') ")  
+          .append(    "AND TRUNC(bs.DateAcct) < ").append(DB.TO_DATE(p_DateFrom)).append(" ");  
+      
+        // 对账单也需要跟随 Org 过滤，保持一致  
+        if (p_AD_Org_ID > 0)  
+            sb.append(    "AND bs.AD_Org_ID = ").append(p_AD_Org_ID).append(" ");  
+      
+        sb.append(  "ORDER BY bs.DateAcct DESC, bs.C_BankStatement_ID DESC ")  
+          .append(  "FETCH FIRST 1 ROW ONLY ")  
+          .append(") latest_stmt ON true ")  
           .append("WHERE fa.AD_Table_ID = (SELECT AD_Table_ID FROM AD_Table WHERE TableName = 'C_Payment') ")  
           .append("  AND fa.Account_ID = vc.Account_ID ")  
-          .append("  AND fa.AD_Client_ID = ").append(clientId).append(" ")   // 当前租户  
-          .append("  AND TRUNC(fa.DateAcct) < ").append(DB.TO_DATE(p_DateTo));  // covers both balances  
-  
-        // Optional org filter  
+          .append("  AND fa.AD_Client_ID = ").append(clientId).append(" ")  
+          .append("  AND TRUNC(fa.DateAcct) < ").append(DB.TO_DATE(p_DateTo));  
+      
         if (p_AD_Org_ID > 0)  
             sb.append("  AND fa.AD_Org_ID = ").append(p_AD_Org_ID);  
         if (p_C_Bank_ID > 0)  
             sb.append("  AND b.C_Bank_ID = ").append(p_C_Bank_ID);  
+        if (p_C_AcctSchema_ID > 0)  
+            sb.append("  AND fa.C_AcctSchema_ID = ").append(p_C_AcctSchema_ID);  
         if (p_C_Currency_ID > 0)  
             sb.append("  AND ba.C_Currency_ID = ").append(p_C_Currency_ID);  
-        
+      
+        // latest_stmt 的两列需要加入 GROUP BY（功能上依赖 C_BankAccount_ID，不会改变分组粒度）  
         sb.append(" GROUP BY b.C_Bank_ID, b.RoutingNo, b.Name, ")  
-          .append("          ba.C_BankAccount_ID, ba.Name, ba.AccountNo, ba.Value, ba.C_Currency_ID");  
-  
+          .append("          ba.C_BankAccount_ID, ba.Name, ba.AccountNo, ba.Value, ba.C_Currency_ID, ")  
+          .append("          latest_stmt.EndingBalance, latest_stmt.StmtDateAcct");  
+      
         int no = DB.executeUpdate(sb.toString(), get_TrxName());  
         if (log.isLoggable(Level.FINE))   log.fine("Bank Deposit rows: #" + no);  
         if (log.isLoggable(Level.FINEST)) log.finest(sb.toString());  
-    }   //  insertBankDeposit  
+    } 
   
     /**  
      * Insert bill-in-stock summary rows (AssetType = 'B').  
@@ -174,7 +200,7 @@ public class BankAccountAssetReport extends SvrProcess
         sb.append("SELECT ")  
           .append(getAD_PInstance_ID()).append(", ")  
           .append(clientId).append(", ")  
-          .append(Env.getAD_Org_ID(getCtx())).append(", ")  
+          .append(p_AD_Org_ID).append(", ")  
           .append("'B', ")                                   // AssetType = B (库存票据)  
           .append("b.C_Bank_ID, b.RoutingNo, b.Name, ")  
           .append("ba.C_BankAccount_ID, ba.Name, ba.AccountNo, ba.Value, ba.C_Currency_ID, ")  

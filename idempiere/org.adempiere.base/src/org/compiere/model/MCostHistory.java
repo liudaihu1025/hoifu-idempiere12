@@ -274,10 +274,18 @@ public class MCostHistory extends X_M_CostHistory implements ICostInfo {
     			// it is the first cost history record 
     			// if the account date of the cost history record is after the account date parameter
     			if (costHistory.getDateAcct().after(dateAcct)) {
-    				costHistory.setNewCAmt(costHistory.getOldCAmt());
-    				costHistory.setNewCQty(costHistory.getOldCQty());
-    				costHistory.setNewCostPrice(costHistory.getOldCostPrice());
-    				costHistory.setNewQty(costHistory.getOldQty());
+					// 只有当 Old* 全部非零值时，才用 Old* 替换 New*
+					// 如果 Old* 全为 0（第一条成本记录），保持 New* 值不变，
+					// 用第一条记录处理后的成本价，避免返回 0 导致 "No Costs for" 错误
+					if (costHistory.getOldCostPrice().signum() != 0 
+							&& costHistory.getOldQty().signum() != 0
+							&& costHistory.getOldCQty().signum() != 0
+							&& costHistory.getOldCAmt().signum() != 0) {
+						costHistory.setNewCAmt(costHistory.getOldCAmt());
+						costHistory.setNewCQty(costHistory.getOldCQty());
+						costHistory.setNewCostPrice(costHistory.getOldCostPrice());
+						costHistory.setNewQty(costHistory.getOldQty());
+					}
     			}
     			
     			costHistory.makeImmutable();

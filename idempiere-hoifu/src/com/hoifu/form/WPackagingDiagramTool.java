@@ -6,6 +6,8 @@ import org.zkoss.zul.Iframe;
 @org.idempiere.ui.zk.annotation.Form
 public class WPackagingDiagramTool extends ADForm {
 
+	private static final long serialVersionUID = 1804124572836779264L;
+
 	@Override
 	protected void initForm() {
 		Iframe iframe = new Iframe();

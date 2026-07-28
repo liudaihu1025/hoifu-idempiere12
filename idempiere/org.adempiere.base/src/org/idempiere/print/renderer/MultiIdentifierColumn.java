@@ -127,6 +127,9 @@ public class MultiIdentifierColumn {
 		MColumn idColumn = fTable.getColumn(idColName);
 		if (idColumn == null)
 			return null;
+        if (keyValue instanceof String) {
+            return (String) keyValue;
+        }
 
 		int displayType = idColumn.getAD_Reference_ID();
 		String selectExpr;

@@ -19,6 +19,8 @@ package org.compiere.report;
 import java.sql.ResultSet;
 import java.util.Properties;
 
+import org.compiere.model.MElement;
+import org.compiere.model.MElementValue;
 import org.compiere.model.X_PA_ReportSource;
 
 /**
@@ -77,8 +79,19 @@ public class MReportSource extends X_PA_ReportSource
 		//	ID for Tree Leaf Value
 		int ID = 0;
 		//
-		if (MReportSource.ELEMENTTYPE_Account.equals(et))
+		if (MReportSource.ELEMENTTYPE_Account.equals(et)) {
 			ID = getC_ElementValue_ID();
+			// 多账套多科目树：从 C_ElementValue → C_Element 直接取对应科目树
+			if (PA_Hierarchy_ID == 0 && ID > 0) {
+				MElementValue ev = new MElementValue(getCtx(), ID, null);
+				MElement element = new MElement(getCtx(), ev.getC_Element_ID(), null);
+				int treeId = element.getAD_Tree_ID();
+				if (treeId > 0) {
+					MReportTree reportTree = new MReportTree(getCtx(), treeId, false, et, true);
+					return reportTree.getWhereClause(ID);
+				}
+			}
+		}
 		else if (MReportSource.ELEMENTTYPE_Activity.equals(et))
 			ID = getC_Activity_ID();
 		else if (MReportSource.ELEMENTTYPE_BPartner.equals(et))

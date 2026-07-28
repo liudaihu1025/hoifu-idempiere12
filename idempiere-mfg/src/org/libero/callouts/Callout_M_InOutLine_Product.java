@@ -28,7 +28,7 @@ public class Callout_M_InOutLine_Product implements IColumnCallout {
 	public String start(Properties ctx, int WindowNo, GridTab mTab, GridField mField, Object value, Object oldValue) {
 		String col = mField.getColumnName();
 		if ("M_Product_ID".equals(col)) {
-			String err = onProductChange(ctx, mTab, value);
+			String err = changeValueByProduct(ctx, mTab, value);
 			if (err != null && !err.isEmpty())
 				return err;
 			// 产品变化后重量已更新，同步更新表头总重量
@@ -40,6 +40,43 @@ public class Callout_M_InOutLine_Product implements IColumnCallout {
 		return null;
 	}
 
+    private String changeValueByProduct(Properties ctx, GridTab mTab, Object value) {
+        mTab.setValue("Specification", null);  
+        mTab.setValue("Weight", null);  
+        mTab.setValue("Area", null);  
+        mTab.setValue("CreaseLine", null);  
+      
+        if (value == null)  
+            return "";  
+        int M_Product_ID = (Integer) value;  
+        if (M_Product_ID <= 0)  
+            return "";  
+      
+        MProduct product = MProduct.get(ctx, M_Product_ID);  
+        if (product == null || product.get_ID() <= 0)  
+            return "";  
+      
+        // 面积  
+        mTab.setValue("Area", product.get_Value("BoxArea"));  
+      
+        // 规格：CardLength * CardWidth  
+        Object cardLength = product.get_Value("CardLength");  
+        Object cardWidth = product.get_Value("CardWidth");  
+        if (cardLength != null && cardWidth != null) {  
+            mTab.setValue("Specification",  
+                toBD(cardLength).stripTrailingZeros().toPlainString() + "*"  
+                + toBD(cardWidth).stripTrailingZeros().toPlainString());  
+        }  
+      
+        // 重量  
+        mTab.setValue("Weight", product.get_Value("WeightNet"));  
+      
+        // 压线  
+        mTab.setValue("CreaseLine", product.get_Value("CreaseLine"));  
+      
+        return "";  
+    }
+    
 	private String onProductChange(Properties ctx, GridTab mTab, Object value) {
 		mTab.setValue("Specification", null);
 		mTab.setValue("Weight", null);

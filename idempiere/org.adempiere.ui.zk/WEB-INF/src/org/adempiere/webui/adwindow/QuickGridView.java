@@ -1445,7 +1445,7 @@ public class QuickGridView extends Vbox
         }
 		
         //  Selective
-        if (col > 0)
+        if (col > 0 && !gridTab.isNew())
         {
         	GridField changedField = gridTab.getField(col);
             String columnName = changedField.getColumnName();

@@ -13,14 +13,21 @@ import com.hoifu.info.BillPoolInfoWindow;
 import com.hoifu.info.CInvoiceInfoWindow;
 import com.hoifu.info.COfficeRequisitionInfoWindow;
 import com.hoifu.info.CreateFromInOutInfoWindow;
-import com.hoifu.info.DYSamplingReviewInfoWindow;
+import com.hoifu.info.DYGraphicDesignReviewInfoWindow;
+import com.hoifu.info.DYGraphicDesignTaskInfoWindow;
+import com.hoifu.info.DYProcessDesignInfoWindow;
+import com.hoifu.info.DYSampleReviewInfoWindow;
 import com.hoifu.info.InfoOrderWindowWithTotal;
 import com.hoifu.info.InfoPurchaseLineWindow;
 import com.hoifu.info.MInOutLineInfoWindow;
 import com.hoifu.info.MInventoryInfoWindow;
+import com.hoifu.info.MPaymentRequestLineInfoWindow;
 import com.hoifu.info.PPOrderInfoWindow;
+import com.hoifu.info.PPOrderNodeInfoWindow;
 import com.hoifu.info.RVMTransactionDetailInfo;
-import com.hoifu.info.RVProductInfoWindow;  
+import com.hoifu.info.RVProductInfoWindow;
+import com.hoifu.info.YGProofCirculationInfoWindow;
+import com.hoifu.model.MPaymentRequestLine;
   
 /**  
  * 自定义信息窗口工厂-根据表名匹配InfoWindow，实现参考DefaultInfoFactory系统默认实现  
@@ -38,12 +45,20 @@ public class BaseInfoWindowFactory implements IInfoFactory {
     @Override  
     public InfoPanel create(Lookup lookup, GridField field, String tableName, String keyColumn, String value,  
             boolean multiSelection, String whereClause, int AD_InfoWindow_ID) {  
-        if ("PP_Order".equals(tableName)) {  
-            return new PPOrderInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection, whereClause,  
-                    AD_InfoWindow_ID, true, field);  
-        }  
+        if ("PP_Order".equals(tableName)) {
+            return new PPOrderInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection, whereClause,
+                    AD_InfoWindow_ID, true, field);
+        }
+        if ("PP_Order_Node".equals(tableName)) {
+            return new PPOrderNodeInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection, whereClause,
+                    AD_InfoWindow_ID, true, field);
+        }
         if ("M_InventoryLine".equals(tableName)) {  
             return new MInventoryInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,  
+                    whereClause, AD_InfoWindow_ID, true, field, null);  
+        }  
+        if (MPaymentRequestLine.Table_Name.equals(tableName)) {  
+            return new MPaymentRequestLineInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,  
                     whereClause, AD_InfoWindow_ID, true, field, null);  
         }  
         if ("RV_M_Product".equals(tableName)) {  
@@ -79,12 +94,35 @@ public class BaseInfoWindowFactory implements IInfoFactory {
             return new COfficeRequisitionInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection, 
             		whereClause, AD_InfoWindow_ID, true, field, null);
         }
-		// 打样评审信息窗口
-		if ("dy_samplingreviewline".equals(tableName)) {
-			return new DYSamplingReviewInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,
+		// 样稿流转信息窗口
+		if ("yg_proofborr".equals(tableName)) {
+			return new YGProofCirculationInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,
 					whereClause, AD_InfoWindow_ID, true, field, null);
 		}
-        return null;  
+		// 平面设计评审信息窗口
+		if ("dy_graphicdesigneffect".equals(tableName)) {
+			return new DYGraphicDesignReviewInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,
+					whereClause, AD_InfoWindow_ID, true, field, null);
+		}
+		// 工艺设计任务列表信息窗口 (由于平面设计任务列表信息窗口也是这个表，所以只能用名称加以区分)
+		if ("dy_samplingdemand".equals(tableName)) {
+			MInfoWindow infoWindow = MInfoWindow.getInfoWindow(AD_InfoWindow_ID);
+			if (infoWindow != null && "工艺设计".equals(infoWindow.getName())) {
+				return new DYProcessDesignInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,
+						whereClause, AD_InfoWindow_ID, true, field, null);
+			}
+			// 样品评审信息窗口
+			if (infoWindow != null && "样品评审".equals(infoWindow.getName())) {
+				return new DYSampleReviewInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,
+						whereClause, AD_InfoWindow_ID, true, field, null);
+			}
+			// 平面设计任务列表信息窗口
+			if (infoWindow != null && "平面设计任务列表".equals(infoWindow.getName())) {
+				return new DYGraphicDesignTaskInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,
+						whereClause, AD_InfoWindow_ID, true, field, null);
+			}
+		}
+		return null;
     }  
   
     @Override  
@@ -105,9 +143,22 @@ public class BaseInfoWindowFactory implements IInfoFactory {
                 return new PPOrderInfoWindow(windowNo, tableName, keyColumn, null, true, null, AD_InfoWindow_ID, false,  
                         null, predefinedContextVariables);  
             }  
+            if ("PP_Order_Node".equals(tableName)) {
+                MTable table = (MTable) infoWindow.getAD_Table();
+                String keyColumn = tableName + "_ID";
+                if (table.isUUIDKeyTable())
+                    keyColumn = tableName + "_UU";
+                return new PPOrderNodeInfoWindow(windowNo, tableName, keyColumn, null, true, null, AD_InfoWindow_ID, false,
+                        null, predefinedContextVariables);
+            }
             if ("M_InventoryLine".equals(tableName)) {  
                 String keyColumn = tableName + "_ID";  
                 return new MInventoryInfoWindow(windowNo, tableName, keyColumn, null, true, null, AD_InfoWindow_ID, false,  
+                        null, predefinedContextVariables);  
+            }  
+            if (MPaymentRequestLine.Table_Name.equals(tableName)) {  
+            	String keyColumn = tableName + "_ID";  
+                return new MPaymentRequestLineInfoWindow(windowNo, tableName, keyColumn, null, true, null, AD_InfoWindow_ID, false,  
                         null, predefinedContextVariables);  
             }  
             if ("RV_M_Product".equals(tableName)) {  
@@ -178,14 +229,46 @@ public class BaseInfoWindowFactory implements IInfoFactory {
 				return new COfficeRequisitionInfoWindow(windowNo, tableName, keyColumn, null, true, null,
 						AD_InfoWindow_ID, false, null, predefinedContextVariables);
 			}
-			// 打样评审信息窗口
-			if ("dy_samplingreviewline".equals(tableName)) {
+			// 样稿流转信息窗口
+			if ("yg_proofborr".equals(tableName)) {
+				MTable table = (MTable) infoWindow.getAD_Table();
 				String keyColumn = tableName + "_ID";
-				return new DYSamplingReviewInfoWindow(windowNo, tableName, keyColumn, null, true, null,
+				if (table.isUUIDKeyTable())
+					keyColumn = tableName + "_UU";
+				return new YGProofCirculationInfoWindow(windowNo, tableName, keyColumn, null, false, null,
 						AD_InfoWindow_ID, false, null, predefinedContextVariables);
 			}
-
-        }  
+			// 平面设计评审信息窗口
+			if ("dy_graphicdesigneffect".equals(tableName)) {
+				MTable table = (MTable) infoWindow.getAD_Table();
+				String keyColumn = tableName + "_ID";
+				if (table.isUUIDKeyTable())
+					keyColumn = tableName + "_UU";
+				return new DYGraphicDesignReviewInfoWindow(windowNo, tableName, keyColumn, null, false, null,
+						AD_InfoWindow_ID, false, null, predefinedContextVariables);
+			}
+			// 工艺设计任务列表信息窗口 (由于平面设计任务列表信息窗口也是这个表，所以只能用名称加以区分)
+			if ("dy_samplingdemand".equals(tableName)) {
+				MTable table = (MTable) infoWindow.getAD_Table();
+				String keyColumn = tableName + "_ID";
+				if (table.isUUIDKeyTable())
+					keyColumn = tableName + "_UU";
+				if ("工艺设计".equals(infoWindow.getName())) {
+					return new DYProcessDesignInfoWindow(windowNo, tableName, keyColumn, null, false, null,
+							AD_InfoWindow_ID, false, null, predefinedContextVariables);
+				}
+				// 样品评审信息窗口
+				if ("样品评审".equals(infoWindow.getName())) {
+					return new DYSampleReviewInfoWindow(windowNo, tableName, keyColumn, null, false, null,
+							AD_InfoWindow_ID, false, null, predefinedContextVariables);
+				}
+				//平面设计任务列表信息窗口
+				if ("平面设计任务列表".equals(infoWindow.getName())) {
+					return new DYGraphicDesignTaskInfoWindow(windowNo, tableName, keyColumn, null, false, null,
+							AD_InfoWindow_ID, false, null, predefinedContextVariables);
+				}
+			}
+		}
         return null;  
     }  
   
@@ -196,8 +279,16 @@ public class BaseInfoWindowFactory implements IInfoFactory {
             return new PPOrderInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,  
                     AD_InfoWindow_ID, lookup, field, null);  
         }  
+        if ("PP_Order_Node".equals(tableName)) {
+            return new PPOrderNodeInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,
+                    AD_InfoWindow_ID, lookup, field, null);
+        }
         if ("M_InventoryLine".equals(tableName)) {  
             return new MInventoryInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,  
+                    AD_InfoWindow_ID, lookup, field, null);  
+        }  
+        if (MPaymentRequestLine.Table_Name.equals(tableName)) {  
+            return new MPaymentRequestLineInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,  
                     AD_InfoWindow_ID, lookup, field, null);  
         }  
         if ("M_InOutLine".equals(tableName)) {  
@@ -238,11 +329,34 @@ public class BaseInfoWindowFactory implements IInfoFactory {
 			return new COfficeRequisitionInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,
 					AD_InfoWindow_ID, lookup, field, null);
 		}
-		// 打样评审信息窗口
-		if ("dy_samplingreviewline".equals(tableName)) {
-			return new DYSamplingReviewInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,
+		// 样稿流转信息窗口
+		if ("yg_proofborr".equals(tableName)) {
+			return new YGProofCirculationInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,
 					AD_InfoWindow_ID, lookup, field, null);
 		}
-        return null;  
+		// 平面设计评审信息窗口
+		if ("dy_graphicdesigneffect".equals(tableName)) {
+			return new DYGraphicDesignReviewInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,
+					AD_InfoWindow_ID, lookup, field, null);
+		}
+		// 工艺设计任务列表信息窗口 (由于平面设计任务列表信息窗口也是这个表，所以只能用名称加以区分)
+		if ("dy_samplingdemand".equals(tableName)) {
+			MInfoWindow infoWindow = MInfoWindow.getInfoWindow(AD_InfoWindow_ID);
+			if (infoWindow != null && "工艺设计".equals(infoWindow.getName())) {
+				return new DYProcessDesignInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,
+						AD_InfoWindow_ID, lookup, field, null);
+			}
+			// 样品评审信息窗口
+			if (infoWindow != null && "样品评审".equals(infoWindow.getName())) {
+				return new DYSampleReviewInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,
+						AD_InfoWindow_ID, lookup, field, null);
+			}
+			//平面设计任务列表信息窗口
+			if (infoWindow != null && "平面设计任务列表".equals(infoWindow.getName())) {
+				return new DYGraphicDesignTaskInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,
+						AD_InfoWindow_ID, lookup, field, null);
+			}
+		}
+		return null;  
     }  
 }

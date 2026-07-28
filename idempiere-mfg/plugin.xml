@@ -384,11 +384,11 @@
       </form>
    </extension>
    <extension      
-   		 id="org.libero.form.WMfgOrderForm"
-         name="WMfgOrderForm"
+   		 id="org.libero.form.WPPOrderQuickEntry"
+         name="WPPOrderQuickEntry"
          point="org.adempiere.webui.Form">
       <form
-            class="org.libero.form.WMfgOrderForm">
+            class="org.libero.form.WPPOrderQuickEntry">
       </form>
    </extension>
    <extension
@@ -683,6 +683,16 @@
          class="org.libero.process.PPOrderReworkApplyProcess">  
    </process>  
 </extension>
+
+   <!-- 生产工序任务列表 - 生产报工流程 -->
+   <extension
+           id="org.libero.process.PPOrderNodeWorkReportingProcess"
+           point="org.adempiere.base.Process">
+      <process
+              class="org.libero.process.PPOrderNodeWorkReportingProcess">
+      </process>
+   </extension>
+
 
 
 </plugin>

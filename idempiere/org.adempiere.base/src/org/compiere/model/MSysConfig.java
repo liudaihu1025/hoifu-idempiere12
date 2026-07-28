@@ -305,6 +305,7 @@ public class MSysConfig extends X_AD_SysConfig
 	public static final String HR_API_PASSWORD = "HR_API_PASSWORD"; // HR系统密码
 	public static final String HR_API_COMPANY_ID_JS = "HR_API_COMPANY_ID_JS"; // HR系统公司ID-江苏
 	public static final String HR_API_BASE_URL = "HR_API_BASE_URL"; // HR系统域名
+	public static final String PRODUCT_CSM_NEED_POST = "PRODUCT_CSM_NEED_POST"; // HR系统域名
 
     /**
      * UUID based Constructor

@@ -28,6 +28,7 @@ public class ProductEventProcessor implements IEventProcessor {
 	private static final String COLUMNNAME_CartonMaterial_ID = "CartonMaterial_ID";
 	private static final String COLUMNNAME_Lengbie = "Lengbie";
 	private static final String COLUMNNAME_KeyMat = "KeyMat";
+	private static final String COLUMNNAME_IsCSM = "IsCSM";
 	private static final String TABLE_M_Product_Org = "M_Product_Org";
 	private static final String COLUMNNAME_ActiveOrg = "ActiveOrg";
 	private static final String COLUMNNAME_Category_ID_L2 = "M_Product_Category_ID_L2";
@@ -53,11 +54,63 @@ public class ProductEventProcessor implements IEventProcessor {
 		// 记录 Value 字段变更日志  
 	    logValueChange(product, topic);  
 	    
-	 // 在 process() 方法末尾添加调用  
-	    autoCreateProductOrg(product, topic);
+	   // 在 process() 方法末尾添加调用  
+	   // autoCreateProductOrg(product, topic);
 	    
+	    
+	    syncOrgToChildTables(product, topic);
 	}
 
+	/**  
+	 * 监听 M_Product.AD_Org_ID 变更，同步更新子表中与原组织相同的记录。  
+	 * 触发时机：PO_AFTER_CHANGE，且 AD_Org_ID 字段发生变化。  
+	 */  
+	void syncOrgToChildTables(MProduct product, String topic) {  
+	    if (!IEventTopics.PO_AFTER_CHANGE.equals(topic)) {  
+	        return;  
+	    }  
+	    if (!product.is_ValueChanged(MProduct.COLUMNNAME_AD_Org_ID)) {  
+	        return;  
+	    }  
+	  
+	    int oldOrgId = product.get_ValueOldAsInt(MProduct.COLUMNNAME_AD_Org_ID);  
+	    int newOrgId = product.getAD_Org_ID();  
+	    int productId = product.getM_Product_ID();  
+	    String trxName = product.get_TrxName();  
+	  
+	    // 通用 SET 子句  
+	    String setClause = " SET AD_Org_ID=" + newOrgId;  
+	    // 通用 WHERE 子句（直接有 M_Product_ID 的表）  
+	    String whereClause = " WHERE M_Product_ID=" + productId  
+	            + " AND AD_Org_ID=" + oldOrgId;  
+	  
+	    // M_Product_PO  
+	    DB.executeUpdate("UPDATE M_Product_PO" + setClause + whereClause, trxName);  
+	  
+	    // M_Product_Acct  
+	    DB.executeUpdate("UPDATE M_Product_Acct" + setClause + whereClause, trxName);  
+	  
+	    // M_Product_Trl  
+	    DB.executeUpdate("UPDATE M_Product_Trl" + setClause + whereClause, trxName);  
+	  
+	    // PP_Product_BOM（BOM 头，M_Product_ID 是该产品）  
+	    DB.executeUpdate("UPDATE PP_Product_BOM" + setClause + whereClause, trxName);  
+	  
+	    // PP_Product_BOMLine：M_Product_ID 是组件产品，需通过 PP_Product_BOM 关联  
+	    // 更新属于该产品 BOM 的所有行  
+	    String bomLineWhere = " WHERE PP_Product_BOM_ID IN ("  
+	            + "SELECT PP_Product_BOM_ID FROM PP_Product_BOM"  
+	            + " WHERE M_Product_ID=" + productId + ")"  
+	            + " AND AD_Org_ID=" + oldOrgId;  
+	    DB.executeUpdate("UPDATE PP_Product_BOMLine" + setClause + bomLineWhere, trxName);  
+	  
+	    // M_ProductPrice  
+	    DB.executeUpdate("UPDATE M_ProductPrice" + setClause + whereClause, trxName);  
+	  
+	    // C_UOM_Conversion（产品专属换算，M_Product_ID 不为 null 的记录）  
+	    DB.executeUpdate("UPDATE C_UOM_Conversion" + setClause + whereClause, trxName);  
+	}
+	
 	/**  
 	 * 物料新建后，若 ProductType='I' 且 AD_Org_ID=0，  
 	 * 则为当前角色的所有组织（排除0）各创建一条 M_Product_Org 记录。  
@@ -129,6 +182,11 @@ public class ProductEventProcessor implements IEventProcessor {
 	        return;  
 	    }  
 	  
+	    // 客供料在品类前缀前加 "C"  
+	    if (product.get_ValueAsBoolean(COLUMNNAME_IsCSM)) {  
+	        prefix = "C" + prefix;  
+	    }
+	    
 	    // 遍历所有以 prefix 开头、总长度 = prefix.length()+6 的 Value，找最大流水号  
 	    int maxSeq = 0;  
 	    String sql = "SELECT Value FROM M_Product WHERE Value LIKE ? AND LENGTH(Value) = ?";  

@@ -9,10 +9,12 @@ import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import org.compiere.model.MBPartner;
+import org.compiere.model.MDocType;
 import org.compiere.model.MOrder;
 import org.compiere.model.MOrderLine;
 import org.compiere.model.MProduct;
@@ -36,6 +38,9 @@ import org.compiere.util.Msg;
 @org.adempiere.base.annotation.Process
 public class RequisitionDetailPOCreate extends SvrProcess{
 	
+    // 采购订单
+    private static final String ORDER_DOCTYPE_UU = "1b5b0262-ed61-4f5d-a844-5a88da658491";  
+    
 	private int p_C_BPartner_ID = 0;  
 	private String p_Purpose = null;  
 	private List<Integer> selectedLineIds = new ArrayList<>();  
@@ -87,6 +92,11 @@ public class RequisitionDetailPOCreate extends SvrProcess{
 	        throw new AdempiereUserError("@NoSelection@");  
 	    }  
 	  
+	    MDocType docType = new MDocType(getCtx(), ORDER_DOCTYPE_UU, get_TrxName());  
+	    int docTypeId = docType.getC_DocType_ID();  
+	    if (docTypeId == 0) {  
+	        throw new AdempiereUserError("找不到指定的采购订单单据类型，请检查 UUID 配置:" + ORDER_DOCTYPE_UU);  
+	    }  
 	    // 获取供应商信息  
 	    MBPartner bpartner = MBPartner.get(getCtx(), p_C_BPartner_ID);  
 	      
@@ -126,7 +136,7 @@ public class RequisitionDetailPOCreate extends SvrProcess{
 	        // 创建采购订单  
 	        MOrder order = new MOrder(getCtx(), 0, get_TrxName());  
 	        order.setIsSOTrx(false);  
-	        order.setC_DocTypeTarget_ID(1000721);  
+	        order.setC_DocTypeTarget_ID(docTypeId);  
 	        order.setBPartner(bpartner);  
 	        order.setAD_Org_ID(warehouse.getAD_Org_ID());  
 	        order.setSalesRep_ID(getAD_User_ID());  
@@ -187,8 +197,10 @@ public class RequisitionDetailPOCreate extends SvrProcess{
 	        }
 	        order.saveEx();  
 	  
-	        // 按产品分组合并申购单明细  
-	        Map<String, List<MRequisitionLine>> productGroups = new HashMap<>();  
+	        //对当前仓库的明细行按行号排序 
+	        lines.sort((a, b) -> Integer.compare(a.getLine(), b.getLine()));  
+	        // 按产品分组合并申购单明细、LinkedHashMap，保持插入顺序 
+	        Map<String, List<MRequisitionLine>> productGroups = new LinkedHashMap<>();  
 	          
 	        for (MRequisitionLine reqLine : lines) {  
 	            String productKey;  
@@ -232,15 +244,15 @@ public class RequisitionDetailPOCreate extends SvrProcess{
 	            // 合并数量  
 	            BigDecimal totalQty = Env.ZERO;  
 	            BigDecimal totalPrice = Env.ZERO;  
-	            Timestamp earliestDate = null;  
+	            //Timestamp earliestDate = null;  
 	              
 	            for (MRequisitionLine reqLine : productLines) {  
 	                totalQty = totalQty.add(reqLine.getQty());  
 	                totalPrice = totalPrice.add(reqLine.getPriceActual().multiply(reqLine.getQty()));  
 	                  
-	                if (earliestDate == null || reqLine.getDateRequired().before(earliestDate)) {  
-	                    earliestDate = reqLine.getDateRequired();  
-	                }  
+	                //if (earliestDate == null || reqLine.getDateRequired().before(earliestDate)) {  
+	                 //   earliestDate = reqLine.getDateRequired();  
+	                //}  
 	            }  
 	              
 	            // 设置合并后的数量和价格  
@@ -251,7 +263,7 @@ public class RequisitionDetailPOCreate extends SvrProcess{
 //	            	    orderLine.setPriceEntered(avgPrice);  // 设置PriceEntered与PriceActual相同  
 //	            } 
 	            orderLine.setPrice(order.getM_PriceList_ID());
-	            orderLine.setDatePromised(earliestDate);  
+	            orderLine.setDatePromised(order.getDatePromised());  
 	              
 	            // 保存订单行  
 	            orderLine.saveEx();  

@@ -91,7 +91,7 @@ public class StorageEngine
 			// Reservation ASI
 			int reservationAttributeSetInstance_ID = o_M_AttributeSetInstance_ID;
 			//
-			if (docLine.getM_AttributeSetInstance_ID() == 0)
+			if (docLine.getM_AttributeSetInstance_ID() == 0 && !isReversal)
 			{
 				IInventoryAllocation mas[] = StorageEngine.getMA(docLine);
 				for (int j = 0; j < mas.length; j++)

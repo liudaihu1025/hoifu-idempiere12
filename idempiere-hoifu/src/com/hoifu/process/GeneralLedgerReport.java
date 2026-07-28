@@ -94,6 +94,9 @@ public class GeneralLedgerReport extends SvrProcess {
 			// 查询指定期间的数据
 			processSpecificPeriod();
 		}
+		// 删除三个金额都是0的数据
+		DB.executeUpdate("DELETE FROM T_GeneralLedger WHERE AD_PInstance_ID=" + getAD_PInstance_ID()
+				+ " AND AmtAcctDr=0 AND AmtAcctCr=0 AND Balance=0", get_TrxName());
 
 		return "";
 	} // doIt
@@ -151,12 +154,15 @@ public class GeneralLedgerReport extends SvrProcess {
 		Timestamp periodEnd = period.getEndDate();
 
 		StringBuilder sql = new StringBuilder();
-		sql.append("SELECT DISTINCT fa.AD_Org_ID, ev.C_ElementValue_ID, ev.Value, ev.Name ");
+		sql.append("SELECT DISTINCT fa.AD_Org_ID, ev1.C_ElementValue_ID, ev1.Value, ev1.Name ");
 		sql.append("FROM Fact_Acct fa ");
 		sql.append("INNER JOIN C_ElementValue ev ON fa.Account_ID = ev.C_ElementValue_ID ");
+		sql.append("INNER JOIN C_ElementValue ev1 ");
+		sql.append("  ON ev1.Value = SUBSTR(ev.Value, 1, 4) ");
+		sql.append("  AND ev1.C_Element_ID = ev.C_Element_ID ");
+		sql.append("  AND ev1.Value ~ '^[0-9]{4}$' ");
 		sql.append("WHERE fa.AD_Client_ID=").append(getAD_Client_ID());
 		sql.append(" AND fa.C_Period_ID=").append(periodId);
-		sql.append(" AND ev.Value ~ '^[0-9]{4}$'"); // 只选择一级科目
 		sql.append(m_parameterWhere);
 
 		PreparedStatement pstmt = null;
@@ -223,6 +229,8 @@ public class GeneralLedgerReport extends SvrProcess {
 		sql.append(" AND fa.DateAcct < ").append(DB.TO_DATE(periodStart, true));
 
 		sql.append(m_parameterWhere);
+		if (p_AD_Org_ID == 0)
+			sql.append(" AND fa.AD_Org_ID=").append(orgId);
 		// 包含子科目
 		sql.append(" AND Account_ID IN (");
 		sql.append("SELECT C_ElementValue_ID FROM C_ElementValue ");
@@ -276,6 +284,8 @@ public class GeneralLedgerReport extends SvrProcess {
 		sql.append(" AND fa.DateAcct <= ").append(DB.TO_DATE(periodEnd, true));
 //		sql.append(" AND fa.PostingType='A'");
 		sql.append(m_parameterWhere);
+		if (p_AD_Org_ID == 0)
+			sql.append(" AND fa.AD_Org_ID=").append(orgId);
 
 		// 包含子科目
 		sql.append(" AND Account_ID IN (");
@@ -333,6 +343,8 @@ public class GeneralLedgerReport extends SvrProcess {
 		sql.append(" AND fa.DateAcct <= ").append(DB.TO_DATE(periodEnd, true));
 //		sql.append(" AND fa.PostingType='A'");
 		sql.append(m_parameterWhere);
+		if (p_AD_Org_ID == 0)
+			sql.append(" AND fa.AD_Org_ID=").append(orgId);
 
 		// 包含子科目
 		sql.append(" AND Account_ID IN (");

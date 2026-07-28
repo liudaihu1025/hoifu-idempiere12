@@ -4,7 +4,10 @@ import java.math.BigDecimal;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Timestamp;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Level;
 
 import org.compiere.model.MDocType;
@@ -17,7 +20,6 @@ import org.compiere.model.Query;
 import org.compiere.process.ProcessInfoParameter;
 import org.compiere.process.SvrProcess;
 import org.compiere.util.DB;
-import org.compiere.util.Env;
 import org.compiere.util.Trx;  
   
 /**  
@@ -121,19 +123,20 @@ public class GlVoucherHistoryProcess extends SvrProcess {
 				addLog("已删除孤立分录: " + table.getTableName() + ", Record_ID=" + recordId + ", 分录行数=" + deleted);
                 return;  
             }  
-  
+
 			// 源单据存在，正常创建凭证
-            int voucherId = createGlVoucher(po, innerTrxName);  
-  
-            if (voucherId > 0) {  
-                innerTrx.commit(true);  
-                m_created++;  
-                addBufferLog(voucherId, null, null,  
-						table.getTableName() + " #" + recordId + " -> 凭证 #" + voucherId,
-						MTable.getTable_ID("Gl_Voucher"), voucherId);
-            } else {  
-                innerTrx.rollback();  
-            }  
+			List<Integer> voucherIds = createGlVoucher(po, innerTrxName);
+
+			if (!voucherIds.isEmpty()) {
+				innerTrx.commit(true);
+				m_created += voucherIds.size();
+				for (int voucherId : voucherIds) {
+					addBufferLog(voucherId, null, null, table.getTableName() + " #" + recordId + " -> 凭证 #" + voucherId,
+							MTable.getTable_ID("Gl_Voucher"), voucherId);
+				}
+			} else {
+				innerTrx.rollback();
+			}
   
         } catch (Exception e) {  
             log.log(Level.SEVERE, "Error processing AD_Table_ID=" + adTableId  
@@ -147,103 +150,126 @@ public class GlVoucherHistoryProcess extends SvrProcess {
     }  
   
     // ==================== 凭证创建逻辑 ====================  
-  
-    private int createGlVoucher(PO po, String trxName) {  
-        int AD_Table_ID = po.get_Table_ID();  
-        int Record_ID = po.get_ID();  
-  
-        // 查询 Fact_Acct 记录  
-        List<MFactAcct> factAccts = new Query(po.getCtx(), MFactAcct.Table_Name,  
-                "AD_Table_ID=? AND Record_ID=?", trxName)  
-                .setParameters(AD_Table_ID, Record_ID)  
-                .setOrderBy("Fact_Acct_ID").list();  
-  
-        if (factAccts == null || factAccts.isEmpty())  
-            return 0;  
-  
-        // 创建 Gl_Voucher  
-        PO voucher = MTable.get(po.getCtx(), "Gl_Voucher").getPO(0, trxName);  
-        voucher.set_ValueNoCheck("AD_Org_ID", po.getAD_Org_ID());  
-        voucher.set_ValueNoCheck("AD_Table_ID", AD_Table_ID);  
-        voucher.set_ValueNoCheck("Record_ID", Record_ID);  
-        voucher.set_ValueNoCheck("Posted", true);  
-  
-        voucher.set_ValueNoCheck("DateDoc", getDateDocFromPO(po));  
-        voucher.set_ValueNoCheck("DateAcct", getDateAcctFromPO(po));  
-        voucher.set_ValueNoCheck("GL_Category_ID", getGLCategoryFromPO(po));  
-  
-        int C_AcctSchema_ID = Env.getContextAsInt(po.getCtx(), "$C_AcctSchema_ID");  
-        if (C_AcctSchema_ID <= 0)  
-            C_AcctSchema_ID = factAccts.get(0).getC_AcctSchema_ID();  
-        voucher.set_ValueNoCheck("C_AcctSchema_ID", C_AcctSchema_ID);  
-  
-        MFactAcct firstFact = factAccts.get(0);  
-        voucher.set_ValueNoCheck("C_Period_ID", firstFact.getC_Period_ID());  
-        voucher.set_ValueNoCheck("PostingType", firstFact.getPostingType());  
-        voucher.set_ValueNoCheck("C_Currency_ID", firstFact.getC_Currency_ID());  
-  
-        int docTypeId = getDocTypeFromPO(po);  
-        if (docTypeId > 0)  
-            voucher.set_ValueNoCheck("Source_DocType_ID", docTypeId);  
-  
-        String sql = "SELECT C_DocType_ID FROM C_DocType WHERE AD_Client_ID=? AND Name=? AND IsActive='Y'";  
-        int voucherDocTypeId = DB.getSQLValue(trxName, sql, po.getAD_Client_ID(), "凭证");  
-        if (voucherDocTypeId > 0)  
-            voucher.set_ValueNoCheck("C_DocType_ID", voucherDocTypeId);  
-  
-        voucher.set_ValueNoCheck("Description", buildDescription(po));  
-        voucher.set_ValueNoCheck("AD_User_ID", po.getUpdatedBy());  
-        voucher.set_ValueNoCheck("PostedBy", po.getUpdatedBy());  
-  
-        String docStatus = getDocStatusFromPO(po);  
-        int reversalIdx = po.get_ColumnIndex("Reversal_ID");  
-        if (reversalIdx >= 0) {  
-            Object reversalObj = po.get_Value(reversalIdx);  
-            if (reversalObj != null) {  
-                int reversalId = ((Number) reversalObj).intValue();  
-                if (reversalId > 0 && po.get_ID() > reversalId)  
-                    docStatus = "RE";  
-            }  
-        }  
-        voucher.set_ValueNoCheck("DocStatus", docStatus);  
-  
-        voucher.saveEx();  
-  
-        // SeqNo: 从 DocumentNo 提取  
-        String documentNo = (String) voucher.get_Value("DocumentNo");  
-        voucher.set_ValueNoCheck("SeqNo", extractSeqNo(documentNo));  
-        voucher.saveEx();  
-  
-        // 更新 Fact_Acct，设置 Gl_Voucher_ID 和 SeqNo  
-        BigDecimal totalDr = BigDecimal.ZERO;  
-        BigDecimal totalCr = BigDecimal.ZERO;  
-        int lineSeqNo = 1;  
-  
-        for (MFactAcct fa : factAccts) {  
-            fa.set_ValueOfColumn("Gl_Voucher_ID", voucher.get_ID());  
-            fa.set_ValueOfColumn("SeqNo", lineSeqNo);  
-            fa.saveEx();  
-            totalDr = totalDr.add(fa.getAmtAcctDr());  
-            totalCr = totalCr.add(fa.getAmtAcctCr());  
-            lineSeqNo++;  
-        }  
-  
-        voucher.set_ValueNoCheck("TotalDr", totalDr);  
-        voucher.set_ValueNoCheck("TotalCr", totalCr);  
-        
-        // 凭证字
-        voucher.set_ValueNoCheck("Gl_VoucherType", getGLVoucherTypeFromPO(po));
-        
-		// 总账/手工凭证有附件数，直接取手工凭证的附件数
+
+	/**
+	 * 按账套和组织分组，为每个账套各创建一张凭证，返回创建数量
+	 */
+	private List<Integer> createGlVoucher(PO po, String trxName) {
+		List<Integer> voucherIds = new ArrayList<>();
+		int AD_Table_ID = po.get_Table_ID();
+		int Record_ID = po.get_ID();
+
+		// 查询所有 Fact_Acct 记录
+		List<MFactAcct> factAccts = new Query(po.getCtx(), MFactAcct.Table_Name, "AD_Table_ID=? AND Record_ID=?",
+				trxName).setParameters(AD_Table_ID, Record_ID).setOrderBy("Fact_Acct_ID").list();
+
+		if (factAccts == null || factAccts.isEmpty())
+			return voucherIds;
+
+		// 按 C_AcctSchema_ID + AD_Org_ID 双键分组（与 GlVoucherServiceImpl 保持一致）
+		Map<String, List<MFactAcct>> groups = new LinkedHashMap<>();
+		for (MFactAcct fa : factAccts) {
+			String key = fa.getC_AcctSchema_ID() + "-" + fa.getAD_Org_ID();
+			groups.computeIfAbsent(key, k -> new ArrayList<>()).add(fa);
+		}
+		for (List<MFactAcct> group : groups.values()) {
+			int schemaId = group.get(0).getC_AcctSchema_ID();
+			int orgId = group.get(0).getAD_Org_ID(); // 从 Fact_Acct 读，不用 po.getAD_Org_ID()
+			int voucherId = createVoucherForSchema(po, orgId, schemaId, group, trxName);
+			if (voucherId > 0)
+				voucherIds.add(voucherId);
+		}
+		return voucherIds;
+	}
+
+	/**
+	 * 为指定账套创建一张凭证，返回凭证ID（失败返回0）
+	 */
+	private int createVoucherForSchema(PO po, int orgId, int acctSchemaId, List<MFactAcct> schemaFacts, String trxName) {
+		int AD_Table_ID = po.get_Table_ID();
+		int Record_ID = po.get_ID();
+
+		// 创建 Gl_Voucher
+		PO voucher = MTable.get(po.getCtx(), "Gl_Voucher").getPO(0, trxName);
+		voucher.set_ValueNoCheck("AD_Org_ID", orgId);
+		voucher.set_ValueNoCheck("AD_Table_ID", AD_Table_ID);
+		voucher.set_ValueNoCheck("Record_ID", Record_ID);
+		voucher.set_ValueNoCheck("Posted", true);
+
+		voucher.set_ValueNoCheck("DateDoc", getDateDocFromPO(po));
+		voucher.set_ValueNoCheck("DateAcct", getDateAcctFromPO(po));
+		voucher.set_ValueNoCheck("GL_Category_ID", getGLCategoryFromPO(po));
+
+		// 直接使用传入的账套ID，不从 context 取
+		voucher.set_ValueNoCheck("C_AcctSchema_ID", acctSchemaId);
+
+		MFactAcct firstFact = schemaFacts.get(0);
+		voucher.set_ValueNoCheck("C_Period_ID", firstFact.getC_Period_ID());
+		voucher.set_ValueNoCheck("PostingType", firstFact.getPostingType());
+		voucher.set_ValueNoCheck("C_Currency_ID", firstFact.getC_Currency_ID());
+
+		int docTypeId = getDocTypeFromPO(po);
+		if (docTypeId > 0)
+			voucher.set_ValueNoCheck("Source_DocType_ID", docTypeId);
+
+		String sql = "SELECT C_DocType_ID FROM C_DocType WHERE AD_Client_ID=? AND Name=? AND IsActive='Y'";
+		int voucherDocTypeId = DB.getSQLValue(trxName, sql, po.getAD_Client_ID(), "凭证");
+		if (voucherDocTypeId > 0)
+			voucher.set_ValueNoCheck("C_DocType_ID", voucherDocTypeId);
+
+		voucher.set_ValueNoCheck("Description", buildDescription(po));
+		voucher.set_ValueNoCheck("AD_User_ID", po.getUpdatedBy());
+		voucher.set_ValueNoCheck("PostedBy", po.getUpdatedBy());
+
+		String docStatus = getDocStatusFromPO(po);
+		int reversalIdx = po.get_ColumnIndex("Reversal_ID");
+		if (reversalIdx >= 0) {
+			Object reversalObj = po.get_Value(reversalIdx);
+			if (reversalObj != null) {
+				int reversalId = ((Number) reversalObj).intValue();
+				if (reversalId > 0 && po.get_ID() > reversalId)
+					docStatus = "RE";
+			}
+		}
+		voucher.set_ValueNoCheck("DocStatus", docStatus);
+
+		voucher.saveEx();
+
+		// SeqNo: 从 DocumentNo 提取
+		String documentNo = (String) voucher.get_Value("DocumentNo");
+		voucher.set_ValueNoCheck("SeqNo", extractSeqNo(documentNo));
+		voucher.saveEx();
+
+		// 更新 Fact_Acct，设置 Gl_Voucher_ID 和行号
+		BigDecimal totalDr = BigDecimal.ZERO;
+		BigDecimal totalCr = BigDecimal.ZERO;
+		int lineSeqNo = 1;
+
+		for (MFactAcct fa : schemaFacts) {
+			fa.set_ValueOfColumn("Gl_Voucher_ID", voucher.get_ID());
+			fa.set_ValueOfColumn("SeqNo", lineSeqNo);
+			fa.saveEx();
+			totalDr = totalDr.add(fa.getAmtAcctDr());
+			totalCr = totalCr.add(fa.getAmtAcctCr());
+			lineSeqNo++;
+		}
+
+		voucher.set_ValueNoCheck("TotalDr", totalDr);
+		voucher.set_ValueNoCheck("TotalCr", totalCr);
+
+		// 凭证字
+		voucher.set_ValueNoCheck("Gl_VoucherType", getGLVoucherTypeFromPO(po));
+
+		// 总账/手工凭证附件数
 		if (po instanceof MJournal) {
 			voucher.set_ValueNoCheck("AttachmentCount", (Integer) po.get_Value("AttachmentCount"));
 		}
-		
-        voucher.saveEx();  
-  
-        return voucher.get_ID();  
-    }  
-  
+
+		voucher.saveEx();
+
+		return voucher.get_ID();
+	}
+
     // ==================== 辅助方法 ====================  
     
     /**

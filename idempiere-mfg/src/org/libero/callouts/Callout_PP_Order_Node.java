@@ -8,30 +8,20 @@ import java.util.Properties;
 import java.util.logging.Level;
 
 import org.adempiere.base.IColumnCallout;
-import org.adempiere.exceptions.AdempiereException;
 import org.compiere.model.CalloutEngine;
 import org.compiere.model.GridField;
 import org.compiere.model.GridTab;
-import org.compiere.model.MTable;
-import org.compiere.model.PO;
-import org.compiere.model.Query;
 import org.compiere.util.DB;
 import org.libero.model.MPPOrder;
-import org.libero.model.MPPOrderBOMLine;
   
 public class Callout_PP_Order_Node extends CalloutEngine implements IColumnCallout {  
 
     @Override  
     public String start(Properties ctx, int WindowNo, GridTab mTab,  
             GridField mField, Object value, Object oldValue) {  
-    	if (mField.getColumnName().equals("AD_Routing_Node_ID")) {  
-    	    updateQtyRequired(ctx, WindowNo, mTab, mField, value);  
-    	    // ★ 新增：如果当前有 ScrapType，用新的 AD_Routing_Node_ID 重新查询放损数据  
-    	    Object currentScrapType = mTab.getValue("ScrapType");  
-    	    if (currentScrapType != null && !currentScrapType.toString().trim().isEmpty()) {  
-    	        return scrapType(ctx, WindowNo, mTab, mField, currentScrapType);  
-			}
-			return "";
+		if (mField.getColumnName().equals("AD_Routing_Node_ID")) {
+			updateQtyRequired(ctx, WindowNo, mTab, mField, value);
+			return scrapType(ctx, WindowNo, mTab, mField, mTab.getValue("ScrapType"));
 		}
 
 		// ★ 新增 start
@@ -43,63 +33,84 @@ public class Callout_PP_Order_Node extends CalloutEngine implements IColumnCallo
 		}
 		// ★ 新增 end
         return null;  
-    }  
+    }
 
-	// ==================== 原有方法（不变）====================
+	private String updateQtyRequired(Properties ctx, int WindowNo, GridTab mTab,
+									 GridField mField, Object value) {
 
-    private String updateQtyRequired(Properties ctx, int WindowNo, GridTab mTab,  
-            GridField mField, Object value) {  
+		Integer AD_Routing_Node_ID = (Integer) value;
+		if (AD_Routing_Node_ID == null || AD_Routing_Node_ID <= 0)
+			return "";
 
-        String whereClause = "PP_Order_ID=? AND KeyMat='Y'";  
-        MPPOrderBOMLine keyMatLine = new Query(ctx, MPPOrderBOMLine.Table_Name, whereClause, null)  
-                .setParameters(mTab.getValue("PP_Order_ID"))  
-                .firstOnly();  
-  
-        if (keyMatLine == null) {  
-            throw new AdempiereException("工单BOM未维护主物料");  
-        }  
+		// 1. 带出工序节点名称
+		String name = DB.getSQLValueString(null,
+				"SELECT Name FROM AD_Routing_Node WHERE AD_Routing_Node_ID=? AND IsActive='Y'",
+				AD_Routing_Node_ID);
+		if (name != null)
+			mTab.setValue("Name", name);
 
-        BigDecimal keyMatQtyRequiered = keyMatLine.getQtyRequiered();  
-        BigDecimal calculatedQty = keyMatQtyRequiered;  
+		// 新增：带出 NodeType，驱动 QtyColor 的只读逻辑实时生效
+		String nodeType = DB.getSQLValueString(null,
+				"SELECT NodeType FROM AD_Routing_Node WHERE AD_Routing_Node_ID=? AND IsActive='Y'", AD_Routing_Node_ID);
+		mTab.setValue("NodeType", nodeType != null ? nodeType : "");
 
-        Integer AD_Routing_Node_ID = (Integer) value;  
-  
-        if (AD_Routing_Node_ID != null && AD_Routing_Node_ID > 0) {  
-  
-            String name = DB.getSQLValueString(null,  
-                    "SELECT Name FROM AD_Routing_Node WHERE AD_Routing_Node_ID=? AND IsActive='Y'",  
-                    AD_Routing_Node_ID);  
-            if (name != null) {  
-                mTab.setValue("Name", name);  
-            }  
+		// 2. 取工单基础数据
+		Integer ppOrderId = (Integer) mTab.getValue("PP_Order_ID");
+		if (ppOrderId == null || ppOrderId <= 0)
+			return "";
 
-			String routingWhereClause = "AD_Routing_Node_ID=? AND IsBatchCalculation='Y' and IsActive='Y'";
-            MTable routingTable = MTable.get(ctx, "AD_Routing_Node");  
-            PO routingNode = new Query(ctx, routingTable, routingWhereClause, null)  
-                    .setParameters(AD_Routing_Node_ID)  
-                    .firstOnly();  
+		MPPOrder order = new MPPOrder(ctx, ppOrderId, null);
+		BigDecimal qtyEntered = order.getQtyEntered();
+		BigDecimal qtyBatchSize = order.getQtyBatchSize();
+		if (qtyEntered == null || qtyBatchSize == null || qtyBatchSize.signum() <= 0)
+			return "";
 
-            if (routingNode != null) {  
-                Integer PP_Order_Workflow_ID = (Integer) mTab.getValue("PP_Order_Workflow_ID");  
-                if (PP_Order_Workflow_ID != null && PP_Order_Workflow_ID > 0) {  
-                    String workflowWhereClause = "PP_Order_Workflow_ID=?";  
-                    PO workflow = new Query(ctx, "PP_Order_Workflow", workflowWhereClause, null)  
-                            .setParameters(PP_Order_Workflow_ID)  
-                            .firstOnly();  
+		// 3. 取当前节点的累计放损数（数据库旧值）
+		Integer nodeId = (Integer) mTab.getValue("PP_Order_Node_ID");
+		BigDecimal nodeTotalScrap = BigDecimal.ZERO;
+		if (nodeId != null && nodeId > 0) {
+			BigDecimal dbVal = DB.getSQLValueBD(null,
+					"SELECT COALESCE(QtyPaperTotalScrap, 0) FROM PP_Order_Node WHERE PP_Order_Node_ID=?", nodeId);
+			if (dbVal != null)
+				nodeTotalScrap = dbVal;
+		}
 
-                    if (workflow != null) {  
-                        BigDecimal qtyBatchSize = (BigDecimal) workflow.get_Value("QtyBatchSize");  
-                        if (qtyBatchSize != null && qtyBatchSize.compareTo(BigDecimal.ZERO) > 0) {  
-                            calculatedQty = calculatedQty.multiply(qtyBatchSize);  
-                        }  
-                    }  
-                }  
-            }  
-        }  
+		// 4. 计算并写入 QtyRequiered
+		applyQtyRequiered(mTab, qtyEntered, qtyBatchSize, nodeTotalScrap, ppOrderId);
+		return "";
+	}
 
-        mTab.setValue("QtyRequiered", calculatedQty);  
-        return "";  
-    }  
+	private void applyQtyRequiered(GridTab mTab, BigDecimal qtyEntered, BigDecimal qtyBatchSize, BigDecimal currentNodeTotalScrap, Integer ppOrderId) {
+		// 取主物料 BOM 行的总累计放损数
+		BigDecimal totalScrap = DB.getSQLValueBD(null,
+				"SELECT COALESCE(QtyPaperTotalScrap, 0) FROM PP_Order_BOMLine WHERE PP_Order_ID=? AND Keymat='Y' AND IsActive='Y'",
+				ppOrderId);
+		if (totalScrap == null) totalScrap = BigDecimal.ZERO;
+
+		// 累计放损-当前工序累计放损
+		BigDecimal scrapDiff = totalScrap.subtract(currentNodeTotalScrap != null ? currentNodeTotalScrap : BigDecimal.ZERO);
+
+		// 判断大张/小张
+		Integer routingNodeId = (Integer) mTab.getValue("AD_Routing_Node_ID");
+		String isBatchCalc = "N";
+		if (routingNodeId != null && routingNodeId > 0) {
+			isBatchCalc = DB.getSQLValueString(null,
+					"SELECT COALESCE(IsBatchCalculation, 'N') FROM AD_Routing_Node WHERE AD_Routing_Node_ID=?",
+					routingNodeId);
+		}
+
+		BigDecimal qtyRequiered;
+		if ("Y".equals(isBatchCalc)) {
+			// 小张：QtyEntered + scrapDiff × QtyBatchSize
+			qtyRequiered = qtyEntered.add(scrapDiff.multiply(qtyBatchSize))
+					.setScale(0, RoundingMode.CEILING);
+		} else {
+			// 大张：QtyEntered / QtyBatchSize + scrapDiff
+			qtyRequiered = qtyEntered.divide(qtyBatchSize, 8, RoundingMode.HALF_UP)
+					.add(scrapDiff).setScale(0, RoundingMode.CEILING);
+		}
+		mTab.setValue("QtyRequiered", qtyRequiered);
+	}
 
 	// ==================== ★ 新增方法 ====================
 
@@ -109,9 +120,6 @@ public class Callout_PP_Order_Node extends CalloutEngine implements IColumnCallo
 	 */
 	private String scrapType(Properties ctx, int WindowNo, GridTab mTab, GridField mField, Object value) {
 		String scrapType = (String) value;
-		if (scrapType == null || scrapType.isEmpty())
-			return "";
-
 		Integer nodeId = (Integer) mTab.getValue("AD_Routing_Node_ID");
 		if (nodeId == null || nodeId <= 0)
 			return "";
@@ -121,8 +129,10 @@ public class Callout_PP_Order_Node extends CalloutEngine implements IColumnCallo
 		mTab.setValue("QtyPaperTotalScrap", null);
 		mTab.setValue("RatePaperTotalScrap", null);
 
-		String sql = "SELECT DifficultyFactor, StdBaseQty, StdScrapRate " + "FROM C_PaperScrapStd "
-				+ "WHERE AD_Routing_Node_ID=? AND ProcessDifficulty=? AND IsActive='Y' " + "ORDER BY Created DESC";
+		String sql = "SELECT cps.DifficultyFactor, cps.StdBaseQty, cps.StdScrapRate "
+				+ "FROM C_PaperScrapStd cps "
+				+ "JOIN AD_Routing_Node arn ON arn.operationclass_ID = cps.operationclass_ID "
+				+ "WHERE arn.AD_Routing_Node_ID=? AND cps.ProcessDifficulty=? AND cps.IsActive='Y' ";
 		PreparedStatement pstmt = null;
 		ResultSet rs = null;
 		try {
@@ -173,7 +183,10 @@ public class Callout_PP_Order_Node extends CalloutEngine implements IColumnCallo
 		BigDecimal diffFactor = getBDValue(mTab, "ScrapFactor"); // ScrapFactor 是 String，getBDValue 会自动转换
 		BigDecimal qtyColor = getBDValue(mTab, "QtyColor");
 
-		if (stdBaseQty == null || stdScrapRate == null || diffFactor == null || qtyColor == null) {
+		if (qtyColor == null || qtyColor.signum() == 0)
+			qtyColor = BigDecimal.ONE;
+
+		if (stdBaseQty == null || stdScrapRate == null || diffFactor == null) {
 			return;
 		}
 
@@ -185,18 +198,25 @@ public class Callout_PP_Order_Node extends CalloutEngine implements IColumnCallo
 		BigDecimal qtyBatchSize = order.getQtyBatchSize();
 		if (qtyBatchSize == null || qtyBatchSize.signum() == 0)
 			qtyBatchSize = BigDecimal.ONE;
-		BigDecimal qtyPerBatch = order.getQtyEntered().divide(qtyBatchSize, 6, RoundingMode.HALF_UP);
+		BigDecimal qtyEntered = order.getQtyEntered();
+		BigDecimal qtyPerBatch = qtyEntered .divide(qtyBatchSize, 6, RoundingMode.HALF_UP);
 
 		// StdScrapRate 单位是 ‰，除以 1000 转为实际比率
 		BigDecimal scrapRateActual = stdScrapRate.divide(new BigDecimal("1000"), 10, RoundingMode.HALF_UP);
 
 		// 纸张放损数（取整）
 		BigDecimal qtyPaperScrap = stdBaseQty.add(scrapRateActual.multiply(qtyPerBatch)).multiply(qtyColor)
-				.multiply(diffFactor).setScale(0, RoundingMode.HALF_UP);
+				.multiply(diffFactor).setScale(0, RoundingMode.CEILING);
 		mTab.setValue("QtyPaperScrap", qtyPaperScrap);
 
-		// 上道工序累计放损数
+		// 提前取 currentNodeId，并查 DB 旧值（在 mTab.setValue 之前）
 		Integer currentNodeId = (Integer) mTab.getValue("PP_Order_Node_ID");
+		BigDecimal oldCurrentNodeTotalScrap = DB.getSQLValueBD(null,
+				"SELECT COALESCE(QtyPaperTotalScrap, 0) FROM PP_Order_Node WHERE PP_Order_Node_ID=?", currentNodeId);
+		if (oldCurrentNodeTotalScrap == null)
+			oldCurrentNodeTotalScrap = BigDecimal.ZERO;
+
+		// 上道工序累计放损数
 		BigDecimal prevTotal = getPrevNodeTotalScrap(currentNodeId, ppOrderId);
 
 		// 累计纸张放损数
@@ -210,6 +230,9 @@ public class Callout_PP_Order_Node extends CalloutEngine implements IColumnCallo
 					.multiply(new BigDecimal("100")).setScale(4, RoundingMode.HALF_UP);
 			mTab.setValue("RatePaperTotalScrap", rate);
 		}
+		// 新增：同步更新 QtyRequiered
+		// 传 DB 旧值，不传新计算的 qtyPaperTotalScrap
+		applyQtyRequiered(mTab, qtyEntered, qtyBatchSize, oldCurrentNodeTotalScrap, ppOrderId);
 	}
 	/**
 	 * 通过 PP_Order_Node_Next 找到当前节点的前驱节点，取其 QtyPaperTotalScrap

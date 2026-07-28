@@ -131,7 +131,15 @@ public class Doc_Inventory extends Doc
 			BigDecimal qtyDiff = Env.ZERO;
 			BigDecimal amtDiff = Env.ZERO;
 			if (MDocType.DOCSUBTYPEINV_InternalUseInventory.equals(docSubTypeInv))
-				qtyDiff = line.getQtyInternalUse().negate();
+			{
+				MDocType dt2 = MDocType.get(getCtx(), getC_DocType_ID());
+				String docMovementType = (String) dt2.get_Value("DocMovementType");
+				if (docMovementType != null && !docMovementType.isEmpty()
+						&& docMovementType.charAt(docMovementType.length() - 1) == '+')
+					qtyDiff = line.getQtyInternalUse();
+				else
+					qtyDiff = line.getQtyInternalUse().negate();
+			}
 			else if (MDocType.DOCSUBTYPEINV_PhysicalInventory.equals(docSubTypeInv))
 				qtyDiff = line.getQtyCount().subtract(line.getQtyBook());
 			else if (MDocType.DOCSUBTYPEINV_CostAdjustment.equals(docSubTypeInv))
@@ -199,6 +207,10 @@ public class Doc_Inventory extends Doc
 		for (int i = 0; i < p_lines.length; i++)
 		{
 			DocLine line = p_lines[i];
+			
+			// 客供料跳过会计分录（含 IU 内部领用）  
+			MProduct lineProduct = line.getProduct();  
+			if (lineProduct != null && lineProduct.isCSMAndNotNeedPost()) continue;
 			
 			boolean doPosting = true;
 			String costingLevel = null;

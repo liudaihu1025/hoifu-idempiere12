@@ -240,6 +240,8 @@ public class BalanceSheet extends SvrProcess {
 		String sql = "SELECT ev.Value, ev.AccountSign, "
 				+ "  COALESCE(SUM(CASE WHEN fa.DateAcct < ? THEN fa.AmtAcctDr ELSE 0 END), 0) AS BeginDr, "
 				+ "  COALESCE(SUM(CASE WHEN fa.DateAcct < ? THEN fa.AmtAcctCr ELSE 0 END), 0) AS BeginCr, "
+				+ "  COALESCE(SUM(CASE WHEN fa.DateAcct < ? THEN fa.AmtAcctDr ELSE 0 END), 0) AS PeriodBeginDr, "
+				+ "  COALESCE(SUM(CASE WHEN fa.DateAcct < ? THEN fa.AmtAcctCr ELSE 0 END), 0) AS PeriodBeginCr, "
 				+ "  COALESCE(SUM(CASE WHEN fa.DateAcct <= ? THEN fa.AmtAcctDr ELSE 0 END), 0) AS EndDr, "
 				+ "  COALESCE(SUM(CASE WHEN fa.DateAcct <= ? THEN fa.AmtAcctCr ELSE 0 END), 0) AS EndCr "
 				+ "FROM Fact_Acct fa " + "INNER JOIN C_ElementValue ev ON ev.C_ElementValue_ID = fa.Account_ID "
@@ -251,18 +253,22 @@ public class BalanceSheet extends SvrProcess {
 		try (java.sql.PreparedStatement ps = DB.prepareStatement(sql, get_TrxName())) {
 			ps.setTimestamp(1, yearStart);
 			ps.setTimestamp(2, yearStart);
-			ps.setTimestamp(3, periodEnd);
-			ps.setTimestamp(4, periodEnd);
-			ps.setInt(5, getAD_Client_ID());
+			ps.setTimestamp(3, p_DateAcct_From);
+			ps.setTimestamp(4, p_DateAcct_From);
+			ps.setTimestamp(5, periodEnd);
+			ps.setTimestamp(6, periodEnd);
+			ps.setInt(7, getAD_Client_ID());
 			try (java.sql.ResultSet rs = ps.executeQuery()) {
 				while (rs.next()) {
 					String value = rs.getString(1);
 					String accountSign = rs.getString(2); // ★
 					BigDecimal beginDr = rs.getBigDecimal(3);
 					BigDecimal beginCr = rs.getBigDecimal(4);
-					BigDecimal endDr = rs.getBigDecimal(5);
-					BigDecimal endCr = rs.getBigDecimal(6);
-					accountCache.put(value, new Balance(beginDr, beginCr, endDr, endCr));
+					BigDecimal periodBeginDr = rs.getBigDecimal(5); // 新增
+					BigDecimal periodBeginCr = rs.getBigDecimal(6); // 新增
+					BigDecimal endDr = rs.getBigDecimal(7);
+					BigDecimal endCr = rs.getBigDecimal(8);
+					accountCache.put(value, new Balance(beginDr, beginCr, endDr, endCr, periodBeginDr, periodBeginCr));
 					accountSignCache.put(value, accountSign); // ★ 存储科目方向
 				}
 			}
@@ -302,12 +308,13 @@ public class BalanceSheet extends SvrProcess {
 
 		// ★ 直接使用公式计算结果，方向已由 AccountSign 在 getTokenValue() 中决定
 		BigDecimal begin = evaluateFormula(formula, true, resultCache, formulaMap, computing);
+		BigDecimal periodBegin = evaluateFormulaPeriodBegin(formula, resultCache, formulaMap, computing); // 新增
 		BigDecimal end = evaluateFormula(formula, false, resultCache, formulaMap, computing);
 
 		// ★ 移除原来基于 isLeft 的取反逻辑
 
 		AccountInfo accInfo = getAccountInfoFromFormula(formula, formulaMap);
-		RowResult rowRes = new RowResult(begin, end, accInfo);
+		RowResult rowRes = new RowResult(begin, end, accInfo, periodBegin);
 		resultCache.put(item, rowRes);
 		computing.remove(item);
 		log.fine("项目 " + item + " 期初=" + begin + " 期末=" + end);
@@ -435,6 +442,32 @@ public class BalanceSheet extends SvrProcess {
 		return result;
 	}
 
+	// 在 evaluateFormula() 方法之后插入
+	private BigDecimal evaluateFormulaPeriodBegin(String formula, Map<String, RowResult> resultCache,
+			Map<String, String> formulaMap, Set<String> computing) {
+		if (formula == null || formula.trim().isEmpty())
+			return BigDecimal.ZERO;
+		formula = formula.trim();
+		if (!formula.contains("+") && !formula.contains("-")) {
+			return getTokenValuePeriodBegin(formula, resultCache, formulaMap, computing);
+		}
+		String[] tokens = formula.split("(?=[+-])");
+		BigDecimal result = BigDecimal.ZERO;
+		for (String token : tokens) {
+			token = token.trim();
+			boolean positive = true;
+			if (token.startsWith("-")) {
+				positive = false;
+				token = token.substring(1).trim();
+			} else if (token.startsWith("+")) {
+				token = token.substring(1).trim();
+			}
+			BigDecimal val = getTokenValuePeriodBegin(token, resultCache, formulaMap, computing);
+			result = positive ? result.add(val) : result.subtract(val);
+		}
+		return result;
+	}
+
 	/**
 	 * 获取单个token的值（支持方向后缀）。 ★ 当 direction==null 时，根据 AccountSign 决定净额方向，替代原来固定的
 	 * Dr-Cr。
@@ -509,6 +542,75 @@ public class BalanceSheet extends SvrProcess {
 		return BigDecimal.ZERO;
 	}
 
+	// 在 getTokenValue() 方法之后插入
+	private BigDecimal getTokenValuePeriodBegin(String token, Map<String, RowResult> resultCache,
+			Map<String, String> formulaMap, Set<String> computing) {
+		if (token.isEmpty())
+			return BigDecimal.ZERO;
+
+		// 解析方向后缀（#D, #C）
+		String direction = null;
+		String pureToken = token;
+		if (token.contains("#")) {
+			String[] parts = token.split("#");
+			if (parts.length == 2) {
+				pureToken = parts[0].trim();
+				direction = parts[1].trim().toUpperCase();
+				if (!direction.equals("D") && !direction.equals("C")) {
+					log.warning("无效的方向后缀: " + token);
+					direction = null;
+				}
+			}
+		}
+
+		// 模糊匹配（如 1122% 或 1122%#D）
+		if (pureToken.endsWith("%")) {
+			String prefix = pureToken.substring(0, pureToken.length() - 1);
+			BigDecimal total = BigDecimal.ZERO;
+			for (Map.Entry<String, Balance> e : accountCache.entrySet()) {
+				if (e.getKey().startsWith(prefix)) {
+					Balance bal = e.getValue();
+					if (direction == null) {
+						total = total.add(calcNetBySignPeriodBegin(e.getKey(), bal));
+					} else if (direction.equals("D")) {
+						total = total.add(bal.periodBeginDr);
+					} else {
+						total = total.add(bal.periodBeginCr);
+					}
+				}
+			}
+			return total;
+		}
+
+		// 精确科目编码
+		if (pureToken.matches("\\d+")) {
+			Balance bal = accountCache.get(pureToken);
+			if (bal == null)
+				return BigDecimal.ZERO;
+			if (direction == null) {
+				return calcNetBySignPeriodBegin(pureToken, bal);
+			} else if (direction.equals("D")) {
+				return bal.periodBeginDr;
+			} else {
+				return bal.periodBeginCr;
+			}
+		}
+
+		// 项目名称引用
+		if (resultCache.containsKey(pureToken)) {
+			RowResult ref = resultCache.get(pureToken);
+			return ref.periodBegin;
+		}
+		if (formulaMap.containsKey(pureToken)) {
+			computeItem(pureToken, formulaMap, resultCache, computing);
+			RowResult ref = resultCache.get(pureToken);
+			return ref.periodBegin;
+		}
+
+		log.warning("无法解析token: " + token);
+		return BigDecimal.ZERO;
+	}
+
 	/**
 	 * ★ 新增：根据科目方向（AccountSign）计算净额 D → 借方 - 贷方（借方科目，余额在借方） C → 贷方 - 借方（贷方科目，余额在贷方）
 	 * N → 借方 - 贷方（中性，正数=借方余额，负数=贷方余额） 未知 → 默认按 D 处理
@@ -525,6 +627,22 @@ public class BalanceSheet extends SvrProcess {
 		} else {
 			// 借方科目（D）：借方 - 贷方
 			return isBeginning ? bal.beginDr.subtract(bal.beginCr) : bal.endDr.subtract(bal.endCr);
+		}
+	}
+
+	// 在 calcNetBySign() 方法之后插入
+	private BigDecimal calcNetBySignPeriodBegin(String accountValue, Balance bal) {
+		String sign = accountSignCache.getOrDefault(accountValue, "D");
+		if ("C".equals(sign)) {
+			// 贷方科目：贷方 - 借方
+			return bal.periodBeginCr.subtract(bal.periodBeginDr);
+		} else if ("N".equals(sign)) {
+			// 中性科目：结果始终为正数
+			BigDecimal net = bal.periodBeginDr.subtract(bal.periodBeginCr);
+			return net.abs();
+		} else {
+			// 借方科目（D）：借方 - 贷方
+			return bal.periodBeginDr.subtract(bal.periodBeginCr);
 		}
 	}
 
@@ -563,17 +681,19 @@ public class BalanceSheet extends SvrProcess {
 			boolean isRightTitle = rightNameRaw.endsWith(":") || rightNameRaw.isEmpty();
 
 			// 处理左侧（金额和科目信息）
-			BigDecimal leftBegin = null, leftEnd = null;
+			BigDecimal leftBegin = null, leftEnd = null, leftPeriodBegin = null;
 			Integer leftAccountId = null;
 			String leftAccountValue = null, leftAccountName = null;
 			if (isLeftTitle) {
 				// 标题行：金额为 null
 				leftBegin = null;
 				leftEnd = null;
+				leftPeriodBegin = null;
 			} else {
 				if (leftRes != null) {
 					leftBegin = leftRes.begin;
 					leftEnd = leftRes.end;
+					leftPeriodBegin = leftRes.periodBegin;
 					if (leftRes.accountInfo != null) {
 						leftAccountId = leftRes.accountInfo.id;
 						leftAccountValue = leftRes.accountInfo.value;
@@ -583,20 +703,23 @@ public class BalanceSheet extends SvrProcess {
 					// 非标题行无计算结果时默认为0
 					leftBegin = BigDecimal.ZERO;
 					leftEnd = BigDecimal.ZERO;
+					leftPeriodBegin = BigDecimal.ZERO;
 				}
 			}
 
 			// 处理右侧（金额和科目信息）
-			BigDecimal rightBegin = null, rightEnd = null;
+			BigDecimal rightBegin = null, rightEnd = null, rightPeriodBegin = null;
 			Integer rightAccountId = null;
 			String rightAccountValue = null, rightAccountName = null;
 			if (isRightTitle) {
 				rightBegin = null;
 				rightEnd = null;
+				rightPeriodBegin = null;
 			} else {
 				if (rightRes != null) {
 					rightBegin = rightRes.begin;
 					rightEnd = rightRes.end;
+					rightPeriodBegin = rightRes.periodBegin;
 					if (rightRes.accountInfo != null) {
 						rightAccountId = rightRes.accountInfo.id;
 						rightAccountValue = rightRes.accountInfo.value;
@@ -605,6 +728,7 @@ public class BalanceSheet extends SvrProcess {
 				} else {
 					rightBegin = BigDecimal.ZERO;
 					rightEnd = BigDecimal.ZERO;
+					rightPeriodBegin = BigDecimal.ZERO;
 				}
 			}
 
@@ -616,8 +740,10 @@ public class BalanceSheet extends SvrProcess {
 					rightNameRaw, // 5
 					isSummary ? "Y" : "N", // 6
 					leftBegin, // 7
+					leftPeriodBegin, // 新增
 					leftEnd, // 8
 					rightBegin, // 9
+					rightPeriodBegin, // 新增
 					rightEnd, // 10
 					leftAccountValue, // 11
 					leftAccountName, // 12
@@ -646,7 +772,7 @@ public class BalanceSheet extends SvrProcess {
 			StringBuilder sql = new StringBuilder();
 			sql.append("INSERT INTO T_BalanceSheet (")
 					.append("AD_PInstance_ID, SeqNo, LevelNo, ItemName_Left, ItemName_Right, IsSummary, ")
-					.append("Amt_Begin_Left, Amt_End_Left, Amt_Begin_Right, Amt_End_Right, ")
+					.append("Amt_Begin_Left, Amt_PeriodBegin_Left, Amt_End_Left, Amt_Begin_Right, Amt_PeriodBegin_Right, Amt_End_Right, ")
 					.append("Account_Value_Left, Account_Name_Left, Left_Account_ID, ")
 					.append("Account_Value_Right, Account_Name_Right, Right_Account_ID, ")
 					.append("AD_Client_ID, AD_Org_ID, Created, CreatedBy, Updated, UpdatedBy, IsActive")
@@ -656,7 +782,7 @@ public class BalanceSheet extends SvrProcess {
 			for (int j = 0; j < subBatch.size(); j++) {
 				if (j > 0)
 					sql.append(",");
-				sql.append("(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),?,NOW(),?,'Y')");
+				sql.append("(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),?,NOW(),?,'Y')");
 				Object[] row = subBatch.get(j);
 				for (Object o : row)
 					params.add(o);
@@ -688,11 +814,11 @@ public class BalanceSheet extends SvrProcess {
 	private void insertSingleRow(Object[] row) {
 		String sql = "INSERT INTO T_BalanceSheet ("
 				+ "AD_PInstance_ID, SeqNo, LevelNo, ItemName_Left, ItemName_Right, IsSummary, "
-				+ "Amt_Begin_Left, Amt_End_Left, Amt_Begin_Right, Amt_End_Right, "
+				+ "Amt_Begin_Left, Amt_PeriodBegin_Left, Amt_End_Left, Amt_Begin_Right, Amt_PeriodBegin_Right, Amt_End_Right, "
 				+ "Account_Value_Left, Account_Name_Left, Left_Account_ID, "
 				+ "Account_Value_Right, Account_Name_Right, Right_Account_ID, "
 				+ "AD_Client_ID, AD_Org_ID, Created, CreatedBy, Updated, UpdatedBy, IsActive"
-				+ ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),?,NOW(),?,'Y')";
+				+ ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),?,NOW(),?,'Y')";
 		DB.executeUpdateEx(sql, row, get_TrxName());
 	}
 
@@ -703,12 +829,15 @@ public class BalanceSheet extends SvrProcess {
 	private static class Balance {
 		BigDecimal beginDr, beginCr;
 		BigDecimal endDr, endCr;
+		BigDecimal periodBeginDr, periodBeginCr; // 期初数（< p_DateAcct_From）
 
-		Balance(BigDecimal beginDr, BigDecimal beginCr, BigDecimal endDr, BigDecimal endCr) {
+		Balance(BigDecimal beginDr, BigDecimal beginCr, BigDecimal endDr, BigDecimal endCr, BigDecimal periodBeginDr, BigDecimal periodBeginCr) {
 			this.beginDr = beginDr;
 			this.beginCr = beginCr;
 			this.endDr = endDr;
 			this.endCr = endCr;
+			this.periodBeginDr = periodBeginDr;
+			this.periodBeginCr = periodBeginCr;
 		}
 	}
 
@@ -733,10 +862,12 @@ public class BalanceSheet extends SvrProcess {
 	private static class RowResult {
 		BigDecimal begin, end; // 期初、期末金额（已调整符号）
 		AccountInfo accountInfo; // 关联的科目信息（仅单一科目时非空）
+		BigDecimal periodBegin;
 
-		RowResult(BigDecimal b, BigDecimal e, AccountInfo acc) {
+		RowResult(BigDecimal b, BigDecimal e, AccountInfo acc, BigDecimal p) {
 			begin = b;
 			end = e;
+			periodBegin = p;
 			accountInfo = acc;
 		}
 	}

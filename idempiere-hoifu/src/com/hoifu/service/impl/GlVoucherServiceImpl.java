@@ -3,7 +3,7 @@ package com.hoifu.service.impl;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -14,7 +14,6 @@ import org.compiere.model.MJournal;
 import org.compiere.model.PO;
 import org.compiere.model.Query;
 import org.compiere.util.DB;
-import org.compiere.util.Env;
 
 import com.hoifu.model.MGlVoucher;
 import com.hoifu.service.IGlVoucherService;
@@ -38,45 +37,52 @@ public class GlVoucherServiceImpl implements IGlVoucherService {
 		int AD_Table_ID = po.get_Table_ID();
 		int Record_ID = po.get_ID();
 
-		// 删除旧凭证（重新过账时）
-		List<MGlVoucher> oldVouchers = new Query(po.getCtx(), "Gl_Voucher", "AD_Table_ID=? AND Record_ID=?", trxName)
-				.setParameters(AD_Table_ID, Record_ID).list();
+		// 只取本次刚过账、尚未关联凭证的分录
+		List<MFactAcct> newFacts = new Query(po.getCtx(), MFactAcct.Table_Name,
+				"AD_Table_ID=? AND Record_ID=? AND Gl_Voucher_ID IS NULL", trxName)
+				.setParameters(AD_Table_ID, Record_ID).setOrderBy("Fact_Acct_ID").list();
+
+		if (newFacts == null || newFacts.isEmpty())
+			return;
+
+		// 当前账套ID（从分录直接读，不依赖 context）
+		int currentSchemaId = newFacts.get(0).getC_AcctSchema_ID();
+
+		// 只删除当前账套的旧凭证（重新过账时），不影响其他账套已建的凭证
+		List<MGlVoucher> oldVouchers = new Query(po.getCtx(), "Gl_Voucher",
+				"AD_Table_ID=? AND Record_ID=? AND C_AcctSchema_ID=?", trxName)
+				.setParameters(AD_Table_ID, Record_ID, currentSchemaId).list();
 		for (MGlVoucher old : oldVouchers) {
 			old.deleteEx(true);
 		}
 
-		List<MFactAcct> factAccts = new Query(po.getCtx(), MFactAcct.Table_Name, "AD_Table_ID=? AND Record_ID=?",
-				trxName).setParameters(AD_Table_ID, Record_ID).setOrderBy("Fact_Acct_ID").list();
-
-		if (factAccts == null || factAccts.isEmpty())
-			return;
-
-		// 按 AD_Org_ID 分组
-		Map<Integer, List<MFactAcct>> orgGroups = new HashMap<>();
-		for (MFactAcct fa : factAccts) {
-			orgGroups.computeIfAbsent(fa.getAD_Org_ID(), k -> new ArrayList<>()).add(fa);
+		// 按 AD_Org_ID 分组建凭证（同一账套内可能跨组织）
+		Map<Integer, List<MFactAcct>> groups = new LinkedHashMap<>();
+		for (MFactAcct fa : newFacts) {
+			groups.computeIfAbsent(fa.getAD_Org_ID(), k -> new ArrayList<>()).add(fa);
 		}
-
-		for (Map.Entry<Integer, List<MFactAcct>> entry : orgGroups.entrySet()) {
-			createVoucherForOrg(po, entry.getKey(), entry.getValue());
+		for (Map.Entry<Integer, List<MFactAcct>> entry : groups.entrySet()) {
+			createVoucherForOrg(po, entry.getKey(), currentSchemaId, entry.getValue());
 		}
 	}
 
 	public void refreshVoucherAfterReversal(PO po) {
 		String trxName = po.get_TrxName();
 
-		PO originalVoucher = new Query(po.getCtx(), "Gl_Voucher", "AD_Table_ID=? AND Record_ID=?", trxName)
-				.setParameters(po.get_Table_ID(), po.get_ID()).first();
+		List<PO> originalVouchers = new Query(po.getCtx(), "Gl_Voucher", "AD_Table_ID=? AND Record_ID=?", trxName)
+				.setParameters(po.get_Table_ID(), po.get_ID()).list();
 
-		if (originalVoucher == null)
-			return;
+		for (PO originalVoucher : originalVouchers) {
+			if (originalVoucher == null)
+				continue;
 
-		originalVoucher.set_ValueNoCheck("Description", buildDescription(po));
-		originalVoucher.set_ValueNoCheck("DocStatus", getDocStatusFromPO(po));
-		originalVoucher.saveEx();
+			originalVoucher.set_ValueNoCheck("Description", buildDescription(po));
+			originalVoucher.set_ValueNoCheck("DocStatus", getDocStatusFromPO(po));
+			originalVoucher.saveEx();
+		}
 	}
 
-	private void createVoucherForOrg(PO po, int orgId, List<MFactAcct> orgFactAccts) {
+	private void createVoucherForOrg(PO po, int orgId, int acctSchemaId, List<MFactAcct> orgFactAccts) {
 		String trxName = po.get_TrxName();
 
 		// 借方优先排序
@@ -107,10 +113,7 @@ public class GlVoucherServiceImpl implements IGlVoucherService {
 		if (glVoucherType != null)
 			voucher.setGl_VoucherType(glVoucherType);
 
-		int C_AcctSchema_ID = Env.getContextAsInt(po.getCtx(), "$C_AcctSchema_ID");
-		if (C_AcctSchema_ID <= 0)
-			C_AcctSchema_ID = orgFactAccts.get(0).getC_AcctSchema_ID();
-		voucher.setC_AcctSchema_ID(C_AcctSchema_ID);
+		voucher.setC_AcctSchema_ID(acctSchemaId);
 
 		MFactAcct firstFact = orgFactAccts.get(0);
 		voucher.setC_Period_ID(firstFact.getC_Period_ID());

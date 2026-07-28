@@ -28,6 +28,7 @@ import java.math.BigDecimal;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Savepoint;
+import java.sql.Timestamp;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -60,6 +61,7 @@ public class RollUpCosts extends SvrProcess {
 	private int product_id = 0;
 	private int costelement_id = 0;
 	private int charge_id = 0;
+	private Timestamp p_DateDoc = null;
 	private HashSet<Integer> processed;
 	
 	private Map<Integer, MInventory> inventoryDocs = new HashMap<>();
@@ -86,6 +88,8 @@ public class RollUpCosts extends SvrProcess {
 				costelement_id = para[i].getParameterAsInt();
 			else if (name.equals("C_Charge_ID"))
 				charge_id = para[i].getParameterAsInt();
+			else if (name.equals("DateDoc"))
+				p_DateDoc = (Timestamp) para[i].getParameter();
 			else
 				MProcessPara.validateUnknownParameter(getProcessInfo().getAD_Process_ID(), para[i]);
 		}
@@ -357,6 +361,8 @@ public class RollUpCosts extends SvrProcess {
 		{
 			costingDoc = new MInventory(getCtx(), 0, get_TrxName());
 			costingDoc.setAD_Org_ID(AD_Org_ID);
+			if (p_DateDoc != null)
+				costingDoc.setMovementDate(p_DateDoc);
 			costingDoc.setDescription("Created due to rollup BOM cost process ID " + getAD_PInstance_ID());
 			costingDoc.setC_DocType_ID(adjustmentDocType.getC_DocType_ID());
 			costingDoc.setCostingMethod(MCostElement.get(getCtx(), costelement_id).getCostingMethod());

@@ -224,6 +224,9 @@ public class Doc_InOut extends Doc
 				Map<String, BigDecimal> batchLotCostMap = null;
 				DocLine_InOut line = (DocLine_InOut) p_lines[i];
 				MProduct product = line.getProduct();
+				// 客供料跳过会计分录  
+				if (product.isCSMAndNotNeedPost()) continue;
+				
 				BigDecimal costs = null;
 				if (!isReversal(line))
 				{
@@ -477,6 +480,8 @@ public class Doc_InOut extends Doc
 			{
 				DocLine_InOut line = (DocLine_InOut) p_lines[i];
 				MProduct product = line.getProduct();
+				// 客供料跳过会计分录
+				if (product.isCSMAndNotNeedPost()) continue;
 				BigDecimal costs = null;
 				Map<String, BigDecimal> batchLotCostMap = null;
 				if (!isReversal(line)) 
@@ -705,6 +710,8 @@ public class Doc_InOut extends Doc
 				DocLine_InOut line = (DocLine_InOut) p_lines[i];
 				BigDecimal costs = null;
 				MProduct product = line.getProduct();
+				// 客供料跳过会计分录
+				if (product.isCSMAndNotNeedPost()) continue;
 				MOrderLine orderLine = null;
 				BigDecimal landedCost = BigDecimal.ZERO;
 				String costingMethod = product.getCostingMethod(as);
@@ -950,6 +957,8 @@ public class Doc_InOut extends Doc
 				DocLine_InOut line = (DocLine_InOut) p_lines[i];
 				BigDecimal costs = null;
 				MProduct product = line.getProduct();
+				// 客供料跳过会计分录
+				if (product.isCSMAndNotNeedPost()) continue;
 				if (!isReversal(line))
 				{
 					MInOutLine ioLine = (MInOutLine) line.getPO();
@@ -1153,7 +1162,7 @@ public class Doc_InOut extends Doc
 	private boolean isCustomDocSubTypeInOut() {
 		return !getDocSubTypeInOut().isEmpty() && !DOCSUBTYPE_Default.equals(getDocSubTypeInOut());
 	}
-
+	
 	/**
 	 * 第一层：按 DocSubTypeInOut 值分发
 	 * 新增子类型时在此追加 else if 分支
@@ -1198,8 +1207,10 @@ public class Doc_InOut extends Doc
 			Map<String, BigDecimal> batchLotCostMap = null;
 			DocLine_InOut line = (DocLine_InOut) p_lines[i];
 			MProduct product = line.getProduct();
+			// 客供料跳过会计分录  
+			if (product != null && product.isCSMAndNotNeedPost())  continue;  
+			
 			BigDecimal costs = null;
-
 			if (!isReversal(line)) {
 				// 取成本：与 Sales Shipment 分支一致，取 Org A 的产品成本
 				if (MAcctSchema.COSTINGLEVEL_BatchLot.equals(product.getCostingLevel(as))) {
@@ -1347,6 +1358,9 @@ public class Doc_InOut extends Doc
 		for (int i = 0; i < p_lines.length; i++) {
 			DocLine_InOut line = (DocLine_InOut) p_lines[i];
 			MProduct product = line.getProduct();
+			// 客供料跳过会计分录  
+			if (product != null && product.isCSMAndNotNeedPost())  continue;  
+			
 			BigDecimal costs = null;
 
 			if (!isReversal(line)) {

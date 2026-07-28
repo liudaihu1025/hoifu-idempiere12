@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.Properties;
 
 import org.compiere.util.DB;
+import org.libero.tables.X_C_WorkTeamMember;
 
 @org.adempiere.base.Model(table = "C_WorkTeamMember")
 public class MC_WorkTeamMember extends X_C_WorkTeamMember {

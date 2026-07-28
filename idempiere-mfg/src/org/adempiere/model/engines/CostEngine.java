@@ -68,7 +68,7 @@ public class CostEngine
 
 		MProductCategoryAcct acct = MProductCategoryAcct.get(product.getCtx(), product.getM_Product_Category_ID(),
 				C_AcctSchema_ID, null);
-		String costingMethod = acct.getCostingMethod();
+		String costingMethod = Objects.nonNull(acct) ? acct.getCostingMethod() : "";
 		if (costingMethod == null || costingMethod.isEmpty()) {
 			costingMethod = mAcctSchema.getCostingMethod();
 		}
@@ -257,6 +257,8 @@ public class CostEngine
 	public void createCostDetail (IDocumentLine model , MTransaction mtrx)
 	{
 		final MPPCostCollector cc = (model instanceof MPPCostCollector ? (MPPCostCollector)model : null);
+		if (Objects.isNull(cc)) return;
+		
 		for(MAcctSchema as : getAcctSchema(mtrx))
 		{
 			// Cost Detail
@@ -387,10 +389,11 @@ public class CostEngine
 				cost.setCurrentCostPrice(price);
 			}
 			cost.add(amt, qty);
+		} else {
+			// 其他方法使用移动平均作为默认
+			cost.setWeightedAverage(amt, qty);
 		}
 
-		// 其他方法使用移动平均作为默认
-		cost.setWeightedAverage(amt, qty);
 		cost.saveEx();
 		
 		// 手动更新成本明细字段
@@ -435,8 +438,11 @@ public class CostEngine
 
 			// 只有当组件是BOM物料时才递归调用本身方法
 			if (component.isBOM()) {
-				BigDecimal componentCost = calculateCostFromBOM(cc, element, as, component, bom, depth + 1);
-				totalCost = totalCost.add(componentCost);
+				MPPProductBOM componentBom = MPPProductBOM.get(component.getCtx(), MPPProductBOM.getBOMSearchKey(component));
+				if (componentBom != null) {
+					BigDecimal componentCost = calculateCostFromBOM(cc, element, as, component, componentBom, depth + 1);
+					totalCost = totalCost.add(componentCost);
+				}
 			} else {
 				// 非BOM物料直接获取当前成本
 				BigDecimal componentCurrentCost = getProductActualCostPrice(cc, component, as, element,

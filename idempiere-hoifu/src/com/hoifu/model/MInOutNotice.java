@@ -13,6 +13,7 @@ import org.compiere.model.MInOut;
 import org.compiere.model.MInOutLine;
 import org.compiere.model.MOrder;
 import org.compiere.model.MOrderLine;
+import org.compiere.model.MOrg;
 import org.compiere.model.MStorageOnHand;
 import org.compiere.model.MWarehouse;
 import org.compiere.model.Query;
@@ -21,6 +22,7 @@ import org.compiere.process.DocOptions;
 import org.compiere.process.DocumentEngine;
 import org.compiere.util.DB;
 import org.compiere.util.Env;
+import com.hoifu.service.InOutNoticeService; 
 
 public class MInOutNotice extends X_M_InOutNotice implements DocAction , DocOptions {
 
@@ -54,28 +56,53 @@ public class MInOutNotice extends X_M_InOutNotice implements DocAction , DocOpti
 		if (!success)
 			return false;
 
-		// 新增时根据订单ID（C_Order_ID）创建明细
-		if (newRecord && getC_Order_ID() > 0 && !hasOverDelivery())
-			createNoticeLines();
+		if (!suppressAutoLines) {
+			// 新增时根据订单ID（C_Order_ID）创建明细
+			if (newRecord && getC_Order_ID() > 0 && !hasOverDelivery())
+				createNoticeLines();
 
-		// 更新订单ID（C_Order_ID）时重新生成
-		if (!newRecord && is_ValueChanged(COLUMNNAME_C_Order_ID)) {
-			deleteNoticeLines(); // 先删旧行
-			if (!hasOverDelivery())  
-	            createNoticeLines(); 
+			// 更新订单ID（C_Order_ID）时重新生成
+			if (!newRecord && is_ValueChanged(COLUMNNAME_C_Order_ID)) {
+				deleteNoticeLines(); // 先删旧行
+				if (!hasOverDelivery())
+					createNoticeLines();
+			}
 		}
 		return true;
 	}
 
-	private String doComplete() {
-		MInOut shipment = generateShipment();  
+	private String doComplete() {  
+	    MInOut shipment = generateShipment();  
 	    setM_InOut_ID(shipment.getM_InOut_ID());  
-	    setApproved(new Timestamp(System.currentTimeMillis()));
-	    setApprovedBy(Env.getAD_User_ID(getCtx()));    
+	    setApproved(new Timestamp(System.currentTimeMillis()));  
+	    setApprovedBy(Env.getAD_User_ID(getCtx()));  
 	    saveEx();  
-		return null;
-	}
+	  
+	    // 如果是B组织发A组织的通知单，自动创建A组织发客户的通知单  
+	    // 失败时仅记录日志，不影响主流程（可通过 CreateNoticeFromNoticeProcess 补救）  
+	    tryCreateCounterNotice();  
+	  
+	    return null;  
+	} 
 
+	/**  
+	 * 尝试自动创建对应的A组织发货通知单。  
+	 * 仅当当前通知单是B→A的通知单时触发；失败时记录警告，不抛出异常。  
+	 */  
+	private void tryCreateCounterNotice() {  
+	    try {  
+	        InOutNoticeService service = new InOutNoticeService();  
+	        if (!service.isBToANotice(this, get_TrxName()))  
+	            return;  
+	        service.createNoticeFromBNotice(this, get_TrxName());  
+	    } catch (Exception e) {  
+	        // 自动创建失败不阻断主流程，记录警告，用户可通过流程手动补救  
+	        String bOrgName = MOrg.get(getCtx(), getAD_Org_ID()).getName();  
+	        log.warning("【" + bOrgName + "】发货通知单自动创建对应通知单失败"  
+	                + "（可通过【根据通知单创建通知单】流程手动补救）：" + e.getMessage());  
+	    }  
+	}
+	
 	/**  
 	 * 根据发货通知单明细生成发货单（草稿状态，不自动完成）。  
 	 * 同时将生成的 M_InOutLine_ID 回写到每条通知单明细。  
@@ -299,6 +326,12 @@ public class MInOutNotice extends X_M_InOutNotice implements DocAction , DocOpti
 		return null;
 	}
 
+	private transient boolean suppressAutoLines = false;  
+	  
+	public void setSuppressAutoLines(boolean suppress) {  
+	    this.suppressAutoLines = suppress;  
+	}
+	
 	@Override
 	public int customizeValidActions(String docStatus, Object processing, String orderType, String isSOTrx,
 			int AD_Table_ID, String[] docAction, String[] options, int index) {

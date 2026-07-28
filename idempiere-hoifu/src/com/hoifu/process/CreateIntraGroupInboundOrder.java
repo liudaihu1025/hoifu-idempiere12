@@ -123,13 +123,13 @@ public class CreateIntraGroupInboundOrder extends SvrProcess {
         }  
   
         // 7. 自动完成集团内入库单  
-        ProcessInfo pi = MWorkflow.runDocumentActionWorkflow(inbound, DocAction.ACTION_Complete);  
-        if (pi.isError())  
-            throw new AdempiereException("自动完成集团内入库单失败：" + pi.getSummary());  
-        inbound.load(get_TrxName());  
-        if (!DocAction.STATUS_Completed.equals(inbound.getDocStatus()))  
-            throw new AdempiereException("集团内入库单未能完成，当前状态：" + inbound.getDocStatus());  
-          
-        return "集团内入库单创建并完成，单号：" + inbound.getDocumentNo();
+//        ProcessInfo pi = MWorkflow.runDocumentActionWorkflow(inbound, DocAction.ACTION_Complete);  
+//        if (pi.isError())  
+//            throw new AdempiereException("自动完成集团内入库单失败：" + pi.getSummary());  
+//        inbound.load(get_TrxName());  
+//        if (!DocAction.STATUS_Completed.equals(inbound.getDocStatus()))  
+//            throw new AdempiereException("集团内入库单未能完成，当前状态：" + inbound.getDocStatus());  
+//          
+        return "集团内入库单创建完成，单号：" + inbound.getDocumentNo();
     }  
 }

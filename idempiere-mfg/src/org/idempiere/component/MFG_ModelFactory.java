@@ -20,6 +20,7 @@ import org.libero.model.MDDNetworkDistribution;
 import org.libero.model.MDDNetworkDistributionLine;
 import org.libero.model.MHFLengbieConfig;
 import org.libero.model.MHX_BoxType;
+import org.libero.model.MOperationClass;
 import org.libero.model.MPPCostCollector;
 import org.libero.model.MPPCostCollectorMA;
 import org.libero.model.MPPMRP;
@@ -45,25 +46,25 @@ public class MFG_ModelFactory implements IModelFactory {
 	public Class<?> getClass(String tableName) {
 		 if (tableName.equals(MDDNetworkDistribution.Table_Name)) {
 		     return MDDNetworkDistribution.class;
-		     
+
 		   } else if (tableName.equals(MDDNetworkDistributionLine.Table_Name)) {
 				 return MDDNetworkDistributionLine.class;
-				     
+
 		   } else if (tableName.equals(MPPCostCollector.Table_Name)) {
 				 return MPPCostCollector.class;
-				     
+
 		   } else if (tableName.equals(MPPCostCollectorMA.Table_Name)) {
 			     return MPPCostCollectorMA.class;
-			     
+
 		   } else if (tableName.equals(MPPMRP.Table_Name)) {
 			     return MPPMRP.class;
-			     
+
 		   } else if (tableName.equals(MPPOrder.Table_Name)) {
 			     return MPPOrder.class;
-			     
+
 		   } else if (tableName.equals(MPPOrderBOM.Table_Name)) {
 			     return MPPOrderBOM.class;
-			     
+
 		   } else if (tableName.equals(MPPOrderCost.Table_Name)) {
 			     return MPPOrderCost.class;
 
@@ -72,25 +73,25 @@ public class MFG_ModelFactory implements IModelFactory {
 
 		   } else if (tableName.equals(MPPOrderNode.Table_Name)) {
 			     return MPPOrderNode.class;
-			     
+
 		   } else if (tableName.equals(MPPOrderNodeAsset.Table_Name)) {
 			     return MPPOrderNodeAsset.class;
-			     
+
 		   } else if (tableName.equals(MPPOrderNodeNext.Table_Name)) {
 			     return MPPOrderNodeNext.class;
-			     
+
 		   } else if (tableName.equals(MPPOrderNodeProduct.Table_Name)) {
 			     return MPPOrderNodeProduct.class;
 
 		   } else if (tableName.equals(MPPOrderWorkflow.Table_Name)) {
-			     return MPPOrderWorkflow.class;     
-			     
+			     return MPPOrderWorkflow.class;
+
 		   } else if (tableName.equals(MPPWFNodeAsset.Table_Name)) {
 			     return MPPWFNodeAsset.class;
-			     
+
 		   } else if (tableName.equals(MPPWFNodeProduct.Table_Name)) {
 			     return MPPWFNodeProduct.class;
-			     
+
 		   } else if (tableName.equals(MQMSpecification.Table_Name)) {
 			     return MQMSpecification.class;
 
@@ -102,7 +103,7 @@ public class MFG_ModelFactory implements IModelFactory {
 
 		   } else if (tableName.equals(MPPProductBOMLine.Table_Name)) {
 			     return MPPProductBOMLine.class;
-			     
+
 		   } else if (tableName.equals(MPPProductPlanning.Table_Name)) {
 			     return MPPProductPlanning.class;
 
@@ -116,9 +117,9 @@ public class MFG_ModelFactory implements IModelFactory {
 			     return MOrder.class;
 		   } else if (tableName.equals(LiberoMovementLine.Table_Name)){
 			   return LiberoMovementLine.class;
-		   } 
-		   else if (tableName.equals(MPPMaterialRequisition.Table_Name)) {  
-	            return MPPMaterialRequisition.class;  
+		   }
+		   else if (tableName.equals(MPPMaterialRequisition.Table_Name)) {
+	            return MPPMaterialRequisition.class;
 			} else if (tableName.equals(MPP_Engineering_Change_Notice.Table_Name)) {
 				return MPP_Engineering_Change_Notice.class;
 			} else if (tableName.equals("HX_BoxType")) { // 添加HX_BoxType映射
@@ -129,60 +130,62 @@ public class MFG_ModelFactory implements IModelFactory {
 				return MC_WorkTeamMember.class;
 			} else if (tableName.equals(MHFLengbieConfig.Table_Name)) {
 				return MHFLengbieConfig.class;
-			} else
-			   return null;
+			} else if (tableName.equals(MOperationClass.Table_Name)) {
+                return MOperationClass.class;
+           } else
+             return null;
 	}
 
 	@Override
 	public PO getPO(String tableName, int Record_ID, String trxName) {
 		 if (tableName.equals(MDDNetworkDistribution.Table_Name)) {
 		     return new MDDNetworkDistribution(Env.getCtx(), Record_ID, trxName);
-		     
+
 		   } else if (tableName.equals(MDDNetworkDistributionLine.Table_Name)) {
 				 return new MDDNetworkDistributionLine(Env.getCtx(), Record_ID, trxName);
-				     
+
 		   } else if (tableName.equals(MPPCostCollector.Table_Name)) {
 				 return new MPPCostCollector(Env.getCtx(), Record_ID, trxName);
-				     
+
 		   } else if (tableName.equals(MPPCostCollectorMA.Table_Name)) {
 			     return new MPPCostCollectorMA(Env.getCtx(), Record_ID, trxName);
-			     
+
 		   } else if (tableName.equals(MPPMRP.Table_Name)) {
 			     return new MPPMRP(Env.getCtx(), Record_ID, trxName);
-			     
+
 		   } else if (tableName.equals(MPPOrder.Table_Name)) {
 			     return new MPPOrder(Env.getCtx(), Record_ID, trxName);
-			     
+
 		   } else if (tableName.equals(MPPOrderBOM.Table_Name)) {
 			     return new MPPOrderBOM(Env.getCtx(), Record_ID, trxName);
-			     
+
 		   } else if (tableName.equals(MPPOrderBOMLine.Table_Name)) {
 			     return new MPPOrderBOMLine(Env.getCtx(), Record_ID, trxName);
-			     
+
 		   } else if (tableName.equals(MPPOrderCost.Table_Name)) {
 			     return new MPPOrderCost(Env.getCtx(), Record_ID, trxName);
 
 		   } else if (tableName.equals(MPPOrderNode.Table_Name)) {
 			     return new MPPOrderNode(Env.getCtx(), Record_ID, trxName);
-			     
+
 		   } else if (tableName.equals(MPPOrderNodeAsset.Table_Name)) {
 			     return new MPPOrderNodeAsset(Env.getCtx(), Record_ID, trxName);
-			     
+
 		   } else if (tableName.equals(MPPOrderNodeNext.Table_Name)) {
 			     return new MPPOrderNodeNext(Env.getCtx(), Record_ID, trxName);
-			     
+
 		   } else if (tableName.equals(MPPOrderNodeProduct.Table_Name)) {
 			     return new MPPOrderNodeProduct(Env.getCtx(), Record_ID, trxName);
 
 		   } else if (tableName.equals(MPPOrderWorkflow.Table_Name)) {
-			     return new MPPOrderWorkflow(Env.getCtx(), Record_ID, trxName);     
-			     
+			     return new MPPOrderWorkflow(Env.getCtx(), Record_ID, trxName);
+
 		   } else if (tableName.equals(MPPWFNodeAsset.Table_Name)) {
 			     return new MPPWFNodeAsset(Env.getCtx(), Record_ID, trxName);
-			     
+
 		   } else if (tableName.equals(MPPWFNodeProduct.Table_Name)) {
 			     return new MPPWFNodeProduct(Env.getCtx(), Record_ID, trxName);
-			     
+
 		   } else if (tableName.equals(MQMSpecification.Table_Name)) {
 			     return new MQMSpecification(Env.getCtx(), Record_ID, trxName);
 
@@ -211,9 +214,9 @@ public class MFG_ModelFactory implements IModelFactory {
 			     return new MOrder(Env.getCtx(), Record_ID, trxName);
 		   }else if (tableName.equals(LiberoMovementLine.Table_Name)){
 			   return new LiberoMovementLine(Env.getCtx(), Record_ID, trxName);
-		   }else if (tableName.equals(MPPMaterialRequisition.Table_Name)) {  
-	            return new MPPMaterialRequisition(Env.getCtx(), Record_ID, trxName);  
-	        } 
+		   }else if (tableName.equals(MPPMaterialRequisition.Table_Name)) {
+	            return new MPPMaterialRequisition(Env.getCtx(), Record_ID, trxName);
+	        }
 			else if (tableName.equals(MPP_Engineering_Change_Notice.Table_Name)) {
 				return new MPP_Engineering_Change_Notice(Env.getCtx(), Record_ID, trxName);
 			}
@@ -225,60 +228,62 @@ public class MFG_ModelFactory implements IModelFactory {
 				return new MC_WorkTeamMember(Env.getCtx(), Record_ID, trxName);
 			} else if (tableName.equals(MHFLengbieConfig.Table_Name)) {
 				return new MHFLengbieConfig(Env.getCtx(), Record_ID, trxName);
-			}
+			} else if (tableName.equals(MOperationClass.Table_Name)) {
+                return new MOperationClass(Env.getCtx(), Record_ID, trxName);
+            }
 		   return null;
 	}
-	
+
 	@Override
 	public PO getPO(String tableName, ResultSet rs, String trxName) {
 		 if (tableName.equals(MDDNetworkDistribution.Table_Name)) {
 		     return new MDDNetworkDistribution(Env.getCtx(), rs, trxName);
-		     
+
 		   } else if (tableName.equals(MDDNetworkDistributionLine.Table_Name)) {
 				 return new MDDNetworkDistributionLine(Env.getCtx(), rs, trxName);
-				     
+
 		   } else if (tableName.equals(MPPCostCollector.Table_Name)) {
 				 return new MPPCostCollector(Env.getCtx(), rs, trxName);
-				     
+
 		   } else if (tableName.equals(MPPCostCollectorMA.Table_Name)) {
 			     return new MPPCostCollectorMA(Env.getCtx(), rs, trxName);
-			     
+
 		   } else if (tableName.equals(MPPMRP.Table_Name)) {
 			     return new MPPMRP(Env.getCtx(), rs, trxName);
-			     
+
 		   } else if (tableName.equals(MPPOrder.Table_Name)) {
 			     return new MPPOrder(Env.getCtx(), rs, trxName);
-			     
+
 		   } else if (tableName.equals(MPPOrderBOM.Table_Name)) {
 			     return new MPPOrderBOM(Env.getCtx(), rs, trxName);
-			     
+
 		   } else if (tableName.equals(MPPOrderBOMLine.Table_Name)) {
 			     return new MPPOrderBOMLine(Env.getCtx(), rs, trxName);
-			     
+
 		   } else if (tableName.equals(MPPOrderCost.Table_Name)) {
 			     return new MPPOrderCost(Env.getCtx(), rs, trxName);
 
 		   } else if (tableName.equals(MPPOrderNode.Table_Name)) {
 			     return new MPPOrderNode(Env.getCtx(), rs, trxName);
-			     
+
 		   } else if (tableName.equals(MPPOrderNodeAsset.Table_Name)) {
 			     return new MPPOrderNodeAsset(Env.getCtx(), rs, trxName);
-			     
+
 		   } else if (tableName.equals(MPPOrderNodeNext.Table_Name)) {
 			     return new MPPOrderNodeNext(Env.getCtx(), rs, trxName);
-			     
+
 		   } else if (tableName.equals(MPPOrderNodeProduct.Table_Name)) {
 			     return new MPPOrderNodeProduct(Env.getCtx(), rs, trxName);
 
 		   } else if (tableName.equals(MPPOrderWorkflow.Table_Name)) {
-			     return new MPPOrderWorkflow(Env.getCtx(), rs, trxName);     
-			     
+			     return new MPPOrderWorkflow(Env.getCtx(), rs, trxName);
+
 		   } else if (tableName.equals(MPPWFNodeAsset.Table_Name)) {
 			     return new MPPWFNodeAsset(Env.getCtx(), rs, trxName);
-			     
+
 		   } else if (tableName.equals(MPPWFNodeProduct.Table_Name)) {
 			     return new MPPWFNodeProduct(Env.getCtx(), rs, trxName);
-			     
+
 		   } else if (tableName.equals(MQMSpecification.Table_Name)) {
 			     return new MQMSpecification(Env.getCtx(), rs, trxName);
 
@@ -307,28 +312,31 @@ public class MFG_ModelFactory implements IModelFactory {
 			     return new MOrderLine(Env.getCtx(), rs, trxName);
 
 		   } else if (tableName.equals(MOrder.Table_Name)) {
-			     return new MOrder(Env.getCtx(), rs, trxName);    
+			     return new MOrder(Env.getCtx(), rs, trxName);
 		   }
-		   else if (tableName.equals(MPPMaterialRequisition.Table_Name)) {  
-	            return new MPPMaterialRequisition(Env.getCtx(), rs, trxName);  
-	        }  
+		   else if (tableName.equals(MPPMaterialRequisition.Table_Name)) {
+	            return new MPPMaterialRequisition(Env.getCtx(), rs, trxName);
+	        }
 			else if (tableName.equals(MPP_Engineering_Change_Notice.Table_Name)) {
 				return new MPP_Engineering_Change_Notice(Env.getCtx(), rs, trxName);
-				
+
 			} else if (tableName.equals("HX_BoxType")) { // 添加HX_BoxType映射
 				return new MHX_BoxType(Env.getCtx(), rs, trxName);
-				
+
 			} else if (tableName.equals(MC_WorkTeam.Table_Name)) {
 				return new MC_WorkTeam(Env.getCtx(), rs, trxName);
-				
+
 			} else if (tableName.equals(MC_WorkTeamMember.Table_Name)) {
 				return new MC_WorkTeamMember(Env.getCtx(), rs, trxName);
-				
+
 			} else if (tableName.equals(MHFLengbieConfig.Table_Name)) {
 				return new MHFLengbieConfig(Env.getCtx(), rs, trxName);
-			}
-		 
-		   return null;
+
+			} else if (tableName.equals(MOperationClass.Table_Name)) {
+                return new MOperationClass(Env.getCtx(), rs, trxName);
+            }
+
+        return null;
 	}
 
 }

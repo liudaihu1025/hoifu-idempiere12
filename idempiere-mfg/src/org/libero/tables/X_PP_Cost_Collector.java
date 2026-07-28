@@ -1180,4 +1180,19 @@ public class X_PP_Cost_Collector extends PO implements I_PP_Cost_Collector, I_Pe
 		return false;
 	}
 
+	/** Set HF WorkReport Type.
+		@param HF_WorkReportType HF_WorkReportType
+	  */
+	public void setHF_WorkReportType (String HF_WorkReportType)
+	{
+		set_Value (COLUMNNAME_HF_WorkReportType, HF_WorkReportType);
+	}
+
+	/** Get HF WorkReport Type.
+		@return HF_WorkReportType
+	  */
+	public String getHF_WorkReportType ()
+	{
+		return (String)get_Value(COLUMNNAME_HF_WorkReportType);
+	}
 }

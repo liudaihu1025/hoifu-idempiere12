@@ -18,6 +18,7 @@ package org.libero.form;
 
 import java.io.Serializable;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -2126,6 +2127,10 @@ ValueChangeListener,Serializable,WTableModelListener
 				Messagebox.show("未找到工单对应的BOM，无法新增物料", "错误", Messagebox.OK, Messagebox.ERROR);
 				return;
 			}
+			if (order.getQtyOrdered() == null || order.getQtyOrdered().compareTo(BigDecimal.ZERO) == 0) {  
+			    Messagebox.show("工单数量为零，无法计算BOM用量", "错误", Messagebox.OK, Messagebox.ERROR);  
+			    return;  
+			}
 
 			final List<String> skipped = new ArrayList<String>();
 			final List<String> added = new ArrayList<String>();
@@ -2158,9 +2163,11 @@ ValueChangeListener,Serializable,WTableModelListener
 						newLine.setM_Warehouse_ID(order.getM_Warehouse_ID());
 						newLine.setQtyBatch(Env.ZERO);
 						newLine.setIsQtyPercentage(false);
-						newLine.setQtyBOM(qty);
 						newLine.setComponentType(MPPOrderBOMLine.COMPONENTTYPE_Component);
-						newLine.setQtyPlusScrap(order.getQtyOrdered().multiply(qty));
+						//newLine.setQtyPlusScrap(order.getQtyOrdered().multiply(qty));
+//						newLine.setQtyBOM(qty);
+						newLine.setQtyBOM(qty.divide(order.getQtyOrdered(), 2, RoundingMode.HALF_UP));
+						newLine.setQtyRequiered(qty);  
 						newLine.setValidFrom(new Timestamp(System.currentTimeMillis()));
 						newLine.saveEx(trxName);
 

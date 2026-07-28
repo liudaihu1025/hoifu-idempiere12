@@ -21,9 +21,9 @@ public class Callout_PP_Order extends CalloutOrder implements IColumnCallout {
 			return product(ctx, WindowNo, mTab, mField,value);
 
 		// 添加BOM状态验证
-		if (mField.getColumnName().equals("PP_Product_BOM_ID")) {
-			return validateBOMStatus(ctx, WindowNo, mTab, mField, value, oldValue);
-		}
+//		if (mField.getColumnName().equals("PP_Product_BOM_ID")) {
+//			return validateBOMStatus(ctx, WindowNo, mTab, mField, value, oldValue);
+//		}
 
 		return null;
 	}

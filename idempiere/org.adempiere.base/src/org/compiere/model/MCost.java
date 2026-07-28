@@ -257,8 +257,8 @@ public class MCost extends X_M_Cost implements ICostInfo
 					if (cm != null)
 					{
 						// use the cost price from the cost history record
-						if (historyCostPrice != null && historyCostPrice.compareTo(currentCostPrice) != 0)
-							currentCostPrice = historyCostPrice;
+//						if (historyCostPrice != null && historyCostPrice.compareTo(currentCostPrice) != 0)
+//							currentCostPrice = historyCostPrice;
 						materialCostEach = materialCostEach.add(currentCostPrice);
 					}
 					else
@@ -282,7 +282,7 @@ public class MCost extends X_M_Cost implements ICostInfo
 		}
 
 		if (count > 1)	//	Print summary
-			if (s_log.isLoggable(Level.FINEST)) s_log.finest("MaterialCost1=" + materialCostEach
+			if (s_log.isLoggable(Level.FINEST)) s_log.finest("MaterialCost=" + materialCostEach
 				+ ", OtherCosts=" + otherCostEach
 				+ ", Percentage=" + percentage);
 
@@ -1920,8 +1920,12 @@ public class MCost extends X_M_Cost implements ICostInfo
 		{
 			if (CurrentQty.signum() < 0)
 			{
-				throw new AverageCostingNegativeQtyException("Product="+getM_Product().getName()+", Current Qty="+getCurrentQty()+", New Current Qty="+CurrentQty
-						+", CostElement="+ce.getName()+", Schema="+getC_AcctSchema().getName());
+//				throw new AverageCostingNegativeQtyException("Product="+getM_Product().getName()+", Current Qty="+getCurrentQty()+", New Current Qty="+CurrentQty
+//						+", CostElement="+ce.getName()+", Schema="+getC_AcctSchema().getName());
+				log.warning("Negative CurrentQty reset to 0. Product=" + getM_Product().getName() + ", Current Qty="
+						+ getCurrentQty() + ", New Current Qty=" + CurrentQty + ", CostElement=" + ce.getName()
+						+ ", Schema=" + getC_AcctSchema().getName());
+				CurrentQty = Env.ZERO;
 			}
 		}
 		super.setCurrentQty(CurrentQty);

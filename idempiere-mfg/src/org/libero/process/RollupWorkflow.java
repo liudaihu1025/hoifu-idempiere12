@@ -121,7 +121,7 @@ public class RollupWorkflow extends SvrProcess
 			}
 			if(AD_Workflow_ID <= 0)
 			{	
-				pp = MPPProductPlanning.find(getCtx(), p_AD_Org_ID, p_S_Resource_ID, p_M_Warehouse_ID, product.get_ID(), get_TrxName());                 
+				pp = MPPProductPlanning.find(getCtx(), p_AD_Org_ID, p_M_Warehouse_ID, p_S_Resource_ID, product.get_ID(), get_TrxName());                 
 			
 				if (pp != null)
 				{

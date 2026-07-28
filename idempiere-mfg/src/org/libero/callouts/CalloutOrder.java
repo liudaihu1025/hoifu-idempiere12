@@ -17,6 +17,7 @@
 package org.libero.callouts;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Properties;
 
 import org.adempiere.model.GridTabWrapper;
@@ -25,6 +26,7 @@ import org.compiere.model.GridField;
 import org.compiere.model.GridTab;
 import org.compiere.model.MProduct;
 import org.compiere.model.MUOMConversion;
+import org.compiere.model.Query;
 import org.compiere.util.Env;
 import org.compiere.wf.MWorkflow;
 import org.eevolution.model.I_PP_Order;
@@ -143,9 +145,17 @@ public class CalloutOrder extends CalloutEngine
 		}
 		order.setC_UOM_ID(product.getC_UOM_ID());
 		
+
 		I_PP_Product_Planning pp = getPP_Product_Planning(ctx, order);
 		order.setAD_Workflow_ID(pp.getAD_Workflow_ID());
-		order.setPP_Product_BOM_ID(pp.getPP_Product_BOM_ID());
+		
+		int PP_Product_BOM_ID = pp.getPP_Product_BOM_ID();
+		if (PP_Product_BOM_ID == 0 && getDefaultBOM(product) != null) {
+			PP_Product_BOM_ID = getDefaultBOM(product).getPP_Product_BOM_ID();
+		}
+		if (validateBOMStatus(ctx, PP_Product_BOM_ID)) {
+			order.setPP_Product_BOM_ID(PP_Product_BOM_ID);
+		}
 		
 		if (pp.getPP_Product_BOM_ID() > 0)
 		{
@@ -158,6 +168,49 @@ public class CalloutOrder extends CalloutEngine
 		return "";
 	}
 
+	/**  
+	 * 按产品自身组织查找默认BOM，作为 MPPProductBOM.getDefault 的保底方案。  
+	 * MPPProductBOM.getDefault 使用登录组织过滤，可能导致跨组织场景下找不到BOM。  
+	 */  
+	private MPPProductBOM getDefaultBOM(MProduct product) {  
+		int AD_Org_ID = product.getAD_Org_ID(); // 用产品组织，不用登录组织  
+		String filter = "M_Product_ID=? AND BOMUse=? AND BOMType=? ";  
+		if (AD_Org_ID > 0) {  
+			filter += "AND AD_Org_ID IN (0, " + AD_Org_ID + ") ";  
+		}  
+		Query query = new Query(product.getCtx(), MPPProductBOM.Table_Name, filter, null)  
+				.setParameters(product.getM_Product_ID(),  
+						MPPProductBOM.BOMUSE_Master,  
+						MPPProductBOM.BOMTYPE_CurrentActive)  
+				.setOnlyActiveRecords(true)  
+				.setClient_ID();  
+		if (AD_Org_ID > 0)  
+			query.setOrderBy("AD_Org_ID Desc");  
+  
+		List<MPPProductBOM> list = query.list();  
+		if (!list.isEmpty()) {  
+			if (AD_Org_ID > 0 || list.size() == 1) {  
+				return list.get(0);  
+			}  
+		}  
+		return null;  
+	}
+	
+	private Boolean validateBOMStatus(Properties ctx, int PP_Product_BOM_ID) {
+		if (PP_Product_BOM_ID == 0) {
+			return false;
+		}
+		MPPProductBOM bom = MPPProductBOM.get(ctx, PP_Product_BOM_ID);
+		if (bom != null) {
+			String bomStatus = bom.get_ValueAsString("bomstatus");
+			if (!"Released".equals(bomStatus)) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+	
 	/**
 	 * Find Product Planning Data for given manufacturing order.
 	 * If not planning found, a new one is created and filled with default values.

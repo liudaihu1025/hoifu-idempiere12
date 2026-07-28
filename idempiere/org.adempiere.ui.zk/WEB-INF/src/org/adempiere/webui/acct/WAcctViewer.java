@@ -724,7 +724,18 @@ public class WAcctViewer extends Window implements EventListener<Event>
 		m_data.fillAcctSchema(selAcctSchema );
 		selAcctSchema.addEventListener(Events.ON_SELECT, this);
 
-		selAcctSchema.setSelectedIndex(0);
+//		selAcctSchema.setSelectedIndex(0);
+		int preferredSchemaId = Env.getContextAsInt(Env.getCtx(), Env.C_ACCTSCHEMA_ID);
+		int defaultIndex = 0;
+		for (int i = 0; i < selAcctSchema.getItemCount(); i++) {
+			KeyNamePair kp = (KeyNamePair) selAcctSchema.getItemAtIndex(i).getValue();
+			if (kp != null && kp.getKey() == preferredSchemaId) {
+				defaultIndex = i;
+				break;
+			}
+		}
+		selAcctSchema.setSelectedIndex(defaultIndex);
+		
 		actionAcctSchema();
 
 		m_data.fillTable(selTable);
@@ -786,6 +797,7 @@ public class WAcctViewer extends Window implements EventListener<Event>
 		//  Document Select
 		boolean haveDoc = (AD_Table_ID != 0 && Record_ID != 0);
 		selDocument.setChecked(haveDoc);
+		displayReversed.setChecked(haveDoc); // 从单据进入时默认勾选"显示反冲"，从工作台进入时不勾选
 		actionDocument();
 		if (!haveDoc)
 		{
@@ -794,6 +806,10 @@ public class WAcctViewer extends Window implements EventListener<Event>
 		}
 		else
 		{
+			// 新增：从单据进入时，清空记账日期和组织默认值
+			selDateFrom.setValue(null);
+			selDateTo.setValue(null);
+			selOrg.setSelectedIndex(0);
 			if (setSelectedTable(AD_Table_ID, Record_ID))
 			{
 				actionQuery();
@@ -1138,8 +1154,8 @@ public class WAcctViewer extends Window implements EventListener<Event>
 				para.append(", AD_Table_ID=").append(m_data.AD_Table_ID);
 			}
 		}
-		else
-		{
+//		else
+//		{
 			m_data.DateFrom = selDateFrom.getValue() != null
 				? new Timestamp(selDateFrom.getValue().getTime()) : null;
 			para.append(", DateFrom=").append(m_data.DateFrom);
@@ -1161,7 +1177,7 @@ public class WAcctViewer extends Window implements EventListener<Event>
 			Iterator<String> it = m_data.whereInfo.values().iterator();
 			while (it.hasNext())
 				para.append(", ").append(it.next());
-		}
+//		}
 
 		//  Save Display Choices
 
@@ -1360,18 +1376,18 @@ public class WAcctViewer extends Window implements EventListener<Event>
 		selTable.setEnabled(doc);
 		selRecord.setEnabled(doc);
 		//
-		selDateFrom.setReadWrite(!doc);
-		selDateTo.setReadWrite(!doc);
-		selOrg.setEnabled(!doc);
-		selAcct.setEnabled(!doc);
-		sel1.setEnabled(!doc);
-		sel2.setEnabled(!doc);
-		sel3.setEnabled(!doc);
-		sel4.setEnabled(!doc);
-		sel5.setEnabled(!doc);
-		sel6.setEnabled(!doc);
-		sel7.setEnabled(!doc);
-		sel8.setEnabled(!doc);
+		selDateFrom.setReadWrite(true); // 原: !doc
+		selDateTo.setReadWrite(true); // 原: !doc
+		selOrg.setEnabled(true); // 原: !doc
+		selAcct.setEnabled(true); // 原: !doc
+		sel1.setEnabled(true); // 原: !doc
+		sel2.setEnabled(true); // 原: !doc
+		sel3.setEnabled(true); // 原: !doc
+		sel4.setEnabled(true); // 原: !doc
+		sel5.setEnabled(true); // 原: !doc
+		sel6.setEnabled(true); // 原: !doc
+		sel7.setEnabled(true); // 原: !doc
+		sel8.setEnabled(true); // 原: !doc
 	} // actionDocument
 
 	/**

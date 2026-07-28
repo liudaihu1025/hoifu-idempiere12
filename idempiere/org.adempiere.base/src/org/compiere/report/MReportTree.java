@@ -144,6 +144,19 @@ public class MReportTree
 		m_tree.trimTree();
 	}	//	MReportTree
 
+	/**
+	 * 直接用指定 AD_Tree_ID 构造（用于多账套多科目树场景）
+	 */
+	public MReportTree(Properties ctx, int AD_Tree_ID, boolean allNodes, String ElementType, boolean directTreeId) {
+		m_ElementType = ElementType;
+		m_TreeType = MTree.TREETYPE_ElementValue;
+		m_ctx = ctx;
+		if (AD_Tree_ID == 0)
+			throw new IllegalArgumentException("AD_Tree_ID is 0");
+		m_tree = new MTree(ctx, AD_Tree_ID, true, true, allNodes, null);
+		m_tree.trimTree();
+	}
+	
 	/** Optional Hierarchy		*/
 	private int			m_PA_Hierarchy_ID = 0;
 	/**	Element Type			*/

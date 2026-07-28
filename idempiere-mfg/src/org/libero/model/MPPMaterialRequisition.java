@@ -12,11 +12,13 @@ import org.compiere.model.ModelValidationEngine;
 import org.compiere.model.ModelValidator;
 import org.compiere.model.Query;
 import org.compiere.process.DocAction;
+import org.compiere.process.DocOptions;
 import org.compiere.process.DocumentEngine;
 import org.compiere.util.Env;
+import org.compiere.util.Util;
 import org.libero.tables.X_PP_Material_Requisition;
   
-public class MPPMaterialRequisition extends X_PP_Material_Requisition implements DocAction {
+public class MPPMaterialRequisition extends X_PP_Material_Requisition implements DocAction, DocOptions {
 	private static final long serialVersionUID = 1L;
   
 	public MPPMaterialRequisition(Properties ctx, int PP_Material_Requisition_ID, String trxName) {
@@ -45,19 +47,7 @@ public class MPPMaterialRequisition extends X_PP_Material_Requisition implements
 		m_processMsg = ModelValidationEngine.get().fireDocValidate(this, ModelValidator.TIMING_BEFORE_COMPLETE);
 		if (m_processMsg != null)
 			return MPPOrder.DOCSTATUS_Invalid;
-  
-        // 1. 库存可用性检查（可选）  
-//		for (MPPCostCollector cc : getLines()) {
-//			// 生产退料不需要检查库存
-//			if (MPPCostCollector.COSTCOLLECTORTYPE_ProductionReturn.equals(cc.getCostCollectorType())) {
-//				continue;
-//			}
-//
-//			if (!MPPOrder.isQtyAvailable(cc.getPP_Order(), cc.getPP_Order_BOMLine())) {
-//				throw new AdempiereException("库存不足: " + cc.getM_Product().getName());
-//            }  
-//        }  
-//  
+
         // 2. 批量完成明细并扣库存  
 		for (MPPCostCollector cc : getLines()) {
 			if (!cc.processIt(MPPOrder.DOCACTION_Complete)) {
@@ -122,9 +112,61 @@ public class MPPMaterialRequisition extends X_PP_Material_Requisition implements
 		return true;
     }  
   
-	public boolean voidIt() {
-		return false;
-    }  
+	@Override  
+	public boolean voidIt() {  
+	    log.info("voidIt - " + toString());  
+	  
+	    m_processMsg = ModelValidationEngine.get().fireDocValidate(this, ModelValidator.TIMING_BEFORE_VOID);  
+	    if (m_processMsg != null)  
+	        return false;  
+	  
+	    if (MPPOrder.DOCSTATUS_Completed.equals(getDocStatus())  
+	            || MPPOrder.DOCSTATUS_Closed.equals(getDocStatus())) {  
+	        // 已完成/已关闭：CC 行已过账，需要走完整作废流程  
+	        for (MPPCostCollector cc : getLines()) {  
+	            if (MPPCostCollector.DOCSTATUS_Voided.equals(cc.getDocStatus()))  
+	                continue;  
+	            boolean wasPosted = cc.isPosted(); 
+	            if (!cc.processIt(MPPCostCollector.DOCACTION_Void)) {  
+	                m_processMsg = cc.getProcessMsg();  
+	                return false;  
+	            }  
+	            cc.saveEx(get_TrxName());  
+	         // 作废 CC 后，重新过账以冲销会计分录  
+	            if (wasPosted) {  
+	                String error = DocumentEngine.postImmediate(  
+	                    cc.getCtx(), cc.getAD_Client_ID(),  
+	                    MPPCostCollector.Table_ID, cc.get_ID(),  
+	                    true, cc.get_TrxName()  // force=true 强制重新过账  
+	                );  
+	                if (!Util.isEmpty(error)) {  
+	                    m_processMsg = "Re-post error: " + error;  
+	                    return false;  
+	                }  
+	            }
+	        }  
+	    } else {  
+	        // 草稿/进行中等：CC 行尚未完成，直接标记作废即可  
+	        for (MPPCostCollector cc : getLines()) {  
+	            if (MPPCostCollector.DOCSTATUS_Voided.equals(cc.getDocStatus()))  
+	                continue;  
+	            cc.setDocStatus(MPPCostCollector.DOCSTATUS_Voided);  
+	            cc.setDocAction(MPPCostCollector.DOCACTION_None);  
+	            cc.setProcessed(true);  
+	            cc.saveEx(get_TrxName());  
+	        }  
+	    }  
+	  
+	    setProcessed(true);  
+	    setDocStatus(MPPOrder.DOCSTATUS_Voided);  
+	    setDocAction(MPPOrder.DOCACTION_None);  
+	  
+	    m_processMsg = ModelValidationEngine.get().fireDocValidate(this, ModelValidator.TIMING_AFTER_VOID);  
+	    if (m_processMsg != null)  
+	        return false;  
+	  
+	    return true;  
+	}
   
 	public boolean closeIt() {
         setDocAction(MPPOrder.DOCACTION_None);  
@@ -139,11 +181,43 @@ public class MPPMaterialRequisition extends X_PP_Material_Requisition implements
 		return false;
     }  
   
-	public boolean reActivateIt() {
-        setDocAction(MPPOrder.DOCACTION_Complete);  
-		setProcessed(false);
-		return true;
-    }  
+	public boolean reActivateIt() {  
+	    log.info("reActivateIt - " + toString());  
+	  
+	    // Before ReActivate  
+	    m_processMsg = ModelValidationEngine.get().fireDocValidate(this, ModelValidator.TIMING_BEFORE_REACTIVATE);  
+	    if (m_processMsg != null)  
+	        return false;  
+	  
+	    // 只有已作废的单据才能重新激活  
+	    if (!MPPOrder.DOCSTATUS_Voided.equals(getDocStatus())) {  
+	        m_processMsg = "已作废的单据才能重新激活!";  
+	        return false;  
+	    }  
+	  
+	    // 同步子表状态：将已作废的明细行重新激活  
+	    for (MPPCostCollector cc : getLines()) {  
+	        if (MPPCostCollector.DOCSTATUS_Voided.equals(cc.getDocStatus())) {  
+	            if (!cc.processIt(DocumentEngine.ACTION_ReActivate)) {  
+	                m_processMsg = cc.getProcessMsg();  
+	                return false;  
+	            }  
+	            cc.saveEx(get_TrxName());  
+	        }  
+	    }  
+	  
+	    // 恢复主表状态  
+	    setDocStatus(MPPOrder.DOCSTATUS_InProgress);  
+	    setDocAction(MPPOrder.DOCACTION_Complete);  
+	    setProcessed(false);  
+	  
+	    // After ReActivate  
+	    m_processMsg = ModelValidationEngine.get().fireDocValidate(this, ModelValidator.TIMING_AFTER_REACTIVATE);  
+	    if (m_processMsg != null)  
+	        return false;  
+	  
+	    return true;  
+	}
   
 	public String getSummary() {
 		return getDescription() != null ? getDescription() : "";
@@ -185,4 +259,30 @@ public class MPPMaterialRequisition extends X_PP_Material_Requisition implements
   
 	private String m_processMsg;
 	private boolean m_justPrepared = false;
+
+	 @Override  
+	    public int customizeValidActions(String docStatus, Object processing,  
+	            String orderType, String isSOTrx, int AD_Table_ID,  
+	            String[] docAction, String[] options, int index) { 
+	        if (DocumentEngine.STATUS_Drafted.equals(docStatus)  
+	                || DocumentEngine.STATUS_InProgress.equals(docStatus)  
+	                || DocumentEngine.STATUS_Invalid.equals(docStatus)) {  
+	            // 从 options 中移除 ACTION_Void  
+	            for (int i = 0; i < index; i++) {  
+	                if (DocumentEngine.ACTION_Void.equals(options[i])) {  
+	                    // 将后面的元素前移  
+	                    for (int j = i; j < index - 1; j++) {  
+	                        options[j] = options[j + 1];  
+	                    }  
+	                    options[index - 1] = null;  
+	                    index--;  
+	                    break;  
+	                }  
+	            }  
+	        }  
+	        if (DocumentEngine.STATUS_Completed.equals(docStatus)) {  
+	            options[index++] = DocumentEngine.ACTION_Void;  
+	        }
+	        return index;  
+	    }
 }

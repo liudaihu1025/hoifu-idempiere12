@@ -167,7 +167,7 @@ public class MPPOrderWorkflow extends X_PP_Order_Workflow
 	 * Get All Nodes
 	 * @param requery 
 	 */
-	protected List<MPPOrderNode> getNodes(boolean requery)
+	public List<MPPOrderNode> getNodes(boolean requery)
 	{
 		if (m_nodes == null || requery)
 		{

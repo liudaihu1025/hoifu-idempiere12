@@ -556,6 +556,12 @@ public class MInventoryLine extends X_M_InventoryLine
 	 */
 	public BigDecimal getMovementQty() {
 		if(isInternalUseInventory()) {
+			// If DocMovementType is configured, check the last char: '+' means incoming, '-' means outgoing
+			MDocType dt = MDocType.get(getCtx(), getParent().getC_DocType_ID());
+			String docMovementType = (String) dt.get_Value("DocMovementType");
+			if (docMovementType != null && !docMovementType.isEmpty()
+					&& docMovementType.charAt(docMovementType.length() - 1) == '+')
+				return getQtyInternalUse();
 			return getQtyInternalUse().negate();
 		}
 		else {
@@ -569,5 +575,44 @@ public class MInventoryLine extends X_M_InventoryLine
 	public boolean isSOTrx() {
 		return getMovementQty().signum() < 0;
 	}
-	
+
+	// ---- 退库单相关字段 ----
+
+	/** 累计已退数量 */
+	public BigDecimal getQtyReturned() {
+		BigDecimal bd = (BigDecimal) get_Value("QtyReturned");
+		return bd == null ? Env.ZERO : bd;
+	}
+
+	public void setQtyReturned(BigDecimal QtyReturned) {
+		set_Value("QtyReturned", QtyReturned);
+	}
+
+	/** 关联领用明细行ID */
+	public int getRef_InventoryLine_ID() {
+		Integer ii = (Integer) get_Value("Ref_InventoryLine_ID");
+		return ii == null ? 0 : ii.intValue();
+	}
+
+	public void setRef_InventoryLine_ID(int Ref_InventoryLine_ID) {
+		if (Ref_InventoryLine_ID <= 0)
+			set_Value("Ref_InventoryLine_ID", null);
+		else
+			set_Value("Ref_InventoryLine_ID", Integer.valueOf(Ref_InventoryLine_ID));
+	}
+
+	/** 获取关联领用单的累计已退数量（退库单界面显示用） */
+	public BigDecimal getRef_Inventory_QtyReturned() {
+		int refLineId = getRef_InventoryLine_ID();
+		if (refLineId <= 0)
+			return Env.ZERO;
+		MInventoryLine refLine = new MInventoryLine(getCtx(), refLineId, get_TrxName());
+		return refLine.getQtyReturned();
+	}
+
+	/** 可退库数量 = 领用数量 - 已退数量 */
+	public BigDecimal getReturnableQty() {
+		return getQtyInternalUse().subtract(getQtyReturned());
+	}
+
 }	//	MInventoryLine

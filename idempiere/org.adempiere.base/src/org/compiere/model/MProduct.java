@@ -1188,6 +1188,13 @@ public class MProduct extends X_M_Product implements ImmutablePOSupport
 			return false;
 	}
 	
+	// 实例方法：当前产品是客供料，且系统配置不需要求过账
+	public boolean isCSMAndNotNeedPost() {  
+	    return isCSM() && !MSysConfig.getBooleanValue(  
+	    		MSysConfig.PRODUCT_CSM_NEED_POST, false, Env.getAD_Client_ID(Env.getCtx())  
+	    );  
+	}
+	
 	/**
 	 * @return true if instance of product is managed with lot
 	 */

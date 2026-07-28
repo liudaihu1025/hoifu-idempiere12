@@ -15,6 +15,7 @@ import org.adempiere.base.Core;
 import org.adempiere.base.event.IEventTopics;
 import org.compiere.model.MInOut;
 import org.compiere.model.MInOutLine;
+import org.compiere.model.MOrderLine;
 import org.compiere.model.MProduct;
 import org.compiere.model.MSysConfig;
 import org.compiere.model.MTable;
@@ -50,9 +51,9 @@ public class InOutLineEventProcessor implements IEventProcessor {
 	@Override
 	public void process(PO po, String topic) {
 		MInOutLine line = (MInOutLine) po;
-		if (IEventTopics.PO_BEFORE_NEW.equals(topic)) {
-			fillInOutLineFields(line); // 保存前逻辑
-		} else if (IEventTopics.PO_AFTER_NEW.equals(topic)) {
+		changeValueByProduct(line, topic);
+		updateHeaderWeight(line , topic);
+		if (IEventTopics.PO_AFTER_NEW.equals(topic)) {
 			handleQC(line); // 保存后逻辑
 		}
 	}
@@ -70,9 +71,44 @@ public class InOutLineEventProcessor implements IEventProcessor {
 			oqcService.createFromShipmentLine(line);
 	}
 
-	// ── 自定义字段填充逻辑 ────────────────────────────────────────────────────
-	private void fillInOutLineFields(MInOutLine line) {
-		Object productIdObj = line.get_Value("M_Product_ID");
+
+	private void updateHeaderWeight(MInOutLine line, String topic) {  
+	    boolean isNew = IEventTopics.PO_AFTER_NEW.equals(topic);  
+	    boolean isChange = IEventTopics.PO_AFTER_CHANGE.equals(topic)  
+	            && (line.is_ValueChanged("Weight") || line.is_ValueChanged(MInOutLine.COLUMNNAME_QtyEntered));
+	    if (!isNew && !isChange) {
+	    	return;
+	    }
+	    
+	    int M_InOut_ID = line.getM_InOut_ID();  
+	    int M_InOutLine_ID = line.get_ID();  
+	    if (M_InOut_ID <= 0)  
+	        return;  
+	  
+	    BigDecimal total = DB.getSQLValueBDEx(line.get_TrxName(),  
+	        "SELECT COALESCE(SUM(Weight * QtyEntered), 0) FROM M_InOutLine " +  
+	        "WHERE M_InOut_ID=? AND IsActive='Y'",  
+	        M_InOut_ID);  
+	    if (total == null)  
+	        total = BigDecimal.ZERO;  
+	  
+	    MInOut parent = new MInOut(line.getCtx(), M_InOut_ID, line.get_TrxName());  
+	    parent.set_ValueOfColumn("Weight", total);  
+	    parent.saveEx();  
+	}
+	
+	private void changeValueByProduct(MInOutLine line, String topic) {
+
+		// 仅在 PO_BEFORE_CHANGE 且 M_Product_ID 确实变化时，或 PO_BEFORE_NEW 时触发
+		boolean isChange = IEventTopics.PO_BEFORE_CHANGE.equals(topic)
+				&& line.is_ValueChanged(MInOutLine.COLUMNNAME_M_Product_ID);
+		boolean isNew = IEventTopics.PO_BEFORE_NEW.equals(topic);
+
+		if (!isChange && !isNew) {
+			return;
+		}
+
+		Object productIdObj = line.get_Value(MInOutLine.COLUMNNAME_M_Product_ID);
 		if (productIdObj == null)
 			return;
 		int productId = ((Number) productIdObj).intValue();
@@ -83,113 +119,28 @@ public class InOutLineEventProcessor implements IEventProcessor {
 		if (product == null)
 			return;
 
-		BigDecimal length = toBD(product.get_Value("Length"));
-		BigDecimal width = toBD(product.get_Value("Width"));
-		BigDecimal height = toBD(product.get_Value("Height"));
-		BigDecimal weightNet = toBD(product.get_Value("WeightNet"));
-		BigDecimal thickness = toBD(product.get_Value("Thickness"));
-		String lengbie = product.get_ValueAsString("Lengbie");
-
-		Object boxTypeIdObj = product.get_Value("HX_BoxType_ID");
-		if (boxTypeIdObj == null)
-			return;
-		int boxTypeId = ((Number) boxTypeIdObj).intValue();
-		if (boxTypeId <= 0)
-			return;
-
-		MTable boxTypeTable = MTable.get(line.getCtx(), "HX_BoxType");
-		PO boxType = new Query(line.getCtx(), boxTypeTable, "HX_BoxType_ID=?", null).setParameters(boxTypeId).first();
-		if (boxType == null)
-			return;
-
-		BigDecimal calcRatio = BigDecimal.ZERO;
-		BigDecimal nailMouth = BigDecimal.ZERO;
-		BigDecimal plugInterface = BigDecimal.ZERO;
-		PreparedStatement pstmt = null;
-		ResultSet rs = null;
-		try {
-			String sql = "SELECT CalcRatio, NailmMouthValue, PlugInterfaceValue " + "FROM HF_LengbieConfig "
-					+ "WHERE HX_BoxType_ID=? AND Lengbie=? AND IsActive='Y'";
-			pstmt = DB.prepareStatement(sql, null);
-			pstmt.setInt(1, boxTypeId);
-			pstmt.setString(2, lengbie);
-			rs = pstmt.executeQuery();
-			if (rs.next()) {
-				BigDecimal v;
-				v = rs.getBigDecimal("CalcRatio");
-				if (v != null)
-					calcRatio = v;
-				v = rs.getBigDecimal("NailmMouthValue");
-				if (v != null)
-					nailMouth = v;
-				v = rs.getBigDecimal("PlugInterfaceValue");
-				if (v != null)
-					plugInterface = v;
-			}
-		} catch (Exception e) {
-			log.warning("查询楞别配置失败: " + e.getMessage());
-			return;
-		} finally {
-			DB.close(rs, pstmt);
-		}
-
-		Map<String, Object> variables = new HashMap<>();
-		variables.put("长度", length);
-		variables.put("宽度", width);
-		variables.put("高度", height);
-		variables.put("净重", weightNet);
-		variables.put("厚度", thickness);
-		variables.put("系数", calcRatio);
-		variables.put("钉口", nailMouth);
-		variables.put("插接口", plugInterface);
-
-		try {
-			fillSpecification(line, boxType, variables);
-			fillWeight(line, boxType, variables);
-			fillArea(line, product);
-			fillCreaseLine(line, boxType, variables);
-		} catch (ScriptException e) {
-			log.warning("公式计算错误: " + e.getMessage());
-		}
-	}
-
-	private void fillSpecification(MInOutLine line, PO boxType, Map<String, Object> variables) throws ScriptException {
-		String lengthFormula = boxType.get_ValueAsString("verticalexpandlength");
-		String widthFormula = boxType.get_ValueAsString("verticalexpandwidth");
-		if (lengthFormula.isEmpty() || widthFormula.isEmpty())
-			return;
-		BigDecimal cardLength = calculateFormula(lengthFormula, variables);
-		BigDecimal cardWidth = calculateFormula(widthFormula, variables);
-		line.set_ValueOfColumn("Specification",
-				cardLength.stripTrailingZeros().toPlainString() + "*" + cardWidth.stripTrailingZeros().toPlainString());
-	}
-
-	private void fillWeight(MInOutLine line, PO boxType, Map<String, Object> variables) throws ScriptException {
-		String weightFormula = boxType.get_ValueAsString("WeightFormula");
-		if (weightFormula.isEmpty())
-			return;
-		line.set_ValueOfColumn("Weight", calculateFormula(weightFormula, variables));
-	}
-
-	private void fillArea(MInOutLine line, MProduct product) {
+		// 面积
 		Object boxArea = product.get_Value("BoxArea");
 		if (boxArea != null)
 			line.set_ValueOfColumn("Area", boxArea);
-	}
 
-	private void fillCreaseLine(MInOutLine line, PO boxType, Map<String, Object> variables) throws ScriptException {
-		String f1 = boxType.get_ValueAsString("paperwidthcrease1");
-		String f2 = boxType.get_ValueAsString("paperwidthcrease2");
-		String f3 = boxType.get_ValueAsString("paperwidthcrease3");
-		List<String> parts = new ArrayList<>();
-		if (!f1.isEmpty())
-			parts.add(calculateFormula(f1, variables).stripTrailingZeros().toPlainString());
-		if (!f2.isEmpty())
-			parts.add(calculateFormula(f2, variables).stripTrailingZeros().toPlainString());
-		if (!f3.isEmpty())
-			parts.add(calculateFormula(f3, variables).stripTrailingZeros().toPlainString());
-		if (!parts.isEmpty())
-			line.set_ValueOfColumn("CreaseLine", String.join("+", parts));
+		// 规格：CardLength * CardWidth
+		BigDecimal cardLength = toBD(product.get_Value("CardLength"));
+		BigDecimal cardWidth = toBD(product.get_Value("CardWidth"));
+		if (cardLength.compareTo(BigDecimal.ZERO) != 0 && cardWidth.compareTo(BigDecimal.ZERO) != 0) {
+			line.set_ValueOfColumn("Specification", cardLength.stripTrailingZeros().toPlainString() + "*"
+					+ cardWidth.stripTrailingZeros().toPlainString());
+		}
+
+		// 重量
+		Object weightNet = product.get_Value("WeightNet");
+		if (weightNet != null)
+			line.set_ValueOfColumn("Weight", weightNet);
+
+		// 压线
+		Object creaseLine = product.get_Value("CreaseLine");
+		if (creaseLine != null)
+			line.set_ValueOfColumn("CreaseLine", creaseLine);
 	}
 
 	// ── 工具方法 ──────────────────────────────────────────────────────────────
@@ -203,17 +154,5 @@ public class InOutLineEventProcessor implements IEventProcessor {
 		} catch (Exception e) {
 			return BigDecimal.ZERO;
 		}
-	}
-
-	private BigDecimal calculateFormula(String formula, Map<String, Object> variables) throws ScriptException {
-		ScriptEngine engine = Core.getScriptEngine("groovy");
-		if (engine == null)
-			throw new ScriptException("Groovy 引擎不可用");
-		for (Map.Entry<String, Object> entry : variables.entrySet())
-			engine.put(entry.getKey(), entry.getValue());
-		Object result = engine.eval(formula);
-		if (result instanceof Number)
-			return new BigDecimal(result.toString());
-		throw new ScriptException("公式计算结果不是数字: " + result);
 	}
 }

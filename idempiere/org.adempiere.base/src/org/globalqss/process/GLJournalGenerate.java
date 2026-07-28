@@ -1,4 +1,4 @@
-/**********************************************************************
+﻿/**********************************************************************
 * This file is part of iDempiere ERP Open Source                      *
 * http://www.idempiere.org                                            *
 *                                                                     *
@@ -374,6 +374,7 @@ public class GLJournalGenerate extends SvrProcess
 
 		MJournal j = null;
 		int lineNo = 10;
+		int voucherCount = 0;
 		/* Ready, here we have an array of output calculated journals, let's process them */
 		for (int i = 0; i < listDimOut.size(); i++) {
 			List<Integer> dimensions = listDimOut.get(i);
@@ -385,30 +386,34 @@ public class GLJournalGenerate extends SvrProcess
 
 			if (p_IsSimulation) {
 				MElementValue ev = new MElementValue(getCtx(), accountId, get_TrxName());
-				String msg = "Account=" + ev.getValue()
-						+ ", DR=" + dr
-						+ ", CR=" + cr;
-				int idxcol = 0;
+				String description = (line != null) ? line.getDescription() : "";
+				StringBuilder msg = new StringBuilder();
+				msg.append(lineNo).append("\t")
+						.append("科目=").append(ev.getValue()).append(" ").append(ev.getName())
+						.append("，借=").append(dr)
+						.append("，贷=").append(cr);
 				if (columnsOut != null) {
+					int idxcol = 0;
 					for (String col : columnsOut) {
 						int id = dimensions.get(idxcol);
-						if (id == 0)
-							continue;
-						if ("C_BPartner_ID".equals(col)) {
-							MBPartner bp = MBPartner.get(getCtx(), id);
-							msg += ", C_BPartner=" + bp.getValue();
-						} else if ("M_Product_ID".equals(col)) {
-							MProduct pr = MProduct.get(getCtx(), id);
-							msg += ", M_Product=" + pr.getValue();
-						} else if ("AD_Client_ID".equals(col)) {
-						} else {
-							msg += ", " + col + "=" + id;
+						if (id > 0) {
+							if ("M_Product_ID".equals(col)) {
+								MProduct pr = MProduct.get(getCtx(), id);
+								msg.append("，产品=").append(pr.getValue()).append(" ").append(pr.getName());
+							} else if ("C_BPartner_ID".equals(col)) {
+								MBPartner bp = MBPartner.get(getCtx(), id);
+								msg.append("，业务伙伴=").append(bp.getValue()).append(" ").append(bp.getName());
+							}
+							// 可按需继续添加其他维度
 						}
 						idxcol++;
 					}
 				}
-				addLog(msg);
-			} else {
+				addLog(msg.toString());
+				lineNo += 10;
+				voucherCount++;
+			}
+			else {
 				/* Create journals */
 				if (j == null) {
 			    	// * Create a GL Journal
@@ -531,14 +536,17 @@ public class GLJournalGenerate extends SvrProcess
 			j.saveEx();
 		}
 		
-		if (j != null) {
-			StringBuilder msg = new StringBuilder(Msg.parseTranslation(getCtx(), "@Created@ @GL_Journal_ID@=")).append(j.getDocumentNo());
-			addLog(j.get_ID(), null, null, msg.toString(), MJournal.Table_ID, j.get_ID());
-		}else{
-			return "0 @GL_Journal_ID@ @Created@";
+		if (p_IsSimulation) {
+			return "已创建 " + voucherCount + " 个手工凭证";
+		} else {
+			if (j != null) {
+				StringBuilder msg = new StringBuilder(Msg.parseTranslation(getCtx(), "@GL_Journal_ID@=")).append(j.getDocumentNo());
+				addLog(j.get_ID(), null, null, msg.toString(), MJournal.Table_ID, j.get_ID());
+				return "@Success@";
+			} else {
+				return "未能创建手工凭证，请检查过账类型、总账类别或者选择有数据的科目";
+			}
 		}
-
-		return "@OK@";
 	}	//	doIt
 
 	/**

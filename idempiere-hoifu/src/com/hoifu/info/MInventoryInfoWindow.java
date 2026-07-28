@@ -14,8 +14,8 @@ import org.compiere.model.MInventoryLine;
 import org.compiere.model.MProcess;
 import org.compiere.model.MStorageOnHand;
 import org.compiere.util.DB;
-import org.compiere.util.Env;  
- 
+import org.compiere.util.Env;
+
 /**
  * 自定义PPOrder表的信息窗口
  */
@@ -51,8 +51,51 @@ public class MInventoryInfoWindow extends InfoWindow {
             int AD_InfoWindow_ID, boolean lookup, GridField field, String predefinedContextVariables) {  
         super(WindowNo, tableName, keyColumn, queryValue, multipleSelection,  
                 whereClause, AD_InfoWindow_ID, lookup, field, predefinedContextVariables);  
+
+		// 打开时自动查询一次（queryValue 为空时 super 不会自动查询）
+		if (queryValue == null || queryValue.trim().isEmpty()) {
+			executeQuery();
+			renderItems();
+		}
     }  
 
+
+    @Override
+    protected void runProcess(Object processIdObj) {
+        if (processIdObj instanceof Integer) {
+            int processId = (Integer) processIdObj;
+            MProcess process = MProcess.get(Env.getCtx(), processId);
+            if (process != null && process.getClassname() != null
+                    && "com.hoifu.process.BatchReturnSetLocatorProcess".equals(process.getClassname())) {
+                // 批量设置库位流程：执行后不关闭窗口
+                setCloseAfterExecutionOfProcess(false);
+            } else {
+                // 其他流程（如创建明细行）：正常关闭窗口
+                setCloseAfterExecutionOfProcess(true);
+            }
+        }
+        super.runProcess(processIdObj);
+    }
+
+    @Override
+    public void moveProcessButtonsToBeforeRight() {
+        if (btProcessList == null || btProcessList.isEmpty())
+            return;
+        for (org.adempiere.webui.component.Button btn : btProcessList) {
+            Object att = btn.getAttribute(ATT_INFO_PROCESS_KEY);
+            if (att instanceof MProcess) {
+                MProcess process = (MProcess) att;
+                if (process.getClassname() != null
+                        && "com.hoifu.process.BatchReturnSetLocatorProcess".equals(process.getClassname())) {
+                    // 批量设置库位按钮 → 放左边
+                    confirmPanel.addComponentsLeft(btn);
+                    continue;
+                }
+            }
+            // 其他流程（如创建明细）→ 保持右边（原逻辑）
+            confirmPanel.addComponentsBeforeRight(btn);
+        }
+    }
 
     @Override  
     protected void enableButtons() {  

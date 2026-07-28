@@ -7,10 +7,7 @@
 package org.idempiere.component;
 
 import java.math.BigDecimal;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.util.Collection;
-import java.util.Set;
 import java.util.logging.Level;
 
 import org.adempiere.base.event.AbstractEventHandler;
@@ -112,7 +109,6 @@ public class MFG_Validator extends AbstractEventHandler {
 		registerTableEvent(IEventTopics.PO_BEFORE_DELETE, I_PP_Order_Node.Table_Name);
 		registerTableEvent(IEventTopics.PO_BEFORE_NEW, "C_PaperScrapStd");
 		registerTableEvent(IEventTopics.PO_BEFORE_CHANGE, "C_PaperScrapStd");
-		registerTableEvent(IEventTopics.PO_AFTER_CHANGE, "C_PaperScrapStd");
 		log.info("MFG MODEL VALIDATOR IS NOW INITIALIZED");
 	}
 
@@ -148,6 +144,11 @@ public class MFG_Validator extends AbstractEventHandler {
 
 			// ★ 先拦截 PP_Order_Node，不走 MPPMRP.deleteMRP
 			if ("PP_Order_Node".equals(po.get_TableName())) {
+				// ★ 守卫：用户手动改了 QtyRequiered，以用户值为准，不走自动计算
+				if (IEventTopics.PO_AFTER_CHANGE.equals(type) && po.is_ValueChanged("QtyRequiered")
+						&& !po.is_ValueChanged("QtyPaperScrap")) {
+					return; // 用户手动改了 QtyRequiered，保留用户值
+				}
 				Integer ppOrderId = (Integer) po.get_Value("PP_Order_ID");
 				if (ppOrderId != null && ppOrderId > 0) {
 					Integer excludeNodeId = isDelete ? po.get_ID() : null;
@@ -156,26 +157,24 @@ public class MFG_Validator extends AbstractEventHandler {
 				return;
 			}
 
-			// ★ C_PaperScrapStd：唯一性校验 + 数据变化后同步工单工序
+			// ★ C_PaperScrapStd：唯一性校验
 			if ("C_PaperScrapStd".equals(po.get_TableName())) {
 				// BEFORE_NEW / BEFORE_CHANGE：唯一性校验
 				if (IEventTopics.PO_BEFORE_NEW.equals(type) || IEventTopics.PO_BEFORE_CHANGE.equals(type)) {
-					Integer routingNodeId = (Integer) po.get_Value("AD_Routing_Node_ID");
+					Integer operationClassId = (Integer) po.get_Value("operationclass_ID");
 					String processDifficulty = (String) po.get_Value("ProcessDifficulty");
 					int currentId = po.get_ID(); // 新建时为 0
-					String checkSql = "SELECT COUNT(1) FROM C_PaperScrapStd " + "WHERE AD_Client_ID=? AND AD_Org_ID=? "
-							+ "AND AD_Routing_Node_ID=? AND ProcessDifficulty=? "
+					String checkSql = "SELECT COUNT(1) FROM C_PaperScrapStd "
+							+ "WHERE AD_Client_ID=? AND AD_Org_ID=? "
+							+ "AND operationclass_ID=? AND ProcessDifficulty=? "
 							+ "AND C_PaperScrapStd_ID <> ? AND IsActive='Y'";
 					int count = org.compiere.util.DB.getSQLValue(trxName, checkSql, po.getAD_Client_ID(),
-							po.getAD_Org_ID(), routingNodeId, processDifficulty, currentId);
+							po.getAD_Org_ID(), operationClassId, processDifficulty, currentId);
 					if (count > 0) {
-						throw new AdempiereException("该工序和工艺难度的组合已存在，不能重复");
+						throw new AdempiereException("该工序组和工艺难度的组合已存在，不能重复");
 					}
 				}
-				// AFTER_CHANGE：同步更新所有使用该数据的工单工序
-				if (IEventTopics.PO_AFTER_CHANGE.equals(type)) {
-					syncPaperScrapStdToNodes(po, trxName);
-				}
+
 				return; // ← 所有事件类型统一 return，不走后面的 DocStatus 相关代码
 			}
 
@@ -405,9 +404,12 @@ public class MFG_Validator extends AbstractEventHandler {
 	private void recalculatePaperScrapChain(Integer ppOrderId, Integer excludeNodeId, String trxName) {
 		BigDecimal qtyPerBatch = getPaperQtyPerBatch(ppOrderId, trxName);
 
-		String excludeClause = (excludeNodeId != null) ? " AND PP_Order_Node_ID <> " + excludeNodeId : "";
-		String sql = "SELECT PP_Order_Node_ID, QtyPaperScrap " + "FROM PP_Order_Node "
-				+ "WHERE PP_Order_ID=? AND IsActive='Y'" + excludeClause + " ORDER BY Value ASC";
+		String excludeClause = (excludeNodeId != null) ? " AND n.PP_Order_Node_ID <> " + excludeNodeId : "";
+		// ★ 修改：JOIN AD_Routing_Node 取 IsBatchCalculation，nodes 改为 4 元素  
+		String sql = "SELECT n.PP_Order_Node_ID, n.QtyPaperScrap, arn.IsBatchCalculation "
+				+ "FROM PP_Order_Node n "
+				+ "LEFT JOIN AD_Routing_Node arn ON arn.AD_Routing_Node_ID = n.AD_Routing_Node_ID "
+				+ "WHERE n.PP_Order_ID=? AND n.IsActive='Y'" + excludeClause + " ORDER BY n.Value ASC";
 
 		java.util.List<Object[]> nodes = new java.util.ArrayList<>();
 		java.sql.PreparedStatement pstmt = null;
@@ -417,7 +419,8 @@ public class MFG_Validator extends AbstractEventHandler {
 			pstmt.setInt(1, ppOrderId);
 			rs = pstmt.executeQuery();
 			while (rs.next()) {
-				nodes.add(new Object[] { rs.getInt(1), rs.getBigDecimal(2) });
+				// node[0]=nodeId, node[1]=QtyPaperScrap, node[2]=累计值(后填), node[3]=IsBatchCalculation  
+				nodes.add(new Object[] { rs.getInt(1), rs.getBigDecimal(2), null, rs.getString(3) });
 			}
 		} catch (Exception e) {
 			log.log(Level.SEVERE, sql, e);
@@ -427,6 +430,7 @@ public class MFG_Validator extends AbstractEventHandler {
 		}
 
 		BigDecimal prevTotal = BigDecimal.ZERO;
+		BigDecimal lastRate = null;
 		for (Object[] node : nodes) {
 			int nodeId = (int) node[0];
 			BigDecimal qtyPaperScrap = (BigDecimal) node[1];
@@ -447,7 +451,93 @@ public class MFG_Validator extends AbstractEventHandler {
 
 			updatePaperNodeCumulative(nodeId, qtyPaperTotalScrap, ratePaperTotalScrap, trxName);
 			prevTotal = qtyPaperTotalScrap;
+			lastRate = ratePaperTotalScrap;
+			node[2] = qtyPaperTotalScrap;
 		}
+
+		// 更新主物料累计放损数量和放损率  
+		// 更新主物料累计放损数量和放损率（改用 PO 框架以触发 MPPOrderBOMLine.afterSave）
+		java.util.Properties ctx = org.compiere.util.Env.getCtx();
+		String whereClause = "PP_Order_ID=? AND Keymat='Y' AND IsActive='Y'";
+		MPPOrderBOMLine keymatLine = new org.compiere.model.Query(ctx, MPPOrderBOMLine.Table_Name, whereClause, trxName)
+				.setParameters(ppOrderId)
+				.firstOnly();
+		if (keymatLine != null) {
+			keymatLine.set_ValueOfColumn("QtyPaperTotalScrap", prevTotal.signum() > 0 ? prevTotal : null);
+			keymatLine.set_ValueOfColumn("RatePaperTotalScrap", lastRate);
+			keymatLine.saveEx(trxName);
+		}
+
+		// 第二次循环，更新每道工序的 QtyRequiered  
+		// 大张（IsBatchCalculation=N）：QtyRequiered = 工单数量 /联数 + (最后一道工序累计放损 - 当前工序累计放损)
+		// 小张（IsBatchCalculation=Y）：QtyRequiered = 工单数量 + (最后一道工序累计放损 - 当前工序累计放损) × 联数  
+		BigDecimal paperBaseQty = getPaperBaseQty(ppOrderId, trxName);  // 大张：QtyEntered /QtyBatchSize
+		BigDecimal qtyEntered   = getQtyEntered(ppOrderId, trxName);    // 小张：QtyEntered  
+		BigDecimal qtyBatchSize = getQtyBatchSize(ppOrderId, trxName);  // 小张：QtyBatchSize  
+
+		for (Object[] node : nodes) {
+			int nodeId = (int) node[0];
+			BigDecimal nodeTotalScrap = node[2] instanceof BigDecimal ? (BigDecimal) node[2] : BigDecimal.ZERO;
+			String isBatchCalculation = (String) node[3];
+			boolean isSmallSheet = "Y".equals(isBatchCalculation);
+
+			BigDecimal qtyRequiered;
+			if (isSmallSheet) {
+				// 小张：QtyRequiered = QtyEntered + (prevTotal - nodeTotalScrap) × QtyBatchSize  
+				if (qtyEntered == null || qtyBatchSize == null) continue;
+				BigDecimal scrapDiff = prevTotal.subtract(nodeTotalScrap);
+				qtyRequiered = qtyEntered.add(scrapDiff.multiply(qtyBatchSize));
+				//向上取整
+				qtyRequiered = qtyRequiered.setScale(0, java.math.RoundingMode.CEILING);
+			} else {
+				// 大张：QtyRequiered = QtyEntered/QtyBatchSize + (prevTotal - nodeTotalScrap)
+				if (paperBaseQty == null) continue;
+				qtyRequiered = paperBaseQty.add(prevTotal).subtract(nodeTotalScrap);
+				//向上取整
+				qtyRequiered = qtyRequiered.setScale(0, java.math.RoundingMode.CEILING);
+			}
+
+			String updateReq = "UPDATE PP_Order_Node SET "
+					+ "QtyRequiered=?, Updated=now(), UpdatedBy=0 "
+					+ "WHERE PP_Order_Node_ID=?";
+			org.compiere.util.DB.executeUpdate(updateReq,
+					new Object[] { qtyRequiered, nodeId }, false, trxName);
+		}
+	}
+
+	private BigDecimal getQtyEntered(Integer ppOrderId, String trxName) {
+		return org.compiere.util.DB.getSQLValueBD(trxName,
+				"SELECT QtyEntered FROM PP_Order WHERE PP_Order_ID=?", ppOrderId);
+	}
+
+	private BigDecimal getQtyBatchSize(Integer ppOrderId, String trxName) {
+		return org.compiere.util.DB.getSQLValueBD(trxName,
+				"SELECT NULLIF(QtyBatchSize, 0) FROM PP_Order WHERE PP_Order_ID=?", ppOrderId);
+	}
+	// 获取大张基础数量：QtyEntered / QtyBatchSize（联数）
+	private BigDecimal getPaperBaseQty(Integer ppOrderId, String trxName) {
+		String sql = "SELECT QtyEntered, NULLIF(QtyBatchSize, 0) AS QtyBatchSize "
+				+ "FROM PP_Order "
+				+ "WHERE PP_Order_ID=?";
+		java.sql.PreparedStatement pstmt = null;
+		java.sql.ResultSet rs = null;
+		try {
+			pstmt = org.compiere.util.DB.prepareStatement(sql, trxName);
+			pstmt.setInt(1, ppOrderId);
+			rs = pstmt.executeQuery();
+			if (rs.next()) {
+				BigDecimal qtyEntered = rs.getBigDecimal("QtyEntered");
+				BigDecimal qtyBatchSize = rs.getBigDecimal("QtyBatchSize");
+				if (qtyEntered == null || qtyBatchSize == null)
+					return null;
+				return qtyEntered.divide(qtyBatchSize, 8, java.math.RoundingMode.HALF_UP);
+			}
+		} catch (Exception e) {
+			log.log(Level.WARNING, "getPaperBaseQty", e);
+		} finally {
+			org.compiere.util.DB.close(rs, pstmt);
+		}
+		return null;
 	}
 
 	private BigDecimal getPaperQtyPerBatch(Integer ppOrderId, String trxName) {
@@ -482,92 +572,6 @@ public class MFG_Validator extends AbstractEventHandler {
 				+ "WHERE PP_Order_Node_ID=?";
 		org.compiere.util.DB.executeUpdate(sql, new Object[] { qtyPaperTotalScrap, ratePaperTotalScrap, nodeId }, false,
 				trxName);
-		String bomSql = "UPDATE PP_Order_BOMLine SET "
-				+ "QtyPaperTotalScrap=?, RatePaperTotalScrap=?, Updated=now(), UpdatedBy=0 "
-				+ "WHERE PP_Order_Node_ID=? AND IsActive='Y'";
-		org.compiere.util.DB.executeUpdate(bomSql, new Object[] { qtyPaperTotalScrap, ratePaperTotalScrap, nodeId },
-				false, trxName);
 	}
 
-	private void syncPaperScrapStdToNodes(PO scrapStd, String trxName) {
-		Integer routingNodeId = (Integer) scrapStd.get_Value("AD_Routing_Node_ID");
-		String processDifficulty = (String) scrapStd.get_Value("ProcessDifficulty");
-		BigDecimal difficultyFactor = getBDFromPO(po, "DifficultyFactor");
-		BigDecimal stdBaseQty = getBDFromPO(po, "StdBaseQty");
-		BigDecimal stdScrapRate = getBDFromPO(po, "StdScrapRate");
-		if (routingNodeId == null || processDifficulty == null)
-			return;
-
-		String querySql = "SELECT ppon.PP_Order_Node_ID, ppon.PP_Order_ID, ppon.QtyColor, "
-				+ "ppo.QtyEntered, NULLIF(owf.QtyBatchSize, 0) AS QtyBatchSize " + "FROM PP_Order_Node ppon "
-				+ "JOIN PP_Order ppo ON ppo.PP_Order_ID = ppon.PP_Order_ID "
-				+ "LEFT JOIN PP_Order_Workflow owf ON owf.PP_Order_Workflow_ID = ppon.PP_Order_Workflow_ID "
-				+ "WHERE ppon.AD_Routing_Node_ID=? AND ppon.ScrapType=? AND ppon.IsActive='Y'";
-
-		PreparedStatement pstmt = null;
-		ResultSet rs = null;
-		Set<Integer> affectedOrderIds = new java.util.LinkedHashSet<>();
-		try {
-			pstmt = org.compiere.util.DB.prepareStatement(querySql, trxName);
-			pstmt.setInt(1, routingNodeId);
-			pstmt.setString(2, processDifficulty);
-			rs = pstmt.executeQuery();
-			while (rs.next()) {
-				int nodeId = rs.getInt("PP_Order_Node_ID");
-				int ppOrderId = rs.getInt("PP_Order_ID");
-				BigDecimal qtyColor = rs.getBigDecimal("QtyColor");
-				BigDecimal qtyEntered = rs.getBigDecimal("QtyEntered");
-				BigDecimal qtyBatchSize = rs.getBigDecimal("QtyBatchSize");
-
-				BigDecimal qtyPaperScrap = null;
-				if (qtyColor != null && qtyEntered != null && qtyBatchSize != null && difficultyFactor != null
-						&& stdBaseQty != null && stdScrapRate != null) {
-					BigDecimal qtyPerBatch = qtyEntered.divide(qtyBatchSize, 6, java.math.RoundingMode.HALF_UP);
-					BigDecimal scrapRateActual = stdScrapRate.divide(new BigDecimal("1000"), 10,
-							java.math.RoundingMode.HALF_UP);
-					qtyPaperScrap = stdBaseQty.add(scrapRateActual.multiply(qtyPerBatch)).multiply(qtyColor)
-							.multiply(difficultyFactor).setScale(0, java.math.RoundingMode.HALF_UP);
-				}
-
-				String updateSql = "UPDATE PP_Order_Node SET "
-						+ "ScrapFactor=?, QtyPaperNodeScrap=?, RatePaperNodeScrap=?, QtyPaperScrap=?, "
-						+ "Updated=now(), UpdatedBy=0 " + "WHERE PP_Order_Node_ID=?";
-				org.compiere.util.DB.executeUpdate(updateSql,
-						new Object[] { difficultyFactor != null ? difficultyFactor.toPlainString() : null, stdBaseQty,
-								stdScrapRate, qtyPaperScrap, nodeId },
-						false, trxName);
-
-				affectedOrderIds.add(ppOrderId);
-			}
-		} catch (Exception e) {
-			log.log(Level.WARNING, "syncPaperScrapStdToNodes", e);
-		} finally {
-			org.compiere.util.DB.close(rs, pstmt);
-		}
-
-		for (int ppOrderId : affectedOrderIds) {
-			recalculatePaperScrapChain(ppOrderId, null, trxName);
-		}
-	}
-
-	private BigDecimal getBDFromPO(PO po, String columnName) {
-		Object val = po.get_Value(columnName);
-		if (val == null)
-			return null;
-		if (val instanceof BigDecimal)
-			return (BigDecimal) val;
-		if (val instanceof Integer)
-			return new BigDecimal((Integer) val);
-		if (val instanceof String) {
-			String s = ((String) val).trim();
-			if (s.isEmpty())
-				return null;
-			try {
-				return new BigDecimal(s);
-			} catch (NumberFormatException e) {
-				return null;
-			}
-		}
-		return null;
-	}
 }

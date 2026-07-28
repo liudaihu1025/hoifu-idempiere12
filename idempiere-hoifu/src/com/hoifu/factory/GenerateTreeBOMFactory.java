@@ -5,6 +5,7 @@ import org.adempiere.webui.panel.ADForm;
 import org.adempiere.webui.panel.IFormController;
 
 import com.hoifu.form.GenerateTreeBOM;
+import com.hoifu.form.HFPricingSheetSystemForm;
 import com.hoifu.form.WAttachmentViewerForm;
 import com.hoifu.form.WImpositionTool;
 import com.hoifu.form.WPackagingDiagramTool;
@@ -32,6 +33,10 @@ public class GenerateTreeBOMFactory implements IFormFactory {
 		}
 		if ("com.hoifu.form.WViewBrowser".equals(formName)) {
 			return new WViewBrowser();
+		}
+		// 海富计价单系统
+		if ("com.hoifu.form.HFPricingSheetSystemForm".equals(formName)) {
+			return new HFPricingSheetSystemForm();
 		}
 		return null;
 	}

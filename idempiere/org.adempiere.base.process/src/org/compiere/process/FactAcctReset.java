@@ -45,6 +45,7 @@ import org.compiere.model.MProcessPara;
 import org.compiere.model.MProduction;
 import org.compiere.model.MProjectIssue;
 import org.compiere.model.MRequisition;
+import org.compiere.model.MTable;
 import org.compiere.model.X_M_Production;
 import org.compiere.util.DB;
 import org.compiere.util.TimeUtil;
@@ -75,6 +76,8 @@ public class FactAcctReset extends SvrProcess
 	private int		m_countDelete = 0;
 	private Timestamp p_DateAcct_From = null ;
 	private Timestamp p_DateAcct_To = null;
+	// 在类顶部声明  
+	private static final int C_BILL_TRANSACTION_TABLE_ID = MTable.getTable_ID("C_Bill_Transaction");
 	
 	/**
 	 *  Prepare - e.g., get Parameters.
@@ -250,7 +253,9 @@ public class FactAcctReset extends SvrProcess
 			docBaseType = "= '" + MPeriodControl.DOCBASETYPE_ManufacturingCostCollector+ "'";
 		else if (AD_Table_ID == MAssetAddition.Table_ID || AD_Table_ID == MAssetDisposed.Table_ID)
 			docBaseType = "= '" + MPeriodControl.DOCBASETYPE_GLDocument+ "'";
-		//
+		// 在 FactAcctReset.java 的 if-else 链末尾添加  
+		else if (AD_Table_ID == C_BILL_TRANSACTION_TABLE_ID)  
+		    docBaseType = "IN ('BTR','BTP')";  // 应收/应付票据作业单的 DocBaseType
 		if (docBaseType == null)
 		{
 			String s = TableName + ": Unknown DocBaseType";
@@ -301,6 +306,13 @@ public class FactAcctReset extends SvrProcess
 		if (log.isLoggable(Level.FINE))log.log(Level.FINE, sql2);
 		
 		int deleted = DB.executeUpdate(sql2, get_TrxName());
+		
+		// 删除没有分录的孤立凭证
+		String delVoucherSql = "DELETE FROM Gl_Voucher WHERE AD_Client_ID=" + p_AD_Client_ID + " AND AD_Table_ID="
+				+ AD_Table_ID + " AND NOT EXISTS (  SELECT 1 FROM Fact_Acct fa"
+				+ "  WHERE fa.AD_Table_ID = Gl_Voucher.AD_Table_ID" + "  AND fa.Record_ID = Gl_Voucher.Record_ID)";
+		DB.executeUpdate(delVoucherSql, get_TrxName());
+
 		//
 		m_countReset += reset;
 
@@ -320,6 +332,9 @@ public class FactAcctReset extends SvrProcess
 			dateColumn = "DateOrdered";
 			break;
 		}
+		// dateColumn 的判断改为 if-else 补充
+		if (AD_Table_ID == C_BILL_TRANSACTION_TABLE_ID)
+			dateColumn = "DateTrx";
 
 		int reset3 = 0;
 		if (p_AlsoWithoutPostings) {

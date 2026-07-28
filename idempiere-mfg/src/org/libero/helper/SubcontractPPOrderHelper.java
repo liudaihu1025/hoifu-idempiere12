@@ -148,8 +148,9 @@ public class SubcontractPPOrderHelper {
 	 */
 	private void updatePPOrderStatusByQtyDelivered(MPPOrder order) {
 		String orderStatus = (String) order.get_Value("Orderstatus");
-		if (order.getQtyDelivered().compareTo(Env.ZERO) > 0 && !"Stored".equals(orderStatus)) {
-			order.set_ValueOfColumn("Orderstatus", "Stored");
+		if (!"Stored".equals(orderStatus)  
+		        && order.getQtyDelivered().compareTo(order.getQtyEntered()) >= 0) {  
+		    order.set_ValueOfColumn("Orderstatus", "Stored");  
 		}
 		if (order.getQtyDelivered().compareTo(Env.ZERO) == 0 && "Stored".equals(orderStatus)) {
 			order.set_ValueOfColumn("Orderstatus", "Completed");
