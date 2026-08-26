@@ -32,7 +32,7 @@ public interface I_C_Bill_Pool
     /** TableName=C_Bill_Pool */
     public static final String Table_Name = "C_Bill_Pool";
 
-    /** AD_Table_ID=1000083 */
+    /** AD_Table_ID=1000069 */
     public static final int Table_ID = MTable.getTable_ID(Table_Name);
 
     KeyNamePair Model = new KeyNamePair(Table_ID, Table_Name);
@@ -144,6 +144,15 @@ public interface I_C_Bill_Pool
 	/** Get BillDate	  */
 	public Timestamp getBillDate();
 
+    /** Column name BillDiscountDate */
+    public static final String COLUMNNAME_BillDiscountDate = "BillDiscountDate";
+
+	/** Set BillDiscountDate	  */
+	public void setBillDiscountDate (Timestamp BillDiscountDate);
+
+	/** Get BillDiscountDate	  */
+	public Timestamp getBillDiscountDate();
+
     /** Column name BillNumber */
     public static final String COLUMNNAME_BillNumber = "BillNumber";
 
@@ -198,6 +207,29 @@ public interface I_C_Bill_Pool
 	/** Get BusinessStatus	  */
 	public String getBusinessStatus();
 
+    /** Column name C_BPartner_ID */
+    public static final String COLUMNNAME_C_BPartner_ID = "C_BPartner_ID";
+
+	/** Set &#24448;
+&#26469;
+&#21333;
+&#20301;
+.
+	  * Identifies a Business Partner
+	  */
+	public void setC_BPartner_ID (int C_BPartner_ID);
+
+	/** Get &#24448;
+&#26469;
+&#21333;
+&#20301;
+.
+	  * Identifies a Business Partner
+	  */
+	public int getC_BPartner_ID();
+
+	public org.compiere.model.I_C_BPartner getC_BPartner() throws RuntimeException;
+
     /** Column name C_BankAccount_ID */
     public static final String COLUMNNAME_C_BankAccount_ID = "C_BankAccount_ID";
 
@@ -221,6 +253,15 @@ public interface I_C_Bill_Pool
 
 	/** Get C_Bill_Pool	  */
 	public int getC_Bill_Pool_ID();
+
+    /** Column name C_Bill_Pool_UU */
+    public static final String COLUMNNAME_C_Bill_Pool_UU = "C_Bill_Pool_UU";
+
+	/** Set C_Bill_Pool_UU	  */
+	public void setC_Bill_Pool_UU (String C_Bill_Pool_UU);
+
+	/** Get C_Bill_Pool_UU	  */
+	public String getC_Bill_Pool_UU();
 
     /** Column name C_Currency_ID */
     public static final String COLUMNNAME_C_Currency_ID = "C_Currency_ID";
@@ -299,6 +340,33 @@ public interface I_C_Bill_Pool
 	  */
 	public String getDescription();
 
+    /** Column name DiscountBank */
+    public static final String COLUMNNAME_DiscountBank = "DiscountBank";
+
+	/** Set DiscountBank	  */
+	public void setDiscountBank (String DiscountBank);
+
+	/** Get DiscountBank	  */
+	public String getDiscountBank();
+
+    /** Column name DiscountFeeAmt */
+    public static final String COLUMNNAME_DiscountFeeAmt = "DiscountFeeAmt";
+
+	/** Set DiscountFeeAmt	  */
+	public void setDiscountFeeAmt (BigDecimal DiscountFeeAmt);
+
+	/** Get DiscountFeeAmt	  */
+	public BigDecimal getDiscountFeeAmt();
+
+    /** Column name DiscountRate */
+    public static final String COLUMNNAME_DiscountRate = "DiscountRate";
+
+	/** Set DiscountRate	  */
+	public void setDiscountRate (BigDecimal DiscountRate);
+
+	/** Get DiscountRate	  */
+	public BigDecimal getDiscountRate();
+
     /** Column name DocAction */
     public static final String COLUMNNAME_DocAction = "DocAction";
 
@@ -356,6 +424,15 @@ public interface I_C_Bill_Pool
 	/** Get Endorsee_Id	  */
 	public String getEndorsee_Id();
 
+    /** Column name EndorsementDate */
+    public static final String COLUMNNAME_EndorsementDate = "EndorsementDate";
+
+	/** Set EndorsementDate	  */
+	public void setEndorsementDate (Timestamp EndorsementDate);
+
+	/** Get EndorsementDate	  */
+	public Timestamp getEndorsementDate();
+
     /** Column name EndorserType */
     public static final String COLUMNNAME_EndorserType = "EndorserType";
 
@@ -410,6 +487,15 @@ public interface I_C_Bill_Pool
 	  * Indicates if this document requires approval
 	  */
 	public boolean isApproved();
+
+    /** Column name IsDiscounted */
+    public static final String COLUMNNAME_IsDiscounted = "IsDiscounted";
+
+	/** Set IsDiscounted	  */
+	public void setIsDiscounted (boolean IsDiscounted);
+
+	/** Get IsDiscounted	  */
+	public boolean isDiscounted();
 
     /** Column name IsReceipt */
     public static final String COLUMNNAME_IsReceipt = "IsReceipt";
@@ -478,15 +564,6 @@ public interface I_C_Bill_Pool
 	/** Get MaturityDate	  */
 	public Timestamp getMaturityDate();
 
-    /** Column name Owner_Org_ID */
-    public static final String COLUMNNAME_Owner_Org_ID = "Owner_Org_ID";
-
-	/** Set Owner_Org_ID	  */
-	public void setOwner_Org_ID (int Owner_Org_ID);
-
-	/** Get Owner_Org_ID	  */
-	public int getOwner_Org_ID();
-
     /** Column name Payee_Id */
     public static final String COLUMNNAME_Payee_Id = "Payee_Id";
 
@@ -540,41 +617,50 @@ public interface I_C_Bill_Pool
 	/** Get Process Now	  */
 	public boolean isProcessing();
 
-    /** Column name ReceiveDate */
-    public static final String COLUMNNAME_ReceiveDate = "ReceiveDate";
+    /** Column name SettleAmt */
+    public static final String COLUMNNAME_SettleAmt = "SettleAmt";
 
-	/** Set ReceiveDate	  */
-	public void setReceiveDate (Timestamp ReceiveDate);
+	/** Set SettleAmt	  */
+	public void setSettleAmt (BigDecimal SettleAmt);
 
-	/** Get ReceiveDate	  */
-	public Timestamp getReceiveDate();
+	/** Get SettleAmt	  */
+	public BigDecimal getSettleAmt();
 
-    /** Column name Settle_Org_ID */
-    public static final String COLUMNNAME_Settle_Org_ID = "Settle_Org_ID";
+    /** Column name SettleDate */
+    public static final String COLUMNNAME_SettleDate = "SettleDate";
 
-	/** Set Settle_Org_ID	  */
-	public void setSettle_Org_ID (int Settle_Org_ID);
+	/** Set SettleDate	  */
+	public void setSettleDate (Timestamp SettleDate);
 
-	/** Get Settle_Org_ID	  */
-	public int getSettle_Org_ID();
+	/** Get SettleDate	  */
+	public Timestamp getSettleDate();
+
+    /** Column name SettleFeeAmt */
+    public static final String COLUMNNAME_SettleFeeAmt = "SettleFeeAmt";
+
+	/** Set SettleFeeAmt	  */
+	public void setSettleFeeAmt (BigDecimal SettleFeeAmt);
+
+	/** Get SettleFeeAmt	  */
+	public BigDecimal getSettleFeeAmt();
 
     /** Column name SubBillEndNo */
     public static final String COLUMNNAME_SubBillEndNo = "SubBillEndNo";
 
 	/** Set SubBillEndNo	  */
-	public void setSubBillEndNo (String SubBillEndNo);
+	public void setSubBillEndNo (BigDecimal SubBillEndNo);
 
 	/** Get SubBillEndNo	  */
-	public String getSubBillEndNo();
+	public BigDecimal getSubBillEndNo();
 
     /** Column name SubBillStartNo */
     public static final String COLUMNNAME_SubBillStartNo = "SubBillStartNo";
 
 	/** Set SubBillStartNo	  */
-	public void setSubBillStartNo (String SubBillStartNo);
+	public void setSubBillStartNo (BigDecimal SubBillStartNo);
 
 	/** Get SubBillStartNo	  */
-	public String getSubBillStartNo();
+	public BigDecimal getSubBillStartNo();
 
     /** Column name SubPackageAmt */
     public static final String COLUMNNAME_SubPackageAmt = "SubPackageAmt";
@@ -600,4 +686,44 @@ public interface I_C_Bill_Pool
 	  * User who updated this records
 	  */
 	public int getUpdatedBy();
+
+    /** Column name owner_bp_ID */
+    public static final String COLUMNNAME_owner_bp_ID = "owner_bp_ID";
+
+	/** Set owner_bp_ID	  */
+	public void setowner_bp_ID (int owner_bp_ID);
+
+	/** Get owner_bp_ID	  */
+	public int getowner_bp_ID();
+
+	public org.compiere.model.I_C_BPartner getowner_bp() throws RuntimeException;
+
+    /** Column name owner_org_id */
+    public static final String COLUMNNAME_owner_org_id = "owner_org_id";
+
+	/** Set owner_org_id	  */
+	public void setowner_org_id (int owner_org_id);
+
+	/** Get owner_org_id	  */
+	public int getowner_org_id();
+
+    /** Column name settle_bp_ID */
+    public static final String COLUMNNAME_settle_bp_ID = "settle_bp_ID";
+
+	/** Set settle_bp_ID	  */
+	public void setsettle_bp_ID (int settle_bp_ID);
+
+	/** Get settle_bp_ID	  */
+	public int getsettle_bp_ID();
+
+	public org.compiere.model.I_C_BPartner getsettle_bp() throws RuntimeException;
+
+    /** Column name settle_org_id */
+    public static final String COLUMNNAME_settle_org_id = "settle_org_id";
+
+	/** Set settle_org_id	  */
+	public void setsettle_org_id (int settle_org_id);
+
+	/** Get settle_org_id	  */
+	public int getsettle_org_id();
 }

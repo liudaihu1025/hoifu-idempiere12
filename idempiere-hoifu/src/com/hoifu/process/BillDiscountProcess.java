@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.adempiere.exceptions.AdempiereException;
+import org.compiere.model.MBPartner;
 import org.compiere.model.MProcessPara;
 import org.compiere.process.DocAction;
 import org.compiere.process.DocumentEngine;
@@ -19,16 +20,26 @@ import org.compiere.util.Env;
 
 import com.hoifu.model.MBillPool;
 import com.hoifu.model.MBillTransaction;
+
+/**
+ * 贴现流程
+ */
 @org.adempiere.base.annotation.Process
 public class BillDiscountProcess extends SvrProcess {
 
     // 参数定义
-    private Timestamp p_BusinessDate = null;
-    private boolean p_IsRecourse = true; // 是否保留追索权
-    private int p_C_BPartner_ID = 0; // 放款业务伙伴
-    private BigDecimal p_DiscountNetAmt = Env.ZERO; // 贴现净额
-    private BigDecimal p_DiscountFeeAmt = Env.ZERO; // 贴现费用
-    private int p_C_Charge_ID = 0; // 费用
+	private Timestamp p_BusinessDate = null;// 业务日期
+	private int p_C_BPartner_ID = 0; // 出票人/背书人
+	private int p_owner_bp_ID = 0;// 收款单位/被背书人
+	private int p_settle_bp_ID = 0;// 结算单位
+	private boolean p_IsRecourse = false; // 是否保留追索权
+	private int p_C_Charge_ID1 = 0; // 费用项目1
+	private BigDecimal p_DiscountRate = Env.ZERO;// 贴现率
+	private BigDecimal p_DiscountFeeAmt = Env.ZERO;// 贴现息
+	private int p_C_Charge_ID2 = 0; // //费用项目2
+	private BigDecimal p_ChargeAmt = Env.ZERO; // 贴现费用
+	private BigDecimal p_SettleAmt = Env.ZERO; // 结算金额
+	private String p_DiscountBank = null;// 贴现银行
     private int p_C_BankAccount_ID = 0; // 银行账户ID
     private boolean p_Selection = false;
     private int processedCount = 0;
@@ -40,18 +51,30 @@ public class BillDiscountProcess extends SvrProcess {
             if (para[i].getParameter() == null)
                 ;
             else if (name.equals("BusinessDate"))
-                p_BusinessDate = (Timestamp) para[i].getParameter();
-            else if (name.equals("IsRecourse"))
-                p_IsRecourse = "Y".equals(para[i].getParameter());
+				p_BusinessDate = (Timestamp) para[i].getParameter();// 业务日期
             else if (name.equals("C_BPartner_ID"))
-                p_C_BPartner_ID = para[i].getParameterAsInt();
-            else if (name.equals("DiscountNetAmt"))
-                p_DiscountNetAmt = (BigDecimal) para[i].getParameter();
-            else if (name.equals("DiscountFeeAmt"))
-                p_DiscountFeeAmt = (BigDecimal) para[i].getParameter();
-            else if (name.equals("C_Charge_ID"))
-                p_C_Charge_ID = para[i].getParameterAsInt();
-            else if (name.equals("C_BankAccount_ID")) // 【新增】银行账户参数处理
+				p_C_BPartner_ID = para[i].getParameterAsInt();// 出票人/背书人
+			else if (name.equals("owner_bp_ID"))
+				p_owner_bp_ID = para[i].getParameterAsInt();// 收款单位/被背书人
+			else if (name.equals("settle_bp_ID"))
+				p_settle_bp_ID = para[i].getParameterAsInt();// 结算单位
+			else if (name.equals("IsRecourse"))
+				p_IsRecourse = "Y".equals(para[i].getParameter());// 是否保留追索权
+			else if (name.equals("C_Charge_ID1"))
+				p_C_Charge_ID1 = para[i].getParameterAsInt();// 费用项目1
+			else if (name.equals("DiscountRate"))
+				p_DiscountRate = (BigDecimal) para[i].getParameter();// 贴现率
+			else if (name.equals("DiscountFeeAmt"))
+				p_DiscountFeeAmt = (BigDecimal) para[i].getParameter();// 贴现息
+			else if (name.equals("C_Charge_ID2"))
+				p_C_Charge_ID2 = para[i].getParameterAsInt();// 费用项目2
+			else if (name.equals("ChargeAmt"))
+				p_ChargeAmt = (BigDecimal) para[i].getParameter();// 贴现费用
+			else if (name.equals("SettleAmt"))
+				p_SettleAmt = (BigDecimal) para[i].getParameter();// 结算金额
+			else if (name.equals("DiscountBank"))
+				p_DiscountBank = (String) para[i].getParameter();// 贴现银行
+			else if (name.equals("C_BankAccount_ID")) // 银行账户
                 p_C_BankAccount_ID = para[i].getParameterAsInt();
             else
                 MProcessPara.validateUnknownParameter(getProcessInfo().getAD_Process_ID(), para[i]);
@@ -66,25 +89,52 @@ public class BillDiscountProcess extends SvrProcess {
     }
 
     private void validateParameters() throws AdempiereUserError {
-        // 业务伙伴必选
+		// 业务日期
+		if (p_BusinessDate == null) {
+			throw new AdempiereUserError("请选择业务日期");
+		}
+		// 出票人/背书人必选
         if (p_C_BPartner_ID <= 0) {
-            throw new AdempiereUserError("请选择业务伙伴");
+			throw new AdempiereUserError("请选择出票人/背书人");
+		}
+		// 收款单位/被背书人
+		if (p_owner_bp_ID <= 0) {
+			throw new AdempiereUserError("请选择收款单位/被背书人");
+		}
+		// 结算单位
+		if (p_settle_bp_ID <= 0) {
+			throw new AdempiereUserError("请选择结算单位");
         }
 
-        // 杂费必选
-        if (p_C_Charge_ID <= 0) {
-            throw new AdempiereUserError("请选择费用");
+		// 费用项目必选
+		if (p_C_Charge_ID1 <= 0) {
+			throw new AdempiereUserError("请选择费用项目");
         }
 
-        // 贴现净额必须大于0
-        if (p_DiscountNetAmt == null || p_DiscountNetAmt.compareTo(Env.ZERO) <= 0) {
-            throw new AdempiereUserError("贴现净额必须大于0");
+		// 结算金额必须大于0
+		if (p_SettleAmt == null || p_SettleAmt.compareTo(Env.ZERO) <= 0) {
+			throw new AdempiereUserError("结算金额必须大于0");
         }
 
-        // 贴现费用不能为负数
+		// 贴现息不能为负数
         if (p_DiscountFeeAmt == null || p_DiscountFeeAmt.compareTo(Env.ZERO) < 0) {
-            throw new AdempiereUserError("贴现费用不能为负数");
+			throw new AdempiereUserError("贴现息不能为负数");
         }
+
+		// 贴现率不能为负数（也可加上限校验，如 <=100）
+		if (p_DiscountRate == null || p_DiscountRate.compareTo(Env.ZERO) < 0) {
+			throw new AdempiereUserError("贴现率不能为负数");
+		}
+
+		// 贴现费用不能为负数
+		if (p_ChargeAmt == null || p_ChargeAmt.compareTo(Env.ZERO) < 0) {
+			throw new AdempiereUserError("贴现费用不能为负数");
+		}
+
+		// 银行账户必填
+		if (p_C_BankAccount_ID <= 0) {
+			throw new AdempiereUserError("请选择银行账户");
+		}
     }
 
     protected String doIt() throws Exception {
@@ -118,18 +168,6 @@ public class BillDiscountProcess extends SvrProcess {
         // 检查票据状态是否为"已签收"
         if (!"H".equals(billPool.getBusinessStatus())) {
             throw new AdempiereUserError("票据 " + billPool.getDocumentNo() + " 状态不是已签收，无法贴现");
-        }
-
-        // 校验贴现费用计算：贴现费用 = 票据金额 - 贴现净额
-        BigDecimal billAmt = billPool.getBillAmt();
-        BigDecimal expectedFee = billAmt.subtract(p_DiscountNetAmt);
-
-        if (expectedFee.compareTo(p_DiscountFeeAmt) != 0) {
-            throw new AdempiereUserError("票据 " + billPool.getDocumentNo() +
-                    " 贴现费用计算错误：票据金额=" + billAmt +
-                    "，贴现净额=" + p_DiscountNetAmt +
-                    "，预期费用=" + expectedFee +
-                    "，实际费用=" + p_DiscountFeeAmt);
         }
 
         // 检查票据是否为应收票据（只能贴现应收票据）
@@ -167,13 +205,61 @@ public class BillDiscountProcess extends SvrProcess {
         billPool.saveEx();
 
         // 新增：同步贴现字段到票据池
-		billPool.set_ValueOfColumn("DiscountNetAmt", p_DiscountNetAmt);
-		billPool.set_ValueOfColumn("DiscountFeeAmt", p_DiscountFeeAmt);
+		billPool.set_ValueNoCheck("settle_bp_ID", p_settle_bp_ID); // 结算单位
+
+		billPool.set_ValueNoCheck("IsDiscounted", Boolean.TRUE); // 是否贴现
+		billPool.set_ValueNoCheck("BillDiscountDate", p_BusinessDate);// 贴现日期 = 业务日期
+		billPool.set_ValueNoCheck("C_BankAccount_ID", p_C_BankAccount_ID); // 收款银行账号 = 银行账户
+		billPool.set_ValueNoCheck("DiscountBank", p_DiscountBank); // 贴现银行 = 参数9贴现银行
+
+
+
+		MBPartner drawer = MBPartner.get(Env.getCtx(), p_C_BPartner_ID, get_TrxName());
+		MBPartner payee = MBPartner.get(Env.getCtx(), p_owner_bp_ID, get_TrxName());
+
+		// 获取背书类型
+		String endorserType = billPool.getEndorserType();
+		// 根据背书类型设置相关字段
+		if ("N".equals(endorserType)) {
+			// 背书类型为无：设置出票人和收票人
+			billPool.setDrawer_Id(drawer.getName()); // 出票人名称
+			billPool.setPayee_Id(payee.getName());// 收票人名称
+		} else if ("T".equals(endorserType)) {
+			// 背书类型为转让：设置背书人和被背书人
+			billPool.setEndorser_Id(drawer.getName());// 背书人名称
+			billPool.setEndorsee_Id(payee.getName());// 被背书人名称
+		}
+
+		billPool.set_ValueOfColumn("IsRecourse", p_IsRecourse ? "Y" : "N");// 是否追索
+		billPool.set_ValueNoCheck("SettleDate", p_BusinessDate); // 结算日期
+		billPool.setProcessed(true);
+
+		billPool.set_ValueNoCheck("DiscountRate", p_DiscountRate);// 贴现率
+		billPool.set_ValueNoCheck("DiscountFeeAmt", p_DiscountFeeAmt);// 贴现息
+		// 结算费用=贴现息+费用金额（贴现费用）
+		billPool.set_ValueNoCheck("SettleFeeAmt", p_DiscountFeeAmt.add(p_ChargeAmt));// 结算费用
+		billPool.set_ValueNoCheck("SettleAmt", p_SettleAmt);// 结算金额
 
         billPool.saveEx();
 
         // 创建票据作业记录
         createBillTransaction(billPool);
+        
+        //同步签收作业单的可追索字段
+        syncRecourseToAcceptTransaction(billPool);
+    }
+    
+	// 同步更新该票据之前的签收作业单的 IsRecourse
+    private void syncRecourseToAcceptTransaction(MBillPool billPool) throws Exception {  
+        String sql = "SELECT C_Bill_Transaction_ID FROM C_Bill_Transaction "  
+                + "WHERE C_Bill_Pool_ID=? AND TransactionType='A' "  
+                + "ORDER BY C_Bill_Transaction_ID DESC";  
+        int acceptTransId = DB.getSQLValue(get_TrxName(), sql, billPool.getC_Bill_Pool_ID());  
+        if (acceptTransId > 0) {  
+            MBillTransaction acceptTrans = new MBillTransaction(getCtx(), acceptTransId, get_TrxName());  
+            acceptTrans.set_ValueOfColumn("IsRecourse", p_IsRecourse ? "Y" : "N");  
+            acceptTrans.saveEx();  
+        }  
     }
 
     private void createBillTransaction(MBillPool billPool) throws Exception {
@@ -202,8 +288,11 @@ public class BillDiscountProcess extends SvrProcess {
         transaction.setBusinessStatus(billPool.getBusinessStatus());
 
         // 设置相关方信息（BP信息）
-        transaction.setC_BPartner_ID(p_C_BPartner_ID);
-        transaction.setC_Charge_ID(p_C_Charge_ID);
+		transaction.setC_BPartner_ID(p_C_BPartner_ID);// 往来单位
+		transaction.set_ValueNoCheck("owner_bp_ID", p_owner_bp_ID); // 收款单位
+		transaction.set_ValueNoCheck("settle_bp_ID", p_settle_bp_ID); // 结算单位
+		transaction.setC_Charge_ID(p_C_Charge_ID1);// 费用项目1
+		transaction.set_ValueNoCheck("C_Charge2_ID", p_C_Charge_ID2); // 费用项目2
         transaction.setDrawer_Id(billPool.getDrawer_Id());
         transaction.setReceiver_Id(billPool.getPayee_Id());
         transaction.setAcceptor_Id(billPool.getAcceptor_Id());
@@ -212,8 +301,8 @@ public class BillDiscountProcess extends SvrProcess {
 
         // 设置金额信息（支付信息）
         transaction.setC_Currency_ID(billPool.getC_Currency_ID());
-        transaction.setSettleAmt(billPool.getBillAmt());
-        transaction.setChargeAmt(p_C_Charge_ID > 0 ? billPool.getBillAmt().multiply(new BigDecimal("0.01")) : Env.ZERO);
+		transaction.setSettleAmt(p_SettleAmt);// 结算金额
+		transaction.setChargeAmt(p_ChargeAmt);// 费用金额
 
         BigDecimal maturityAmt = billPool.getMaturityAmt();
         BigDecimal billAmt = billPool.getBillAmt();
@@ -221,8 +310,7 @@ public class BillDiscountProcess extends SvrProcess {
         transaction.setInterestAmt(interestAmt);
 
         // 设置贴现相关金额（保存到数据库）
-		transaction.set_ValueOfColumn("DiscountNetAmt", p_DiscountNetAmt);
-		transaction.set_ValueOfColumn("DiscountFeeAmt", p_DiscountFeeAmt);
+		transaction.set_ValueOfColumn("DiscountFeeAmt", p_DiscountFeeAmt);// 贴现息
 		transaction.set_ValueOfColumn("IsRecourse", p_IsRecourse ? "Y" : "N");
 
         // 设置银行账户ID

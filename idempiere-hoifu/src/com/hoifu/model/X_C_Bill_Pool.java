@@ -34,7 +34,7 @@ public class X_C_Bill_Pool extends PO implements I_C_Bill_Pool, I_Persistent
 	/**
 	 *
 	 */
-	private static final long serialVersionUID = 20260408L;
+	private static final long serialVersionUID = 20260825L;
 
     /** Standard Constructor */
     public X_C_Bill_Pool (Properties ctx, int C_Bill_Pool_ID, String trxName)
@@ -51,12 +51,16 @@ public class X_C_Bill_Pool extends PO implements I_C_Bill_Pool, I_Persistent
 			setCirculationStatus (null);
 // N
 			setDocumentNo (null);
+			setEndorserType (null);
+// N
 			setIsApproved (false);
+// N
+			setIsDiscounted (false);
 // N
 			setIsReceipt (true);
 // Y
-			setIsRecourse (true);
-// Y
+			setIsRecourse (false);
+// N
 			setIsRevocable (true);
 // Y
 			setIsSplittable (true);
@@ -83,12 +87,16 @@ public class X_C_Bill_Pool extends PO implements I_C_Bill_Pool, I_Persistent
 			setCirculationStatus (null);
 // N
 			setDocumentNo (null);
+			setEndorserType (null);
+// N
 			setIsApproved (false);
+// N
+			setIsDiscounted (false);
 // N
 			setIsReceipt (true);
 // Y
-			setIsRecourse (true);
-// Y
+			setIsRecourse (false);
+// N
 			setIsRevocable (true);
 // Y
 			setIsSplittable (true);
@@ -115,12 +123,16 @@ public class X_C_Bill_Pool extends PO implements I_C_Bill_Pool, I_Persistent
 			setCirculationStatus (null);
 // N
 			setDocumentNo (null);
+			setEndorserType (null);
+// N
 			setIsApproved (false);
+// N
+			setIsDiscounted (false);
 // N
 			setIsReceipt (true);
 // Y
-			setIsRecourse (true);
-// Y
+			setIsRecourse (false);
+// N
 			setIsRevocable (true);
 // Y
 			setIsSplittable (true);
@@ -147,12 +159,16 @@ public class X_C_Bill_Pool extends PO implements I_C_Bill_Pool, I_Persistent
 			setCirculationStatus (null);
 // N
 			setDocumentNo (null);
+			setEndorserType (null);
+// N
 			setIsApproved (false);
+// N
+			setIsDiscounted (false);
 // N
 			setIsReceipt (true);
 // Y
-			setIsRecourse (true);
-// Y
+			setIsRecourse (false);
+// N
 			setIsRevocable (true);
 // Y
 			setIsSplittable (true);
@@ -181,7 +197,7 @@ public class X_C_Bill_Pool extends PO implements I_C_Bill_Pool, I_Persistent
     /** Load Meta Data */
     protected POInfo initPO (Properties ctx)
     {
-      POInfo poi = POInfo.getPOInfo (ctx, Table_ID, get_TrxName());
+      POInfo poi = POInfo.getPOInfo (ctx, MTable.getTable_ID(Table_Name), get_TrxName());
       return poi;
     }
 
@@ -204,9 +220,9 @@ public class X_C_Bill_Pool extends PO implements I_C_Bill_Pool, I_Persistent
 	public void setAD_User_ID (int AD_User_ID)
 	{
 		if (AD_User_ID < 1)
-			set_ValueNoCheck (COLUMNNAME_AD_User_ID, null);
+			set_Value (COLUMNNAME_AD_User_ID, null);
 		else
-			set_ValueNoCheck (COLUMNNAME_AD_User_ID, Integer.valueOf(AD_User_ID));
+			set_Value (COLUMNNAME_AD_User_ID, Integer.valueOf(AD_User_ID));
 	}
 
 	/** Get User/Contact.
@@ -296,6 +312,21 @@ public class X_C_Bill_Pool extends PO implements I_C_Bill_Pool, I_Persistent
 	public Timestamp getBillDate()
 	{
 		return (Timestamp)get_Value(COLUMNNAME_BillDate);
+	}
+
+	/** Set BillDiscountDate.
+		@param BillDiscountDate BillDiscountDate
+	*/
+	public void setBillDiscountDate (Timestamp BillDiscountDate)
+	{
+		set_Value (COLUMNNAME_BillDiscountDate, BillDiscountDate);
+	}
+
+	/** Get BillDiscountDate.
+		@return BillDiscountDate	  */
+	public Timestamp getBillDiscountDate()
+	{
+		return (Timestamp)get_Value(COLUMNNAME_BillDiscountDate);
 	}
 
 	/** Set BillNumber.
@@ -434,6 +465,34 @@ public class X_C_Bill_Pool extends PO implements I_C_Bill_Pool, I_Persistent
 		return (String)get_Value(COLUMNNAME_BusinessStatus);
 	}
 
+	public org.compiere.model.I_C_BPartner getC_BPartner() throws RuntimeException
+	{
+		return (org.compiere.model.I_C_BPartner)MTable.get(getCtx(), org.compiere.model.I_C_BPartner.Table_ID)
+			.getPO(getC_BPartner_ID(), get_TrxName());
+	}
+
+	/** Set &#24448;&#26469;&#21333;&#20301;.
+		@param C_BPartner_ID Identifies a Business Partner
+	*/
+	public void setC_BPartner_ID (int C_BPartner_ID)
+	{
+		if (C_BPartner_ID < 1)
+			set_ValueNoCheck (COLUMNNAME_C_BPartner_ID, null);
+		else
+			set_ValueNoCheck (COLUMNNAME_C_BPartner_ID, Integer.valueOf(C_BPartner_ID));
+	}
+
+	/** Get &#24448;&#26469;&#21333;&#20301;.
+		@return Identifies a Business Partner
+	  */
+	public int getC_BPartner_ID()
+	{
+		Integer ii = (Integer)get_Value(COLUMNNAME_C_BPartner_ID);
+		if (ii == null)
+			 return 0;
+		return ii.intValue();
+	}
+
 	public org.compiere.model.I_C_BankAccount getC_BankAccount() throws RuntimeException
 	{
 		return (org.compiere.model.I_C_BankAccount)MTable.get(getCtx(), org.compiere.model.I_C_BankAccount.Table_ID)
@@ -481,6 +540,21 @@ public class X_C_Bill_Pool extends PO implements I_C_Bill_Pool, I_Persistent
 		if (ii == null)
 			 return 0;
 		return ii.intValue();
+	}
+
+	/** Set C_Bill_Pool_UU.
+		@param C_Bill_Pool_UU C_Bill_Pool_UU
+	*/
+	public void setC_Bill_Pool_UU (String C_Bill_Pool_UU)
+	{
+		set_Value (COLUMNNAME_C_Bill_Pool_UU, C_Bill_Pool_UU);
+	}
+
+	/** Get C_Bill_Pool_UU.
+		@return C_Bill_Pool_UU	  */
+	public String getC_Bill_Pool_UU()
+	{
+		return (String)get_Value(COLUMNNAME_C_Bill_Pool_UU);
 	}
 
 	public org.compiere.model.I_C_Currency getC_Currency() throws RuntimeException
@@ -604,6 +678,57 @@ public class X_C_Bill_Pool extends PO implements I_C_Bill_Pool, I_Persistent
 		return (String)get_Value(COLUMNNAME_Description);
 	}
 
+	/** Set DiscountBank.
+		@param DiscountBank DiscountBank
+	*/
+	public void setDiscountBank (String DiscountBank)
+	{
+		set_Value (COLUMNNAME_DiscountBank, DiscountBank);
+	}
+
+	/** Get DiscountBank.
+		@return DiscountBank	  */
+	public String getDiscountBank()
+	{
+		return (String)get_Value(COLUMNNAME_DiscountBank);
+	}
+
+	/** Set DiscountFeeAmt.
+		@param DiscountFeeAmt DiscountFeeAmt
+	*/
+	public void setDiscountFeeAmt (BigDecimal DiscountFeeAmt)
+	{
+		set_Value (COLUMNNAME_DiscountFeeAmt, DiscountFeeAmt);
+	}
+
+	/** Get DiscountFeeAmt.
+		@return DiscountFeeAmt	  */
+	public BigDecimal getDiscountFeeAmt()
+	{
+		BigDecimal bd = (BigDecimal)get_Value(COLUMNNAME_DiscountFeeAmt);
+		if (bd == null)
+			 return Env.ZERO;
+		return bd;
+	}
+
+	/** Set DiscountRate.
+		@param DiscountRate DiscountRate
+	*/
+	public void setDiscountRate (BigDecimal DiscountRate)
+	{
+		set_Value (COLUMNNAME_DiscountRate, DiscountRate);
+	}
+
+	/** Get DiscountRate.
+		@return DiscountRate	  */
+	public BigDecimal getDiscountRate()
+	{
+		BigDecimal bd = (BigDecimal)get_Value(COLUMNNAME_DiscountRate);
+		if (bd == null)
+			 return Env.ZERO;
+		return bd;
+	}
+
 	/** DocAction AD_Reference_ID=135 */
 	public static final int DOCACTION_AD_Reference_ID=135;
 	/** &lt;None&gt; = -- */
@@ -710,14 +835,11 @@ public class X_C_Bill_Pool extends PO implements I_C_Bill_Pool, I_Persistent
 		return (String)get_Value(COLUMNNAME_DocumentNo);
 	}
 
-	/** Drawer_Id AD_Reference_ID=200175 */
-	public static final int DRAWER_ID_AD_Reference_ID=200175;
 	/** Set Drawer_Id.
 		@param Drawer_Id Drawer_Id
 	*/
 	public void setDrawer_Id (String Drawer_Id)
 	{
-
 		set_Value (COLUMNNAME_Drawer_Id, Drawer_Id);
 	}
 
@@ -728,14 +850,11 @@ public class X_C_Bill_Pool extends PO implements I_C_Bill_Pool, I_Persistent
 		return (String)get_Value(COLUMNNAME_Drawer_Id);
 	}
 
-	/** Endorsee_Id AD_Reference_ID=200175 */
-	public static final int ENDORSEE_ID_AD_Reference_ID=200175;
 	/** Set Endorsee_Id.
 		@param Endorsee_Id Endorsee_Id
 	*/
 	public void setEndorsee_Id (String Endorsee_Id)
 	{
-
 		set_Value (COLUMNNAME_Endorsee_Id, Endorsee_Id);
 	}
 
@@ -744,6 +863,21 @@ public class X_C_Bill_Pool extends PO implements I_C_Bill_Pool, I_Persistent
 	public String getEndorsee_Id()
 	{
 		return (String)get_Value(COLUMNNAME_Endorsee_Id);
+	}
+
+	/** Set EndorsementDate.
+		@param EndorsementDate EndorsementDate
+	*/
+	public void setEndorsementDate (Timestamp EndorsementDate)
+	{
+		set_Value (COLUMNNAME_EndorsementDate, EndorsementDate);
+	}
+
+	/** Get EndorsementDate.
+		@return EndorsementDate	  */
+	public Timestamp getEndorsementDate()
+	{
+		return (Timestamp)get_Value(COLUMNNAME_EndorsementDate);
 	}
 
 	/** &#22996;&#25176;&#25910;&#27454; = E */
@@ -770,14 +904,11 @@ public class X_C_Bill_Pool extends PO implements I_C_Bill_Pool, I_Persistent
 		return (String)get_Value(COLUMNNAME_EndorserType);
 	}
 
-	/** Endorser_Id AD_Reference_ID=200175 */
-	public static final int ENDORSER_ID_AD_Reference_ID=200175;
 	/** Set Endorser_Id.
 		@param Endorser_Id Endorser_Id
 	*/
 	public void setEndorser_Id (String Endorser_Id)
 	{
-
 		set_Value (COLUMNNAME_Endorser_Id, Endorser_Id);
 	}
 
@@ -826,6 +957,28 @@ public class X_C_Bill_Pool extends PO implements I_C_Bill_Pool, I_Persistent
 	public boolean isApproved()
 	{
 		Object oo = get_Value(COLUMNNAME_IsApproved);
+		if (oo != null)
+		{
+			 if (oo instanceof Boolean)
+				 return ((Boolean)oo).booleanValue();
+			return "Y".equals(oo);
+		}
+		return false;
+	}
+
+	/** Set IsDiscounted.
+		@param IsDiscounted IsDiscounted
+	*/
+	public void setIsDiscounted (boolean IsDiscounted)
+	{
+		set_Value (COLUMNNAME_IsDiscounted, Boolean.valueOf(IsDiscounted));
+	}
+
+	/** Get IsDiscounted.
+		@return IsDiscounted	  */
+	public boolean isDiscounted()
+	{
+		Object oo = get_Value(COLUMNNAME_IsDiscounted);
 		if (oo != null)
 		{
 			 if (oo instanceof Boolean)
@@ -979,27 +1132,6 @@ public class X_C_Bill_Pool extends PO implements I_C_Bill_Pool, I_Persistent
 		return (Timestamp)get_Value(COLUMNNAME_MaturityDate);
 	}
 
-	/** Set Owner_Org_ID.
-		@param Owner_Org_ID Owner_Org_ID
-	*/
-	public void setOwner_Org_ID (int Owner_Org_ID)
-	{
-		if (Owner_Org_ID < 1)
-			set_Value (COLUMNNAME_Owner_Org_ID, null);
-		else
-			set_Value (COLUMNNAME_Owner_Org_ID, Integer.valueOf(Owner_Org_ID));
-	}
-
-	/** Get Owner_Org_ID.
-		@return Owner_Org_ID	  */
-	public int getOwner_Org_ID()
-	{
-		Integer ii = (Integer)get_Value(COLUMNNAME_Owner_Org_ID);
-		if (ii == null)
-			 return 0;
-		return ii.intValue();
-	}
-
 	/** Set Payee_Id.
 		@param Payee_Id Payee_Id
 	*/
@@ -1097,70 +1229,91 @@ public class X_C_Bill_Pool extends PO implements I_C_Bill_Pool, I_Persistent
 		return false;
 	}
 
-	/** Set ReceiveDate.
-		@param ReceiveDate ReceiveDate
+	/** Set SettleAmt.
+		@param SettleAmt SettleAmt
 	*/
-	public void setReceiveDate (Timestamp ReceiveDate)
+	public void setSettleAmt (BigDecimal SettleAmt)
 	{
-		set_Value (COLUMNNAME_ReceiveDate, ReceiveDate);
+		set_Value (COLUMNNAME_SettleAmt, SettleAmt);
 	}
 
-	/** Get ReceiveDate.
-		@return ReceiveDate	  */
-	public Timestamp getReceiveDate()
+	/** Get SettleAmt.
+		@return SettleAmt	  */
+	public BigDecimal getSettleAmt()
 	{
-		return (Timestamp)get_Value(COLUMNNAME_ReceiveDate);
+		BigDecimal bd = (BigDecimal)get_Value(COLUMNNAME_SettleAmt);
+		if (bd == null)
+			 return Env.ZERO;
+		return bd;
 	}
 
-	/** Set Settle_Org_ID.
-		@param Settle_Org_ID Settle_Org_ID
+	/** Set SettleDate.
+		@param SettleDate SettleDate
 	*/
-	public void setSettle_Org_ID (int Settle_Org_ID)
+	public void setSettleDate (Timestamp SettleDate)
 	{
-		if (Settle_Org_ID < 1)
-			set_Value (COLUMNNAME_Settle_Org_ID, null);
-		else
-			set_Value (COLUMNNAME_Settle_Org_ID, Integer.valueOf(Settle_Org_ID));
+		set_Value (COLUMNNAME_SettleDate, SettleDate);
 	}
 
-	/** Get Settle_Org_ID.
-		@return Settle_Org_ID	  */
-	public int getSettle_Org_ID()
+	/** Get SettleDate.
+		@return SettleDate	  */
+	public Timestamp getSettleDate()
 	{
-		Integer ii = (Integer)get_Value(COLUMNNAME_Settle_Org_ID);
-		if (ii == null)
-			 return 0;
-		return ii.intValue();
+		return (Timestamp)get_Value(COLUMNNAME_SettleDate);
+	}
+
+	/** Set SettleFeeAmt.
+		@param SettleFeeAmt SettleFeeAmt
+	*/
+	public void setSettleFeeAmt (BigDecimal SettleFeeAmt)
+	{
+		set_Value (COLUMNNAME_SettleFeeAmt, SettleFeeAmt);
+	}
+
+	/** Get SettleFeeAmt.
+		@return SettleFeeAmt	  */
+	public BigDecimal getSettleFeeAmt()
+	{
+		BigDecimal bd = (BigDecimal)get_Value(COLUMNNAME_SettleFeeAmt);
+		if (bd == null)
+			 return Env.ZERO;
+		return bd;
 	}
 
 	/** Set SubBillEndNo.
 		@param SubBillEndNo SubBillEndNo
 	*/
-	public void setSubBillEndNo (String SubBillEndNo)
+	public void setSubBillEndNo (BigDecimal SubBillEndNo)
 	{
 		set_Value (COLUMNNAME_SubBillEndNo, SubBillEndNo);
 	}
 
 	/** Get SubBillEndNo.
 		@return SubBillEndNo	  */
-	public String getSubBillEndNo()
+	public BigDecimal getSubBillEndNo()
 	{
-		return (String)get_Value(COLUMNNAME_SubBillEndNo);
+		BigDecimal bd = (BigDecimal)get_Value(COLUMNNAME_SubBillEndNo);
+		if (bd == null)
+			 return Env.ZERO;
+		return bd;
 	}
 
 	/** Set SubBillStartNo.
 		@param SubBillStartNo SubBillStartNo
 	*/
-	public void setSubBillStartNo (String SubBillStartNo)
+	public void setSubBillStartNo (BigDecimal SubBillStartNo)
 	{
 		set_Value (COLUMNNAME_SubBillStartNo, SubBillStartNo);
 	}
 
 	/** Get SubBillStartNo.
 		@return SubBillStartNo	  */
-	public String getSubBillStartNo()
+	public BigDecimal getSubBillStartNo()
 	{
-		return (String)get_Value(COLUMNNAME_SubBillStartNo);
+		BigDecimal bd = (BigDecimal)get_Value(COLUMNNAME_SubBillStartNo);
+		if (bd == null)
+			 return Env.ZERO;
+		return bd;
 	}
 
 	/** Set SubPackageAmt.
@@ -1179,5 +1332,95 @@ public class X_C_Bill_Pool extends PO implements I_C_Bill_Pool, I_Persistent
 		if (bd == null)
 			 return Env.ZERO;
 		return bd;
+	}
+
+	public org.compiere.model.I_C_BPartner getowner_bp() throws RuntimeException
+	{
+		return (org.compiere.model.I_C_BPartner)MTable.get(getCtx(), org.compiere.model.I_C_BPartner.Table_ID)
+			.getPO(getowner_bp_ID(), get_TrxName());
+	}
+
+	/** Set owner_bp_ID.
+		@param owner_bp_ID owner_bp_ID
+	*/
+	public void setowner_bp_ID (int owner_bp_ID)
+	{
+		if (owner_bp_ID < 1)
+			set_ValueNoCheck (COLUMNNAME_owner_bp_ID, null);
+		else
+			set_ValueNoCheck (COLUMNNAME_owner_bp_ID, Integer.valueOf(owner_bp_ID));
+	}
+
+	/** Get owner_bp_ID.
+		@return owner_bp_ID	  */
+	public int getowner_bp_ID()
+	{
+		Integer ii = (Integer)get_Value(COLUMNNAME_owner_bp_ID);
+		if (ii == null)
+			 return 0;
+		return ii.intValue();
+	}
+
+	/** Set owner_org_id.
+		@param owner_org_id owner_org_id
+	*/
+	public void setowner_org_id (int owner_org_id)
+	{
+		set_Value (COLUMNNAME_owner_org_id, Integer.valueOf(owner_org_id));
+	}
+
+	/** Get owner_org_id.
+		@return owner_org_id	  */
+	public int getowner_org_id()
+	{
+		Integer ii = (Integer)get_Value(COLUMNNAME_owner_org_id);
+		if (ii == null)
+			 return 0;
+		return ii.intValue();
+	}
+
+	public org.compiere.model.I_C_BPartner getsettle_bp() throws RuntimeException
+	{
+		return (org.compiere.model.I_C_BPartner)MTable.get(getCtx(), org.compiere.model.I_C_BPartner.Table_ID)
+			.getPO(getsettle_bp_ID(), get_TrxName());
+	}
+
+	/** Set settle_bp_ID.
+		@param settle_bp_ID settle_bp_ID
+	*/
+	public void setsettle_bp_ID (int settle_bp_ID)
+	{
+		if (settle_bp_ID < 1)
+			set_ValueNoCheck (COLUMNNAME_settle_bp_ID, null);
+		else
+			set_ValueNoCheck (COLUMNNAME_settle_bp_ID, Integer.valueOf(settle_bp_ID));
+	}
+
+	/** Get settle_bp_ID.
+		@return settle_bp_ID	  */
+	public int getsettle_bp_ID()
+	{
+		Integer ii = (Integer)get_Value(COLUMNNAME_settle_bp_ID);
+		if (ii == null)
+			 return 0;
+		return ii.intValue();
+	}
+
+	/** Set settle_org_id.
+		@param settle_org_id settle_org_id
+	*/
+	public void setsettle_org_id (int settle_org_id)
+	{
+		set_Value (COLUMNNAME_settle_org_id, Integer.valueOf(settle_org_id));
+	}
+
+	/** Get settle_org_id.
+		@return settle_org_id	  */
+	public int getsettle_org_id()
+	{
+		Integer ii = (Integer)get_Value(COLUMNNAME_settle_org_id);
+		if (ii == null)
+			 return 0;
+		return ii.intValue();
 	}
 }

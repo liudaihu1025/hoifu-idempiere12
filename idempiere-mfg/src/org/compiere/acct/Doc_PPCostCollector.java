@@ -112,9 +112,13 @@ public class Doc_PPCostCollector extends Doc
 	 */
 	public ArrayList<Fact> createFacts (MAcctSchema as)
 	{
+		
 		setC_Currency_ID (as.getC_Currency_ID());
 		final ArrayList<Fact> facts = new ArrayList<Fact>();
-		
+	    final MProduct product = m_cc.getM_Product();  
+	    if (product != null && product.isCSMAndNotNeedPost())  
+	        return facts;  
+	    
 		if(MPPCostCollector.COSTCOLLECTORTYPE_MaterialReceipt.equals(m_cc.getCostCollectorType()))
 		{
 			facts.add(createMaterialReceipt(as));
@@ -274,9 +278,6 @@ public class Doc_PPCostCollector extends Doc
 		final Fact fact = new Fact(this, as, Fact.POST_Actual);
 		final MProduct product = m_cc.getM_Product();
 		
-	    // 客供料跳过会计分录  
-	    if (product != null && product.isCSMAndNotNeedPost())  
-	        return fact;   // 直接返回空 Fact，不生成任何分录  
 	    
 		MAccount debit = m_line.getAccount(ProductCost.ACCTTYPE_P_WorkInProcess, as);
 		MAccount credit = m_line.getAccount(ProductCost.ACCTTYPE_P_Asset, as);

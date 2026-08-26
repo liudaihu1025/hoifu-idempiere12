@@ -7,10 +7,12 @@ import java.util.Properties;
 import java.util.logging.Level;
 
 import org.adempiere.model.DocActionDelegate;
+import org.compiere.model.MDocType;
 import org.compiere.process.DocAction;
 import org.compiere.process.DocOptions;
 import org.compiere.process.DocumentEngine;
 import org.compiere.util.DB;
+import org.compiere.util.Msg;
 
 public class MPaymentRequest extends X_C_PaymentRequest implements DocAction , DocOptions {
 
@@ -38,6 +40,7 @@ public class MPaymentRequest extends X_C_PaymentRequest implements DocAction , D
 		docActionDelegate = new DocActionDelegate<>(this);
 		docActionDelegate.setActionCallable(DocAction.ACTION_Prepare, () -> doPrepare());  
 		docActionDelegate.setActionCallable(DocAction.ACTION_Complete, () -> doComplete());
+		docActionDelegate.setActionCallable(DocAction.ACTION_ReActivate, () -> doReActivate());
 	}
 
 	@Override
@@ -105,6 +108,37 @@ public class MPaymentRequest extends X_C_PaymentRequest implements DocAction , D
 	        log.log(Level.SEVERE, "syncApprovedAmt #" + no);  
 	}
 
+	/** 重新激活：校验单据类型是否允许重新激活，并回滚 Complete 产生的副作用 */
+	private String doReActivate() {
+		// 1. 单据类型级别的开关（C_DocType.IsCanBeReactivated）
+		if (!DocumentEngine.canReactivateThisDocType(getC_DocType_ID())) {
+			return Msg.getMsg(getCtx(), "DocTypeCannotBeReactivated",
+					new Object[] { MDocType.get(getC_DocType_ID()).getNameTrl() });
+		}
+
+		// 2. 业务占用检查：如果该付款申请单已经被后续流程引用（例如已生成付款单/已核销），
+		// 需要在这里加对应校验并返回错误信息拒绝重新激活。
+		// 示例（需要根据实际业务表调整）：
+		int used = DB.getSQLValue(get_TrxName(),
+				"SELECT COUNT(*) FROM C_PaymentRequestLine WHERE C_PaymentRequest_ID=? AND C_Payment_ID IS NOT NULL",
+				getC_PaymentRequest_ID());
+		if (used > 0)
+			return "该付款申请单已生成付款记录，不能重新激活。";
+
+		// 3. 回滚 doComplete()/approveLines() 造成的副作用：把已批准金额清零并重新同步主表
+		String sqlLines = "UPDATE C_PaymentRequestLine " + "SET ApprovedAmt = 0 "
+				+ "WHERE C_PaymentRequest_ID = ? AND IsActive = 'Y'";
+		int no = DB.executeUpdateEx(sqlLines, new Object[] { getC_PaymentRequest_ID() }, get_TrxName());
+		if (log.isLoggable(Level.INFO))
+			log.info("doReActivate - reset ApprovedAmt for " + no + " lines");
+		syncApprovedAmt();
+
+		// 4. 视业务需要重置审批标记
+		setIsApproved(false);
+
+		return null; // null 表示成功
+	}
+
     
 	// ── DocAction 接口方法全部委托 ────────────────────────────
 
@@ -165,7 +199,7 @@ public class MPaymentRequest extends X_C_PaymentRequest implements DocAction , D
 
 	@Override
 	public boolean reActivateIt() {
-		return false;
+		return docActionDelegate.reActivateIt();
 	}
 
 	@Override
@@ -233,6 +267,13 @@ public class MPaymentRequest extends X_C_PaymentRequest implements DocAction , D
 				options[newIndex++] = options[i];
 			}
 		}
-		return newIndex;
+		index = newIndex;
+
+		// 补充 ReActivate：单据已完成，且该单据类型允许重新激活
+		if (DocumentEngine.STATUS_Completed.equals(docStatus)
+				&& DocumentEngine.canReactivateThisDocType(getC_DocType_ID())) {
+			options[index++] = DocumentEngine.ACTION_ReActivate;
+		}
+		return index;
 	}
 }

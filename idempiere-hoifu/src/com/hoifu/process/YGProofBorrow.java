@@ -55,7 +55,7 @@ public class YGProofBorrow extends SvrProcess {
     private Timestamp p_DueDate     = null;  
   
     /** 领用工单编号（非必填） */  
-    private String    p_WorkOrder   = null;  
+	private int p_WorkOrder = 0;
   
     /** 领用工序，如胶印/烫金/模切（非必填） */  
 	private int p_ProcessStep = 0;
@@ -105,7 +105,7 @@ public class YGProofBorrow extends SvrProcess {
   
 			} else if (name.equals("workorder")) {
                 // 领用工单编号（非必填）  
-                p_WorkOrder = (String) p.getParameter();  
+				p_WorkOrder = p.getParameterAsInt();
   
 			} else if (name.equals("processstep")) {
 				// 领用工序（非必填）
@@ -208,7 +208,7 @@ public class YGProofBorrow extends SvrProcess {
         // 非必填字段：有值才写入，避免覆盖数据库列的 DEFAULT 值  
 		if (p_DueDate != null)
 			borr.setDueDate(p_DueDate);
-		if (p_WorkOrder != null)
+		if (p_WorkOrder > 0)
 			borr.setworkorder(p_WorkOrder);
 		if (p_ProcessStep > 0)
 			borr.setprocessstep(p_ProcessStep);

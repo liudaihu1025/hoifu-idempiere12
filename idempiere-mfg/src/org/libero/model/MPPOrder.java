@@ -9,7 +9,9 @@ package org.libero.model;
 import java.io.File;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -456,12 +458,27 @@ public class MPPOrder extends X_PP_Order implements DocAction
 			return false;
 		}
 
+		// 更新补数状态
+		updateRepairStatus(get_TrxName());
+
 		return true;
 	}
 
+	private static final String REPAIR_METHOD_WO = "WO"; // 工单补数
+	private static final String REPAIR_METHOD_SO = "SO"; // 随销单补数
+
+	// 补数状态编码
+	private static final String REPAIR_STATUS_DP = "DP"; // 待处理
+	private static final String REPAIR_STATUS_IP = "IP"; // 处理中
+	private static final String REPAIR_STATUS_PR = "PR"; // 部分补数
+	private static final String REPAIR_STATUS_CP = "CP"; // 完成补数
+	private static final String REPAIR_STATUS_NR = "NR"; // 无需补数
+
 	/**
 	 * 校验工单数量不超过销售订单数量
-	 * 
+	 * 补数工单（工单补数）：累计范围包含"生产工单"和"补数工单"，上限=订单数量+补数数量
+	 * 其他情况：仅统计"生产工单"，上限=订单数量
+	 *
 	 * @return true 如果校验通过，false 否则
 	 */
 	private boolean validateOrderQuantity() {
@@ -469,32 +486,240 @@ public class MPPOrder extends X_PP_Order implements DocAction
 			return true;
 		}
 
+		// 通过 C_DocTypeTarget_ID 按名称判断单据类型
 		MDocType docType = MDocType.get(getCtx(), getC_DocTypeTarget_ID());
 		if (docType == null)
 			return true;
-		String printName = docType.getName();
-		if (printName == null || !printName.contains("生产工单"))
+		String docTypeName = docType.getName();
+		boolean isNormalOrder = "生产工单".equals(docTypeName);
+		boolean isRepairOrder = "补数工单".equals(docTypeName);
+		if (!isNormalOrder && !isRepairOrder)
 			return true;
 
 		MOrderLine orderLine = new MOrderLine(getCtx(), getC_OrderLine_ID(), get_TrxName());
 		BigDecimal orderQty = orderLine.getQtyEntered();
 
-		// 统计同一销售订单行的所有【生产工单】数量，通过 JOIN C_DocType 过滤
-		String sql = "SELECT COALESCE(SUM(po.QtyEntered), 0) FROM PP_Order po "
-				+ "INNER JOIN C_DocType dt ON po.C_DocTypeTarget_ID = dt.C_DocType_ID "
-				+ "WHERE po.C_OrderLine_ID = ? AND po.PP_Order_ID != ? " + "AND po.DocStatus NOT IN ('VO', 'CL') "  + "AND po.Orderstatus NOT IN ('ChangeExecuted') "
-				+ "AND dt.Name = '生产工单'";
+		// 补数方式：PP_Order.RepairMethod 编码与 PP_Order_Repair_Request 一致，直接取当前工单自身的值
+		String repairMethod = get_ValueAsString("RepairMethod");
+		boolean isRepairByOrder = isRepairOrder && REPAIR_METHOD_WO.equals(repairMethod);
+		boolean isRepairBySales = REPAIR_METHOD_SO.equals(repairMethod); // 随销单补数（普通生产工单也可能带此标记）
 
-		BigDecimal otherOrdersQty = DB.getSQLValueBD(get_TrxName(), sql, getC_OrderLine_ID(), getPP_Order_ID());
+		BigDecimal upperLimit = orderQty;
+		String sql;
+		Object[] params;
 
+		if (isRepairByOrder) {
+			// "补数工单" + "工单补数"：累计范围同时包含"生产工单"和"补数工单"，上限=关联订单数量+补数数量
+			Object repairQtyVal = get_Value("RepairQty");
+			BigDecimal repairQty = (repairQtyVal != null) ? (BigDecimal) repairQtyVal : BigDecimal.ZERO;
+			upperLimit = orderQty.add(repairQty);
+
+			sql = "SELECT COALESCE(SUM(po.QtyEntered), 0) FROM PP_Order po "
+					+ "INNER JOIN C_DocType dt ON po.C_DocTypeTarget_ID = dt.C_DocType_ID "
+					+ "WHERE po.C_OrderLine_ID = ? AND po.PP_Order_ID != ? "
+					+ "AND po.DocStatus NOT IN ('VO', 'CL') "
+					+ "AND po.Orderstatus NOT IN ('ChangeExecuted') "
+					+ "AND dt.Name IN ('生产工单', '补数工单')";
+			params = new Object[] { getC_OrderLine_ID(), getPP_Order_ID() };
+		} else if (isRepairBySales) {
+			// "随销单补数"：普通生产工单带补数标记，上限=关联订单数量+补数数量
+			Object repairQtyVal = get_Value("RepairQty");
+			BigDecimal repairQty = (repairQtyVal != null) ? (BigDecimal) repairQtyVal : BigDecimal.ZERO;
+			upperLimit = orderQty.add(repairQty);
+
+			sql = "SELECT COALESCE(SUM(po.QtyEntered), 0) FROM PP_Order po "
+					+ "INNER JOIN C_DocType dt ON po.C_DocTypeTarget_ID = dt.C_DocType_ID "
+					+ "WHERE po.C_OrderLine_ID = ? AND po.PP_Order_ID != ? "
+					+ "AND po.DocStatus NOT IN ('VO', 'CL') "
+					+ "AND po.Orderstatus NOT IN ('ChangeExecuted') "
+					+ "AND dt.Name = '生产工单'";
+			params = new Object[] { getC_OrderLine_ID(), getPP_Order_ID() };
+		} else {
+			// 其余情况（普通生产工单无补数）：仅统计"生产工单"，上限=订单数量
+			sql = "SELECT COALESCE(SUM(po.QtyEntered), 0) FROM PP_Order po "
+					+ "INNER JOIN C_DocType dt ON po.C_DocTypeTarget_ID = dt.C_DocType_ID "
+					+ "WHERE po.C_OrderLine_ID = ? AND po.PP_Order_ID != ? "
+					+ "AND po.DocStatus NOT IN ('VO', 'CL') "
+					+ "AND po.Orderstatus NOT IN ('ChangeExecuted') "
+					+ "AND dt.Name = '生产工单'";
+			params = new Object[] { getC_OrderLine_ID(), getPP_Order_ID() };
+		}
+
+		BigDecimal otherOrdersQty = DB.getSQLValueBD(get_TrxName(), sql, params);
 		BigDecimal totalQty = otherOrdersQty.add(getQtyEntered());
 
-		if (totalQty.compareTo(orderQty) > 0) {
-			log.saveError("", "保存失败：累计生产工单数量（" + totalQty + "）已超过关联销售订单数量（" + orderQty + "），请检查调整");
+		if (totalQty.compareTo(upperLimit) > 0) {
+			log.saveError("", "保存失败：累计工单数量（" + totalQty + "）已超过上限（" + upperLimit + "），请检查调整");
 			return false;
 		}
 
 		return true;
+	}
+
+	/**
+	 * 统一更新补数状态（RepairStatus）
+	 * 在 beforeSave / afterSave / afterDelete 中调用，避免多处重复维护状态机逻辑
+	 *
+	 * 触发规则：
+	 * ① 入库数量=工单数量 → NR（无需补数）
+	 * ② 申请单完成 → IP（处理中），由 MPPOrderRepairRequest.completeIt() 调用
+	 * ③ 工单补数(WO)：新工单 QtyDelivered>0 → PR，QtyDelivered=RepairQty → CP
+	 * ④ 随销单补数(SO)：多新工单合计 QtyDelivered > 订单数量 → PR，合计 = RepairQty+订单数量 → CP
+	 * ⑤ 新工单删除 → 回退 DP（待处理），由 beforeDelete/rollbackRepairOrderOnDelete 处理
+	 *
+	 * @param trxName 事务名
+	 */
+	public void updateRepairStatus(String trxName) {
+		// 无补数标记的工单不需要处理
+		String repairMethod = get_ValueAsString("RepairMethod");
+		if (repairMethod == null || repairMethod.isEmpty())
+			return;
+
+		Object qtyShortageVal = get_Value("QtyShortage");
+		BigDecimal qtyShortage = (qtyShortageVal instanceof BigDecimal) ? (BigDecimal) qtyShortageVal : BigDecimal.ZERO;
+		if (qtyShortage.signum() <= 0)
+			return;
+
+		// 规则①：入库数量=工单数量 → 无需补数
+		BigDecimal qtyEntered = getQtyEntered();
+		BigDecimal qtyDelivered = getQtyDelivered();
+		if (qtyEntered != null && qtyDelivered != null && qtyEntered.signum() > 0
+				&& qtyDelivered.compareTo(qtyEntered) >= 0) {
+			set_ValueOfColumn("RepairStatus", REPAIR_STATUS_NR);
+			return;
+		}
+
+		// 规则③④：根据补数方式判断部分补数/完成补数
+		Object repairQtyVal = get_Value("RepairQty");
+		BigDecimal repairQty = (repairQtyVal instanceof BigDecimal) ? (BigDecimal) repairQtyVal : BigDecimal.ZERO;
+
+		if (REPAIR_METHOD_WO.equals(repairMethod)) {
+			// 工单补数：本工单就是补数工单，直接看自身的交付情况
+			if (qtyDelivered != null && qtyDelivered.signum() > 0) {
+				if (repairQty.signum() > 0 && qtyDelivered.compareTo(repairQty) >= 0) {
+					set_ValueOfColumn("RepairStatus", REPAIR_STATUS_CP);
+				} else {
+					set_ValueOfColumn("RepairStatus", REPAIR_STATUS_PR);
+				}
+			}
+		} else if (REPAIR_METHOD_SO.equals(repairMethod)) {
+			// 随销单补数：需要统计所有新工单的累计交付量
+			int shortageOrderId = get_ValueAsInt("Shortage_PP_Order_ID");
+			if (shortageOrderId <= 0)
+				return;
+
+			// 查询关联订单数量
+			BigDecimal orderQty = DB.getSQLValueBD(trxName,
+					"SELECT QtyOrdered FROM C_OrderLine WHERE C_OrderLine_ID=?",
+					getC_OrderLine_ID());
+			if (orderQty == null) orderQty = BigDecimal.ZERO;
+
+			// 统计所有新工单的累计交付量（以 Shortage_PP_Order_ID = shortageOrderId 的工单）
+			BigDecimal totalDelivered = DB.getSQLValueBD(trxName,
+					"SELECT COALESCE(SUM(QtyDelivered), 0) FROM PP_Order "
+							+ "WHERE Shortage_PP_Order_ID=? AND DocStatus NOT IN ('VO','CL') "
+							+ "AND AD_Client_ID=?",
+					shortageOrderId, getAD_Client_ID());
+			if (totalDelivered == null) totalDelivered = BigDecimal.ZERO;
+
+			BigDecimal fullQty = orderQty.add(repairQty); // 订单数量+补数数量
+
+			if (totalDelivered.signum() > 0) {
+				if (fullQty.signum() > 0 && totalDelivered.compareTo(fullQty) >= 0) {
+					set_ValueOfColumn("RepairStatus", REPAIR_STATUS_CP);
+				} else if (totalDelivered.compareTo(orderQty) > 0) {
+					// 交付量超过订单数量，说明补数部分已开始交付
+					set_ValueOfColumn("RepairStatus", REPAIR_STATUS_PR);
+				}
+			}
+		}
+	}
+
+	/**
+	 * 更新原工单的补数状态（供新工单保存/删除后调用）
+	 * 使用 SQL 直接更新，避免 saveEx 触发已完成原工单的工作流
+	 */
+	public void updateOriginalOrderRepairStatus(String trxName) {
+		int shortageOrderId = get_ValueAsInt("Shortage_PP_Order_ID");
+		if (shortageOrderId <= 0)
+			return;
+
+		MPPOrder originalOrder = new MPPOrder(getCtx(), shortageOrderId, trxName);
+		if (originalOrder.get_ID() <= 0)
+			return;
+
+		String newStatus = calculateRepairStatus(originalOrder);
+		DB.executeUpdateEx(
+				"UPDATE PP_Order SET RepairStatus=?, Updated=now(), UpdatedBy=? WHERE PP_Order_ID=?",
+				new Object[] { newStatus, getUpdatedBy(), shortageOrderId }, trxName);
+	}
+
+	/**
+	 * 静态计算补数状态（不修改 PO 对象，供外部 Process 调用后通过 SQL 写回）
+	 */
+	public static String calculateRepairStatus(MPPOrder order) {
+		String repairMethod = order.get_ValueAsString("RepairMethod");
+		if (repairMethod == null || repairMethod.isEmpty())
+			return REPAIR_STATUS_DP;
+
+
+		Object qtyShortageVal = order.get_Value("QtyShortage");
+		BigDecimal qtyShortage = (qtyShortageVal instanceof BigDecimal) ? (BigDecimal) qtyShortageVal : BigDecimal.ZERO;
+		if (qtyShortage.signum() <= 0)
+			return REPAIR_STATUS_DP;
+
+		BigDecimal qtyEntered = order.getQtyEntered();
+		BigDecimal qtyDelivered = order.getQtyDelivered();
+
+		// 规则①：入库数量=工单数量 → 无需补数
+		if (qtyEntered != null && qtyDelivered != null && qtyEntered.signum() > 0
+				&& qtyDelivered.compareTo(qtyEntered) >= 0) {
+			return REPAIR_STATUS_NR;
+		}
+
+		// 规则②：申请单完成后，新工单刚创建(QtyDelivered=0) → 处理中
+		// 规则③④：根据交付情况判断
+		Object repairQtyVal = order.get_Value("RepairQty");
+		BigDecimal repairQty = (repairQtyVal instanceof BigDecimal) ? (BigDecimal) repairQtyVal : BigDecimal.ZERO;
+
+		if (REPAIR_METHOD_WO.equals(repairMethod)) {
+			if (qtyDelivered != null && qtyDelivered.signum() > 0) {
+				if (repairQty.signum() > 0 && qtyDelivered.compareTo(repairQty) >= 0) {
+					return REPAIR_STATUS_CP;
+				}
+				return REPAIR_STATUS_PR;
+			}
+			return REPAIR_STATUS_IP;
+		} else if (REPAIR_METHOD_SO.equals(repairMethod)) {
+			int shortageOrderId = order.get_ValueAsInt("Shortage_PP_Order_ID");
+			if (shortageOrderId <= 0)
+				return REPAIR_STATUS_DP;
+
+			BigDecimal orderQty = DB.getSQLValueBD(null,
+					"SELECT QtyOrdered FROM C_OrderLine WHERE C_OrderLine_ID=?",
+					order.getC_OrderLine_ID());
+			if (orderQty == null) orderQty = BigDecimal.ZERO;
+
+			BigDecimal totalDelivered = DB.getSQLValueBD(null,
+					"SELECT COALESCE(SUM(QtyDelivered), 0) FROM PP_Order "
+							+ "WHERE Shortage_PP_Order_ID=? AND DocStatus NOT IN ('VO','CL') "
+							+ "AND AD_Client_ID=?",
+					shortageOrderId, order.getAD_Client_ID());
+			if (totalDelivered == null) totalDelivered = BigDecimal.ZERO;
+
+			BigDecimal fullQty = orderQty.add(repairQty);
+
+			if (totalDelivered.signum() > 0) {
+				if (fullQty.signum() > 0 && totalDelivered.compareTo(fullQty) >= 0) {
+					return REPAIR_STATUS_CP;
+				} else if (totalDelivered.compareTo(orderQty) > 0) {
+					return REPAIR_STATUS_PR;
+				}
+			}
+			return REPAIR_STATUS_IP;
+		}
+
+		return REPAIR_STATUS_DP;
 	}
 
 	private boolean m_skipExplosion = false;// 设置一个标志位，工单复制时不走BOM展开
@@ -535,8 +760,47 @@ public class MPPOrder extends X_PP_Order implements DocAction
 			explosion();
 		}
 
+		// 随销单补数(SO)场景：新工单保存成功后，回写原工单的补数工单号（只取第一个）
+		writebackOriginalOrderForRepair();
+
+		// 新工单保存后，更新原工单的补数状态
+		String repairMethod = get_ValueAsString("RepairMethod");
+		if (repairMethod != null && !repairMethod.isEmpty()) {
+			updateOriginalOrderRepairStatus(get_TrxName());
+		}
+
 		return true;
 	} //	beforeSave
+
+	/**
+	 * 随销单补数(SO)场景：新工单保存成功后，回写原工单的补数工单号和有无生产补数
+	 * 只取第一个新工单号（Repair_PP_Order_ID 为空时才写入）
+	 * 用 SQL 直接更新，避免触发已完成原工单的工作流
+	 */
+	private void writebackOriginalOrderForRepair() {
+		// 仅处理随销单补数(SO)且关联了原工单的情况
+		String repairMethod = get_ValueAsString("RepairMethod");
+		if (!"SO".equals(repairMethod))
+			return;
+
+		int shortageOrderId = get_ValueAsInt("Shortage_PP_Order_ID");
+		if (shortageOrderId <= 0)
+			return;
+
+		// 检查原工单是否已有补数工单号（只取第一个）
+		int existingRepairOrderId = DB.getSQLValue(get_TrxName(),
+				"SELECT Repair_PP_Order_ID FROM PP_Order WHERE PP_Order_ID=?",
+				shortageOrderId);
+		if (existingRepairOrderId > 0)
+			return;
+
+		// 用 SQL 更新原工单，避免 saveEx 触发工作流
+		DB.executeUpdateEx(
+				"UPDATE PP_Order SET Repair_PP_Order_ID=?, IsRepair='Y', RepairMethod=?, "
+					 + "Updated=now(), UpdatedBy=? WHERE PP_Order_ID=?",
+				new Object[] { get_ID(), repairMethod, getUpdatedBy(), shortageOrderId },
+				get_TrxName());
+	}
 
 	/**
 	 * 修改工单数量时，按比例更新 BOM 子件需求数量和工序需求数量/工时， 不删除重建，保留工单上已有的自定义子件和工序。
@@ -560,6 +824,16 @@ public class MPPOrder extends X_PP_Order implements DocAction
 	@Override
 	protected boolean beforeDelete()
 	{
+		// 补数工单：已开工/入库后不允许删除
+		String orderStatus = get_ValueAsString("Orderstatus");
+		if (orderStatus != null && !"Ready".equals(orderStatus) && !"Released".equals(orderStatus)) {
+			// 检查是否为补数工单（有 RepairMethod 字段说明是补数工单）
+			String repairMethod = get_ValueAsString("RepairMethod");
+			if (repairMethod != null && !repairMethod.isEmpty()) {
+				throw new IllegalStateException("补数工单已开工/入库，不允许删除");
+			}
+		}
+
 		// 保存原始订单数量
 		BigDecimal originalQtyOrdered = getQtyOrdered();
 		// OrderBOMLine
@@ -598,8 +872,54 @@ public class MPPOrder extends X_PP_Order implements DocAction
 		catch (Exception e) {
 			log.severe("处理PP_MRP记录错误: " + e.getMessage());
 		}
+
+		// 补数工单删除回滚：将原工单补数状态回滚为"待处理"(PD)，清空申请单关联
+		rollbackRepairOrderOnDelete();
+
 		return true;
 	} //	beforeDelete
+
+	/**
+	 * 补数工单删除回滚：清空申请单的 PP_Order_New_ID，将原工单 RepairStatus 回滚为"待处理"(PD)
+	 * 参照 MPP_Engineering_Change_Notice.rollbackOrderStatusForCancellation() 的写法
+	 */
+	private void rollbackRepairOrderOnDelete() {
+		// 查询是否存在 PP_Order_New_ID = 当前工单 的申请单
+		String sql = "SELECT PP_Order_Repair_Request_ID, PP_Order_ID FROM PP_Order_Repair_Request "
+				+ "WHERE PP_Order_New_ID=? AND AD_Client_ID=?";
+		PreparedStatement pstmt = null;
+		ResultSet rs = null;
+		try {
+			pstmt = DB.prepareStatement(sql, get_TrxName());
+			pstmt.setInt(1, get_ID());
+			pstmt.setInt(2, getAD_Client_ID());
+			rs = pstmt.executeQuery();
+			if (rs.next()) {
+				int requestId = rs.getInt(1);
+				int originalOrderId = rs.getInt(2);
+
+				// 清空申请单的新工单关联（用 SQL 避免触发工作流）
+				DB.executeUpdateEx(
+						"UPDATE PP_Order_Repair_Request SET PP_Order_New_ID=null, Updated=now(), UpdatedBy=? "
+								+ "WHERE PP_Order_Repair_Request_ID=?",
+						new Object[] { getUpdatedBy(), requestId }, get_TrxName());
+
+				// 重新计算原工单补数状态（可能还有其他补数工单）
+				if (originalOrderId > 0) {
+					MPPOrder originalOrder = new MPPOrder(getCtx(), originalOrderId, get_TrxName());
+					String newStatus = calculateRepairStatus(originalOrder);
+					DB.executeUpdateEx(
+							"UPDATE PP_Order SET RepairStatus=?, Updated=now(), UpdatedBy=? "
+									+ "WHERE PP_Order_ID=?",
+							new Object[] { newStatus, getUpdatedBy(), originalOrderId }, get_TrxName());
+				}
+			}
+		} catch (SQLException e) {
+			log.severe("补数工单删除回滚失败: " + e.getMessage());
+		} finally {
+			DB.close(rs, pstmt);
+		}
+	}
 
 	private void deleteWorkflowAndBOM()
 	{
@@ -1551,7 +1871,7 @@ public class MPPOrder extends X_PP_Order implements DocAction
 			log.info("处理BOM行 " + PP_Product_BOMline.getLine() + ", 产品ID: " + PP_Product_BOMline.getM_Product_ID()
 					+ ", 有效期: " + PP_Product_BOMline.getValidFrom() + " - " + PP_Product_BOMline.getValidTo());
 	          
-			if (PP_Product_BOMline.isValidFromTo(getDateStartSchedule())) {
+			if (true) {
 			    // ===== 校验当前角色对物料所属组织的访问权限 =====  
 			    MProduct bomProduct = MProduct.get(getCtx(), PP_Product_BOMline.getM_Product_ID());  
 			    int productOrgId = bomProduct.getAD_Org_ID();  
@@ -1992,8 +2312,8 @@ public class MPPOrder extends X_PP_Order implements DocAction
 	            costCollector.setM_Product_ID(effectiveProductId);  
 	            costCollector.setC_UOM_ID(effectiveUomId);  
 				costCollector.setC_Activity_ID(order.getC_Activity_ID()); // 新增这行
-	            costCollector.saveEx(order.get_TrxName());  
 				costCollector.setIsSubstitute(isSubstiute);
+	            costCollector.saveEx(order.get_TrxName());
 	            costCollectors.add(costCollector);  
 	        }  
 	        toIssue = toIssue.subtract(qtyIssue);  
@@ -2412,7 +2732,7 @@ public class MPPOrder extends X_PP_Order implements DocAction
 	public void addDescription (String description)
 	{
 		String desc = getDescription();
-		if (desc == null)
+		if (desc == null || desc == "" )
 			setDescription(description);
 		else
 			setDescription(desc + " | " + description);

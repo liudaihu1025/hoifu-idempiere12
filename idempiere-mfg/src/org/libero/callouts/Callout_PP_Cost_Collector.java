@@ -93,26 +93,40 @@ public class Callout_PP_Cost_Collector extends CalloutCostCollector implements I
           
         //duration(ctx, WindowNo, mTab, mField, value);  
         return "";  
-    }  
-    
-    
-    
-    public String updateDurationRealFromDates(Properties ctx, int WindowNo, GridTab mTab, GridField mField, Object value)  
-    {  
-        // 获取实际的开始和完成时间字段  
-        Timestamp startDate = (Timestamp)mTab.getValue("DateStart");  
-        Timestamp finishDate = (Timestamp)mTab.getValue("DateFinish");  
-          
-        Integer PP_Cost_Collector_ID = (Integer)mTab.getValue("PP_Cost_Collector_ID");  
-        if (PP_Cost_Collector_ID == null || PP_Cost_Collector_ID <= 0)  
-            return "";  
-          
-        MPPCostCollector cc = new MPPCostCollector(ctx, PP_Cost_Collector_ID, null);  
-        BigDecimal durationReal = cc.updateDurationRealFromDates(startDate, finishDate);  
-        // 同步更新界面上的DurationReal字段  
-        mTab.setValue("DurationReal", durationReal);
-          
-        return "";  
     }
+
+
+
+    public String updateDurationRealFromDates(Properties ctx, int WindowNo, GridTab mTab, GridField mField, Object value)
+    {
+        // 获取实际的开始和完成时间字段
+        Timestamp startDate = (Timestamp)mTab.getValue("DateStart");
+        Timestamp finishDate = (Timestamp)mTab.getValue("DateFinish");
+        BigDecimal durationReal;
+        
+        String CostCollectorType =  mTab.get_ValueAsString("CostCollectorType");
+
+        // 非生产报工（161）：需要按午休规则(12:00-12:45)扣减工时
+        if (MPPCostCollector.COSTCOLLECTORTYPE_NonProduction.equals(CostCollectorType) ) {
+            durationReal = MPPCostCollector.calculateNonProductionDuration(startDate, finishDate);
+            // 保持与原模型方法一致的行为：同步写回 cc 并保存（视原方法是否 saveEx 而定）
+            mTab.setValue("DurationReal", durationReal);
+            return "";
+        }
+        
+//        Integer PP_Cost_Collector_ID = (Integer)mTab.getValue("PP_Cost_Collector_ID");
+//        if (PP_Cost_Collector_ID == null || PP_Cost_Collector_ID <= 0)
+//            return "";
+
+        //MPPCostCollector cc = new MPPCostCollector(ctx, PP_Cost_Collector_ID, null);
+       
+        // 其它类型（如160生产报工）保持原有逻辑
+        durationReal = MPPCostCollector.updateDurationRealFromDates(startDate, finishDate);
+        // 同步更新界面上的DurationReal字段
+        mTab.setValue("DurationReal", durationReal);
+
+        return "";
+    }
+
 
 }

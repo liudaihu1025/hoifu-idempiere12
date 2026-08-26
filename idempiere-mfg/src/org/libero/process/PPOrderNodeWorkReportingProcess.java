@@ -254,8 +254,10 @@ public class PPOrderNodeWorkReportingProcess extends SvrProcess {
 			Timestamp dateStart = cc.getDateStart();
 			Timestamp dateFinish = new Timestamp(System.currentTimeMillis());
 			cc.setDateFinish(dateFinish);
-			if (dateStart != null)
-				cc.updateDurationRealFromDates(dateStart, dateFinish);
+			if (dateStart != null) {
+				BigDecimal roundedHours = MPPCostCollector.updateDurationRealFromDates(dateStart, dateFinish);
+				cc.setDurationReal(roundedHours);
+			}
 			cc.saveEx(get_TrxName());
 		}
 

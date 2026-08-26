@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>      
+<scr:component xmlns:scr="http://www.osgi.org/xmlns/scr/v1.1.0"       
+               immediate="true"       
+               name="com.hoifu.listener.BillDiscountParameterListener">      
+   <implementation class="com.hoifu.listener.BillDiscountParameterListener"/>      
+   <service>      
+      <provide interface="org.adempiere.webui.apps.IProcessParameterListener"/>      
+   </service>      
+   <property name="ProcessClass" value="com.hoifu.process.BillDiscountProcess"/>  
+   <property name="ColumnName" value="DiscountRate,ChargeAmt,BusinessDate"/>  
+</scr:component>

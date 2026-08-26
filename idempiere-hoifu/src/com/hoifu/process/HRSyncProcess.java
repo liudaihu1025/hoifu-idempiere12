@@ -42,6 +42,7 @@ public class HRSyncProcess extends SvrProcess {
 	private int catInsert;
 	private int jobInsert, jobUpdate;
 	private int empInsert, empUpdate;
+	private int userInsert; // 新增：AD_User联系人计数
 
 	@Override
 	protected void prepare() {
@@ -58,8 +59,8 @@ public class HRSyncProcess extends SvrProcess {
 		syncDepartments(token, clientId);
 		syncEmployees(token, clientId);
 
-		return String.format("同步完成 | 部门[新增:%d 更新:%d] | 职位类别[新增:%d] | 职位[新增:%d 更新:%d] | 员工[新增:%d 更新:%d]", deptInsert,
-				deptUpdate, catInsert, jobInsert, jobUpdate, empInsert, empUpdate);
+		return String.format("同步完成 | 部门[新增:%d 更新:%d] | 职位类别[新增:%d] | 职位[新增:%d 更新:%d] | 员工[新增:%d 更新:%d] | 用户[新增:%d]",
+				deptInsert, deptUpdate, catInsert, jobInsert, jobUpdate, empInsert, empUpdate, userInsert);
 	}
 
 	// =========================================================
@@ -355,6 +356,8 @@ public class HRSyncProcess extends SvrProcess {
 				bpMap.put(empCode, bp);
 				empInsert++;
 				log.info("新增员工: " + empCode + " - " + empName);
+				// 新增：为新员工创建对应的 AD_User 联系人（只填基本信息，不设置密码、不设置角色）  
+				createEmpUser(bp, empCode, empName, phone, isActive, clientId);
 			} else {
 				// 更新
 				bp.setName(empName);
@@ -362,16 +365,48 @@ public class HRSyncProcess extends SvrProcess {
 				setEmpCustomFields(bp, actId, cJobId, phone, workStatus, employmentStatus, auditTs, auditStatus,
 						syncNow, hrCreate, hrUpdate);
 				bp.saveEx();
-				// 离职时，同步禁用关联的 AD_User（联系人）  
-			    if (!isActive) {  
-			        deactivateBPUsers(bp.getC_BPartner_ID(), clientId);  
-			    }  
+				// 离职时，同步禁用关联的 AD_User（联系人）
+				if (!isActive) {
+					deactivateBPUsers(bp.getC_BPartner_ID(), clientId);
+				}
 				empUpdate++;
 			}
 		}
 		log.info("员工同步完成");
 	}
 
+	/**
+	 * 新增员工时，创建对应的 AD_User 联系人（仅基本信息，不设置密码，不分配角色）
+	 */
+	private void createEmpUser(MBPartner bp, String empCode, String empName, String phone, boolean isActive,
+			int clientId) {
+		try {
+			// 防重复：如果该 BP 已存在关联 AD_User，则跳过
+			int existingCount = new Query(getCtx(), MUser.Table_Name, "C_BPartner_ID=? AND AD_Client_ID=?",
+					get_TrxName()).setParameters(bp.getC_BPartner_ID(), clientId).count();
+			if (existingCount > 0) {
+				log.info("员工[" + empCode + "]已存在关联AD_User，跳过创建");
+				return;
+			}
+
+			MUser user = new MUser(bp); // 基于 MBPartner 构造，自动带出 AD_Client_ID/AD_Org_ID/C_BPartner_ID
+			user.setName(empName);
+			user.setAD_Org_ID(0); // 设置为所有组织，避免权限问题
+			if (phone != null && !phone.isEmpty())
+				user.setPhone(phone);
+			user.setIsActive(isActive);
+			// 不设置密码：user.setPassword(...) —— 不调用
+			// 不分配角色：不插入 AD_User_Roles —— 不调用
+			user.saveEx();
+
+			userInsert++;
+			log.info("新增员工联系人(AD_User): " + empCode + " - " + empName + " AD_User_ID=" + user.getAD_User_ID());
+		} catch (Exception e) {
+			// 单个员工创建AD_User失败不影响整体同步流程
+			log.log(Level.WARNING, "创建 AD_User 失败: 员工码=" + empCode, e);
+		}
+	}
+	
 	/**
 	 * 员工离职时，将关联的 AD_User（联系人）设置为无效
 	 */

@@ -20,7 +20,7 @@ public class CreateCounterSubcontractOrderProcess extends SvrProcess {
     private static final String SUBCONTRACT_DOCTYPE_UU = "5ae935d6-5237-4d93-ac5b-4967cf9be287";  
     //内部销售订单 UUID  
     private static final String SALES_DOCTYPE_UU       = "e88fa338-d5fb-42e0-85b7-f029a2f9b0e0";  
-  
+	private static final String COL_Warning = "Warning";
     private int p_C_Order_ID = 0;  
   
     @Override  

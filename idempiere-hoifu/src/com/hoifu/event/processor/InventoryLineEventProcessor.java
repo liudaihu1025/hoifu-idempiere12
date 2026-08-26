@@ -69,12 +69,23 @@ public class InventoryLineEventProcessor implements IEventProcessor {
 			return;
 
 		MInventoryLine refLine = new MInventoryLine(line.getCtx(), refLineId, line.get_TrxName());
+
 		BigDecimal returnableQty = refLine.getReturnableQty();
+
+		// 修改场景：可退数量不应包含本行自己之前已累计的退库数量，
+		// 否则完成后退库单明细再次保存时，会把自己已退的数量重复扣减导致“可退=0”。
+		if (IEventTopics.PO_BEFORE_CHANGE.equals(topic)) {
+			BigDecimal oldQty = (BigDecimal) line.get_ValueOld("QtyInternalUse");
+			if (oldQty != null)
+				returnableQty = returnableQty.add(oldQty);
+		}
+
 		if (qtyInternalUse.compareTo(returnableQty) > 0) {
 			String msg = "退库数量(" + qtyInternalUse + ") 超过可退数量(" + returnableQty + ")";
 			log.saveError("ValidationError", msg);
 			throw new IllegalArgumentException(msg);
 		}
+		
 	}
 	
     // ──────────────────────────────────────────────  

@@ -1,20 +1,3 @@
-/******************************************************************************
- * Product: Adempiere ERP & CRM Smart Business Solution                       *
- * This program is free software; you can redistribute it and/or modify it    *
- * under the terms version 2 of the GNU General Public License as published   *
- * by the Free Software Foundation. This program is distributed in the hope   *
- * that it will be useful, but WITHOUT ANY WARRANTY; without even the implied *
- * warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.           *
- * See the GNU General Public License for more details.                       *
- * You should have received a copy of the GNU General Public License along    *
- * with this program; if not, write to the Free Software Foundation, Inc.,    *
- * 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA.                     *
- * For the text or an alternative of this public license, you may reach us    *
- * Copyright (C) 2003-2007 e-Evolution,SC. All Rights Reserved.               *
- * Contributor(s): Victor Perez www.e-evolution.com                           *
- *                 Teo Sarca, www.arhipac.ro                                  *
- *****************************************************************************/
-
 package org.libero.process;
 
 
@@ -35,9 +18,7 @@ import java.util.logging.Level;
 import org.adempiere.exceptions.AdempiereException;
 import org.adempiere.exceptions.DBException;
 import org.compiere.model.MBPartner;
-import org.compiere.model.MColumn;
 import org.compiere.model.MDocType;
-import org.compiere.model.MForecastLine;
 import org.compiere.model.MLocator;
 import org.compiere.model.MMessage;
 import org.compiere.model.MNote;
@@ -72,16 +53,11 @@ import org.libero.model.MDDNetworkDistribution;
 import org.libero.model.MDDNetworkDistributionLine;
 import org.libero.model.MPPMRP;
 import org.libero.model.MPPOrder;
-import org.compiere.model.MQuery;  
-import org.adempiere.webui.apps.AEnv;
-import org.compiere.model.MTable;
 import org.compiere.model.MUOM;
 import org.compiere.model.MShipper;
 /**
- *	Calculate Material Plan MRP
+ *	计算物料计划MRP
  *	
- *  @author Victor Perez, e-Evolution, S.C.
- *  @author Teo Sarca, www.arhipac.ro
  */
 public class MRP extends SvrProcess
 {
@@ -89,6 +65,7 @@ public class MRP extends SvrProcess
 	private int     p_S_Resource_ID = 0;
 	private int     p_M_Warehouse_ID= 0;
 	private boolean p_IsRequiredDRP = false;
+	private boolean p_IsSimulate = false;
 	private int     p_Planner_ID = 0;
 	@SuppressWarnings("unused")
 	private String  p_Version = "1";
@@ -116,112 +93,25 @@ public class MRP extends SvrProcess
 	private int count_DO = 0;
 	private int count_Msg = 0;
 	private boolean p_DeleteMRP;
-	
 	private String  msg_debug="->";
 	private int global_mrp_id = 0;
 	
-	// 在定义静态内部类，封装显示的数据信息  
-	// 在定义静态内部类，封装显示的数据信息  
-	private static class DocumentInfo {  
-	    int id;  
-	    String documentNo;  
-	    String productValue;  
-	    String productName;  
-	      
-	    int productId; // 新增：物料ID用于链接  
-	      
-	    // 申购单字段  
-	    Timestamp requisitionDate;  
-	    Timestamp requiredDate;  
-	    BigDecimal quantity;  
-	    String uom;  
-	    String supplier;  
-	        
-	    // 生产工单字段  
-	    Timestamp datePromised;  
-	    Timestamp orderDate;  
-	    String resource;  
-	      
-	    // 配送订单字段  
-	    Timestamp dateOrdered;  
-	    String warehouse;  
-	        
-	    // 基础构造函数  
-	    DocumentInfo(int id, String documentNo, String productValue, String productName) {  
-	        this.id = id;  
-	        this.documentNo = documentNo;  
-	        this.productValue = productValue;  
-	        this.productName = productName;  
-	    }  
-	      
-	    // 申购单构造函数 (10个参数)  
-	    DocumentInfo(int id, String documentNo, String productValue, String productName,   
-	                 int productId, Timestamp requisitionDate, Timestamp requiredDate,   
-	                 BigDecimal quantity, String uom, String supplier) {  
-	        this(id, documentNo, productValue, productName);  
-	        this.productId = productId;  
-	        this.requisitionDate = requisitionDate;  
-	        this.requiredDate = requiredDate;  
-	        this.quantity = quantity;  
-	        this.uom = uom;  
-	        this.supplier = supplier;  
-	    }  
-	      
-	    // 生产工单构造函数 (11个参数，包含boolean标记)  
-	    DocumentInfo(int id, String documentNo, String productValue, String productName,   
-	                 int productId, Timestamp datePromised, Timestamp orderDate,   
-	                 BigDecimal quantity, String uom, String resource, boolean isManufacturing) {  
-	        this(id, documentNo, productValue, productName);  
-	        this.productId = productId;  
-	        this.datePromised = datePromised;  
-	        this.orderDate = orderDate;  
-	        this.quantity = quantity;  
-	        this.uom = uom;  
-	        this.resource = resource;  
-	    }  
-	      
-	    // 配送订单构造函数 (9个参数)  
-	    DocumentInfo(int id, String documentNo, String productValue, String productName,   
-	                 int productId, Timestamp dateOrdered, Timestamp datePromised,   
-	                 BigDecimal quantity, String warehouse) {  
-	        this(id, documentNo, productValue, productName);  
-	        this.productId = productId;  
-	        this.dateOrdered = dateOrdered;  
-	        this.datePromised = datePromised;  
-	        this.quantity = quantity;  
-	        this.warehouse = warehouse;  
-	    }  
-	      
-	    // 完整构造函数（支持所有字段）  
-	    DocumentInfo(int id, String documentNo, String productValue, String productName,   
-	                 int productId, Timestamp requisitionDate, Timestamp requiredDate,  
-	                 Timestamp datePromised, Timestamp orderDate, Timestamp dateOrdered,  
-	                 BigDecimal quantity, String uom, String supplier, String resource, String warehouse) {  
-	        this(id, documentNo, productValue, productName);  
-	        this.productId = productId;  
-	        this.requisitionDate = requisitionDate;  
-	        this.requiredDate = requiredDate;  
-	        this.datePromised = datePromised;  
-	        this.orderDate = orderDate;  
-	        this.dateOrdered = dateOrdered;  
-	        this.quantity = quantity;  
-	        this.uom = uom;  
-	        this.supplier = supplier;  
-	        this.resource = resource;  
-	        this.warehouse = warehouse;  
-	    }  
-	    
-	}
+	// --- 申购单分组缓存（生命周期 = 一次 MRP 运行）---
+	/** groupKey -> 本次运行中已创建的 MRequisition 头 */
+	private java.util.Map<String, MRequisition> m_requisitionCache = new java.util.HashMap<>();
+	/** groupKey -> (M_Product_ID -> 本次运行中已创建的 MRequisitionLine) */
+	private java.util.Map<String, java.util.Map<Integer, MRequisitionLine>> m_requisitionLineCache = new java.util.HashMap<>();
+	private java.util.Map<String, java.util.Map<Integer, DocumentInfo>> m_requisitionDocInfoCache = new java.util.HashMap<>();
 
 	// Cache
 	private static CCache<String ,Integer>   dd_order_id_cache 	= new CCache<String,Integer>(MDDOrder.COLUMNNAME_DD_Order_ID, 50);
 	private static CCache<Integer,MBPartner>   partner_cache 	= new CCache<Integer,MBPartner>(MBPartner.Table_Name, 50);
 	
 	// 包含详细信息的对象集合  例如:MO251217026 SG01022806 PP产品-1-1
-	
 	private List<DocumentInfo> createdMOInfos = new ArrayList<>();  
 	private List<DocumentInfo> createdDOInfos = new ArrayList<>();   
 	private List<DocumentInfo> createdMRInfos = new ArrayList<>();  
+	
 
 	protected void prepare()
 	{
@@ -255,176 +145,82 @@ public class MRP extends SvrProcess
 			{    
 				p_Version = (String)para[i].getParameter();        
 			}
+			else if (name.equals("IsSimulate"))  
+			{  
+			    p_IsSimulate = para[i].getParameterAsBoolean();  
+			}
 			else
 				log.log(Level.SEVERE,"prepare - Unknown Parameter: " + name);
 		}
 	}	//	prepare
 	
-	/**
-	 * @return the p_AD_Org_ID
-	 */
-	public int getAD_Org_ID()
-	{
-		return p_AD_Org_ID;
-	}
 
-	/**
-	 * @return the p_S_Resource_ID
-	 */
-	public int getPlant_ID()
-	{
-		return p_S_Resource_ID;
-	}
+	protected String doIt() throws Exception {
 
-	/**
-	 * @return the M_Warehouse_ID
-	 */
-	public int getM_Warehouse_ID()
-	{
-		return p_M_Warehouse_ID;
-	}
-
-	/**
-	 * @return the p_IsRequiredDRP
-	 */
-	public boolean isRequiredDRP()
-	{
-		return p_IsRequiredDRP;
-	}
-	
-	public int getPlanner_ID()
-	{
-		if (this.p_Planner_ID <= 0)
-		{
-			this.p_Planner_ID = Env.getAD_User_ID(getCtx());
-		}
-		return this.p_Planner_ID;
-	}
-	
-	
-	
-	/**
-	 * @return OrgName:组织名
-	 */
-    private String getOrgName() {  
-        if (getAD_Org_ID() > 0) {  
-            return MOrg.get(getCtx(), getAD_Org_ID()).getName();  
-        }  
-        return "全部组织";  
-    }  
-    /**
-	 * @return PlantName:工厂名
-	 */
-    private String getPlantName() {  
-        if (getPlant_ID() > 0) {  
-            return MResource.get(getCtx(), getPlant_ID()).getName();  
-        }  
-        return "全部资源";  
-    }  
-    /**
-	 * @return WareHouseName:仓库名
-	 */ 
-    private String getWarehouseName() {  
-        if (getM_Warehouse_ID() > 0) {  
-            return MWarehouse.get(getCtx(), getM_Warehouse_ID()).getName();  
-        }  
-        return "全部仓库";  
-    }  
-
-	protected String doIt() throws Exception                
-	{
-		 
-		
 		StringBuffer resultMsg = new StringBuffer();
 		dd_order_id_cache.clear();
-		partner_cache.clear(); 
-		
-		
-		 //add time process by PShepetko          
-		
-		// Record start time 
-		long startTime = System.currentTimeMillis();    
+		partner_cache.clear();
+
+		// add time process by PShepetko
+
+		// Record start time
+		long startTime = System.currentTimeMillis();
 		DateFormat df = new SimpleDateFormat("yyyy年MM月dd日 HH:mm:ss");
-		   
-		String startTimeStr = df.format(new Date()); 
-		   
-	    
-	   
-		
-		ArrayList <Object> parameters = new ArrayList<Object>();
-		StringBuffer whereClause = new StringBuffer(MResource.COLUMNNAME_ManufacturingResourceType+"=? AND AD_Client_ID=?");
+
+		String startTimeStr = df.format(new Date());
+
+		ArrayList<Object> parameters = new ArrayList<Object>();
+		StringBuffer whereClause = new StringBuffer(
+				MResource.COLUMNNAME_ManufacturingResourceType + "=? AND AD_Client_ID=?");
 		parameters.add(MResource.MANUFACTURINGRESOURCETYPE_Plant);
 		parameters.add(getAD_Client_ID());
-		if (getPlant_ID() > 0)
-		{	
-			whereClause.append(" AND "+MResource.COLUMNNAME_S_Resource_ID+"=?");
+		if (getPlant_ID() > 0) {
+			whereClause.append(" AND " + MResource.COLUMNNAME_S_Resource_ID + "=?");
 			parameters.add(getPlant_ID());
-		}	
-		List <MResource> plants = new Query(getCtx(), MResource.Table_Name, whereClause.toString(), get_TrxName())
-										.setParameters(parameters)
-										.setOrderBy(" ORDER BY value ")//22062018Pshepetko+
-										.list(); 
-		for(MResource plant : plants)
-		{	
+		}
+		List<MResource> plants = new Query(getCtx(), MResource.Table_Name, whereClause.toString(), get_TrxName())
+				.setParameters(parameters).setOrderBy(" ORDER BY value ")// 22062018Pshepetko+
+				.list();
+		for (MResource plant : plants) {
 			log.info("Run MRP to Plant: " + plant.getName());
-			this.Planning_Horizon = TimeUtil.addDays(getToday(), plant.getPlanningHorizon()); 
+			this.Planning_Horizon = TimeUtil.addDays(getToday(), plant.getPlanningHorizon());
 			parameters = new ArrayList<Object>();
 			whereClause = new StringBuffer("AD_Client_ID=?");
 			parameters.add(getAD_Client_ID());
 
-			if (getAD_Org_ID() > 0)
-			{	
+			if (getAD_Org_ID() > 0) {
 				whereClause.append(" AND AD_Org_ID=?");
 				parameters.add(getAD_Org_ID());
-			}	
+			}
 
+			List<MOrg> orgList = new Query(getCtx(), MOrg.Table_Name, whereClause.toString(), get_TrxName())
+					.setParameters(parameters).list();
 
-			List <MOrg> orgList = new Query(getCtx(),MOrg.Table_Name, whereClause.toString(), get_TrxName())
-			.setParameters(parameters)
-			.list();
-
-			for (MOrg org : orgList)
-			{
+			for (MOrg org : orgList) {
 				// Set Default Document Type To Requisition
 				docTypeReq_ID = getDocType(MDocType.DOCBASETYPE_PurchaseRequisition, org.getAD_Org_ID());
 				docTypeMO_ID = getDocType(MDocType.DOCBASETYPE_ManufacturingOrder, org.getAD_Org_ID());
 				docTypeMF_ID = getDocType(MDocType.DOCBASETYPE_MaintenanceOrder, org.getAD_Org_ID());
 				docTypeDO_ID = getDocType(MDocType.DOCBASETYPE_DistributionOrder, org.getAD_Org_ID());
-				
+
 				log.info("Run MRP to Organization: " + org.getName());
 				MWarehouse[] ws;
-				if(getM_Warehouse_ID() <= 0)
-				{
+				if (getM_Warehouse_ID() <= 0) {
 					ws = MWarehouse.getForOrg(getCtx(), org.getAD_Org_ID());
-				}
-				else
-				{
-					ws = new MWarehouse[]{MWarehouse.get(getCtx(), getM_Warehouse_ID())};
+				} else {
+					ws = new MWarehouse[] { MWarehouse.get(getCtx(), getM_Warehouse_ID()) };
 				}
 				//
-				for(MWarehouse w : ws)
-				{
-					if(plant.getM_Warehouse_ID() == w.getM_Warehouse_ID() && isRequiredDRP())
+				for (MWarehouse w : ws) {
+					if (plant.getM_Warehouse_ID() == w.getM_Warehouse_ID() && isRequiredDRP())
 						continue;
 
 					log.info("Run MRP to Wharehouse: " + w.getName());
 					runMRP(getAD_Client_ID(), org.getAD_Org_ID(), plant.getS_Resource_ID(), w.getM_Warehouse_ID());
-//					resultMsg.append("<br>finish MRP to Warehouse " +w.getName());
 				}
-//				resultMsg.append("<br>finish MRP to Organization " +org.getName());
 			}
-/*			resultMsg.append("<br> " +Msg.translate(getCtx(), "Created"));
-			resultMsg.append("<br> ");
-			resultMsg.append("<br> " +Msg.translate(getCtx(), "PP_Order_ID")+":"+count_MO);
-			resultMsg.append("<br> " +Msg.translate(getCtx(), "DD_Order_ID")+":"+count_DO);
-			resultMsg.append("<br> " +Msg.translate(getCtx(), "M_Requisition_ID")+":"+count_MR);
-			resultMsg.append("<br> " +Msg.translate(getCtx(), "AD_Note_ID")+":"+count_Msg);
-			resultMsg.append("<br>finish MRP to Plant " +plant.getName());
-*/			
-			 //Record end time       
-			
-			
-		    }   
+
+		}
 		
 		long endTime = System.currentTimeMillis();   
 		
@@ -449,17 +245,16 @@ public class MRP extends SvrProcess
 	       );  
 	      //展示生产工单，配送订单，申购单相关信息数据
 		displayCreatedDocuments() ;
+		if (p_IsSimulate) {  
+		    resultMsg.insert(0, "【预览模式，未创建任何单据】<br>");  
+		    rollback();  // SvrProcess 提供的 protected void rollback()，内部调用 m_trx.rollback()  
+		} 
 	    count_MO=0;count_DO=0;count_MR=0;count_Msg=0;  
 		return resultMsg.toString();
 	} 
 
-
-	/**************************************************************************
-	 * Delete old record in MRP table to calculate again MRP and Document with Draft status 
-	 * @param AD_Client_ID Client_ID
-	 * @param AD_Org_ID Orgganization ID
-	 * @param M_Warehouse_ID Warehouse ID
-	 * @throws SQLException 
+	/**
+	 * 清除旧PP_MRP表记录
 	 */
 	protected void deleteMRP(int AD_Client_ID, int AD_Org_ID,int S_Resource_ID, int M_Warehouse_ID) throws SQLException
 	{
@@ -467,12 +262,12 @@ public class MRP extends SvrProcess
 		// Delete Manufacturing Order with Close Status from MRP Table
 		String sql = "DELETE FROM PP_MRP WHERE OrderType = 'MOP' AND DocStatus IN ('CL', 'DR') AND AD_Client_ID=" + AD_Client_ID  + " AND AD_Org_ID=" + AD_Org_ID + " AND M_Warehouse_ID="+M_Warehouse_ID +  " AND S_Resource_ID="+S_Resource_ID ;
 		DB.executeUpdateEx(sql, get_TrxName());
-		commitEx();
+		//commitEx();
 
 		// Delete Requisition with Status Close from MRP Table
 		sql = "DELETE FROM PP_MRP WHERE OrderType = 'POR' AND DocStatus IN ('CL', 'DR') AND AD_Client_ID = " + AD_Client_ID +  " AND AD_Org_ID=" + AD_Org_ID+ " AND M_Warehouse_ID="+M_Warehouse_ID;
 		DB.executeUpdateEx(sql, get_TrxName());
-		commitEx();
+		//commitEx();
 
 		//Delete Manufacturing Order with Draft Status 
 		String whereClause = "DocStatus='DR' AND AD_Client_ID=? AND AD_Org_ID=? AND M_Warehouse_ID=? AND S_Resource_ID=?";
@@ -485,7 +280,7 @@ public class MRP extends SvrProcess
 		// Delete Action Notice
 		sql = "DELETE FROM AD_Note WHERE AD_Table_ID=? AND AD_Client_ID=? AND AD_Org_ID=?";
 		DB.executeUpdateEx(sql, new Object[]{MPPMRP.Table_ID, AD_Client_ID, AD_Org_ID}, get_TrxName());
-		commitEx();
+		//commitEx();
 
 		if (isRequiredDRP())
 		{
@@ -499,19 +294,15 @@ public class MRP extends SvrProcess
 		
 		// Mark all supply MRP records as available
 		DB.executeUpdateEx("UPDATE PP_MRP SET IsAvailable ='Y' WHERE TypeMRP = 'S' AND AD_Client_ID = ? AND AD_Org_ID=? AND M_Warehouse_ID=?", new Object[]{AD_Client_ID,AD_Org_ID,M_Warehouse_ID} ,get_TrxName());
-		commitEx();
+		//commitEx();
 	}
 
-	/**************************************************************************
-	 *  Calculate plan
-	 *  @param AD_Client_ID Client ID
-	 *  @param AD_Org_ID Organization ID
-	 *  @param M_Warehuse_ID Warehouse ID
-	 * @throws SQLException 
+	/**
+	 *  核心运算循环
 	 */
 	protected String runMRP(int AD_Client_ID , int AD_Org_ID, int S_Resource_ID , int M_Warehouse_ID) throws SQLException
 	{
-		if (p_DeleteMRP)
+		if (p_DeleteMRP&&!p_IsSimulate)
 			deleteMRP(AD_Client_ID,AD_Org_ID,S_Resource_ID,M_Warehouse_ID);
 		
 		PreparedStatement pstmt = null;
@@ -520,7 +311,7 @@ public class MRP extends SvrProcess
 		{
 			MProduct product = null;                                                                       
 
-			int BeforePP_MRP_ID = 0;						
+			int BeforePP_MRP_ID = 0;	
 			Timestamp  BeforeDateStartSchedule = null;
 			Timestamp  POQDateStartSchedule = null;
 			
@@ -536,6 +327,7 @@ public class MRP extends SvrProcess
 							+" FROM RV_PP_MRP mrp"
 							+" WHERE mrp.TypeMRP=?"
 							+" AND mrp.AD_Client_ID=?"
+							+" AND COALESCE(mrp.IsCSM,'N')='N'"
 							+" AND mrp.AD_Org_ID=? "
 							+" AND mrp.M_Warehouse_ID=?"
 							+" AND mrp.DatePromised<=?"
@@ -590,8 +382,6 @@ public class MRP extends SvrProcess
 							else if (X_PP_Product_Planning.ORDER_POLICY_Lot_For_Lot.equals(m_product_planning.getOrder_Policy())
 									&& BeforeDateStartSchedule.compareTo(Planning_Horizon) <= 0)
 							{
-								// TODO: Q: when we have this situation because on LFL we balance the Demand imediately
-								//		so we do not cumullate it?
 								calculatePlan(AD_Client_ID, AD_Org_ID,M_Warehouse_ID ,BeforePP_MRP_ID , product ,BeforeDateStartSchedule );
 							}
 							else if (X_PP_Product_Planning.ORDER_POLICY_FixedOrderQuantity.equals(m_product_planning.getOrder_Policy())  
@@ -599,9 +389,9 @@ public class MRP extends SvrProcess
 							{  
 								calculatePlan(AD_Client_ID, AD_Org_ID,M_Warehouse_ID ,BeforePP_MRP_ID , product ,BeforeDateStartSchedule ); 
 							}
-							// Discard QtyGrossReqs because:
-							// * was already balanced by calculatePlan
-							// * is out of Planning Horizon
+							//丢弃QtyGrossReques，因为：
+							//已经通过calculatePlan进行了平衡
+							//已超出规划范围
 							QtyGrossReqs = Env.ZERO;
 						}
 
@@ -670,7 +460,7 @@ public class MRP extends SvrProcess
 					}
 					// If  Order_Policy = LoteForLote then always create new range for next period and put QtyGrossReqs          
 					else if (X_PP_Product_Planning.ORDER_POLICY_Lot_For_Lot.equals(m_product_planning.getOrder_Policy()))
-					{                                                                                                                                           
+					{
 						QtyGrossReqs = QtyGrossReqs.add(Qty);
 						BeforeDateStartSchedule = DatePromised; 		
 						calculatePlan(AD_Client_ID, AD_Org_ID,M_Warehouse_ID,PP_MRP_ID,product,BeforeDateStartSchedule); 		
@@ -678,7 +468,7 @@ public class MRP extends SvrProcess
 					}    
 					// If Order_Policy = FixedOrderQuantity then always create new range and add QtyGrossReqs            
 					else if (X_PP_Product_Planning.ORDER_POLICY_FixedOrderQuantity.equals(m_product_planning.getOrder_Policy()))  
-					{                                                                                                                                             
+					{
 					    QtyGrossReqs = QtyGrossReqs.add(Qty);  
 					    BeforeDateStartSchedule = DatePromised; 		  
 						calculatePlan(AD_Client_ID, AD_Org_ID,M_Warehouse_ID,PP_MRP_ID,product,BeforeDateStartSchedule); 		  
@@ -732,13 +522,8 @@ public class MRP extends SvrProcess
 		return "ok";
 	}
 
-	/**************************************************************************
-	 * 	Define the product to calculate plan
-	 *  @param AD_Client_ID Client ID
-	 *  @param AD_Org_ID Organization ID
-	 *  @param M_Warehuse_ID Warehouse ID
-	 *	@param MProduct
-	 * @throws SQLException 
+	/**
+	 * 	加载产品计划参数
 	 */
 	private void setProduct(int AD_Client_ID , int AD_Org_ID, int S_Resource_ID , int M_Warehouse_ID, MProduct product, int PP_MRP_ID) throws SQLException
 	{
@@ -789,23 +574,11 @@ public class MRP extends SvrProcess
 	
 	protected MPPProductPlanning getProductPlanning(int AD_Client_ID , int AD_Org_ID, int S_Resource_ID , int M_Warehouse_ID, MProduct product, int PP_MRP_ID) throws SQLException
 	{
-		int ppdata_id=0;
-		MPPProductPlanning pp =null;
-/*		MPPMRP mrp = new MPPMRP(getCtx(), global_mrp_id, get_TrxName());
-		if (mrp.getOrderType().equals("FCT")) {
-			ppdata_id=getPPDataForMaintenance(mrp.getM_ForecastLine_ID());
-			msg_debug+=mrp.getM_ForecastLine_ID()+"|"+ppdata_id+"["+global_mrp_id+"]";
-			if (ppdata_id>0)
-				pp = new MPPProductPlanning(getCtx(), ppdata_id, get_TrxName()); 
-			
-		}
-		
-		if (ppdata_id==0)
-*/			// Find data product planning demand 
-			pp = MPPProductPlanning.find(getCtx() ,AD_Org_ID , M_Warehouse_ID, S_Resource_ID , product.getM_Product_ID(), get_TrxName());
-	
-		if (pp == null)
-		{
+		int ppdata_id = 0;
+		MPPProductPlanning pp = null;
+		pp = MPPProductPlanning.find(getCtx(), AD_Org_ID, M_Warehouse_ID, S_Resource_ID, product.getM_Product_ID(),get_TrxName());
+
+		if (pp == null) {
 			return null;
 		}
 		
@@ -879,43 +652,13 @@ public class MRP extends SvrProcess
 		return MPPMRP.getQtyOnHand(getCtx(), pp.getM_Warehouse_ID() , pp.getM_Product_ID(), get_TrxName());
 	}
 
-//	protected BigDecimal getQtyOnHand(I_PP_Product_Planning pp)
-//	{
-//		// 获取在手数量
-//		BigDecimal qtyOnHand = MPPMRP.getQtyOnHand(getCtx(), pp.getM_Warehouse_ID(), pp.getM_Product_ID(), get_TrxName());
-//
-//		// 获取在产数量
-//		BigDecimal qtyInProduction = getQtyInProduction(pp);
-//
-//		// 返回包含在产数量的库存
-//		return qtyOnHand.add(qtyInProduction);
-//	}
-
-	// 新增获取在产数量的方法
-	private BigDecimal getQtyInProduction(I_PP_Product_Planning pp)
-	{
-		String sql = "SELECT COALESCE(SUM(QtyInProduction), 0) " +
-				"FROM M_StorageReservation " +
-				"WHERE M_Warehouse_ID = ? AND M_Product_ID = ? " +
-				" AND IsSOTrx = 'N' AND IsActive = 'Y'";
-		BigDecimal qty = DB.getSQLValueBD(get_TrxName(), sql,
-				pp.getM_Warehouse_ID(),
-				pp.getM_Product_ID());
-		return qty == null ? Env.ZERO : qty;
-	}
-
 	protected Timestamp getToday()
 	{
 		return this.Today;
 	}
 
-	/**************************************************************************
-	 * 	Calculate Plan this product
-	 *	@param PP_MRP_ID MRP ID
-	 *  @param M_Warehouse_ID Warehoue ID
-	 *  @param product Product
-	 *  @param DemandDateStartSchedule Demand Date Start Schedule
-	 * @throws SQLException 
+	/**
+	 * 	计算净需求
 	 */
 	private void calculatePlan(int AD_Client_ID, int AD_Org_ID, int M_Warehouse_ID, int PP_MRP_ID,
 								MProduct product, Timestamp DemandDateStartSchedule) throws SQLException
@@ -1028,7 +771,7 @@ public class MRP extends SvrProcess
 		// This message is created if the flag 'Create Plan' is No.
 		if (m_product_planning.isCreatePlan() == false && QtyPlanned.signum() > 0)
 		{	
-			createMRPNote("MRP-020", AD_Org_ID, PP_MRP_ID, product , null , QtyPlanned , null); 
+			createMRPNote("MRP-020", AD_Org_ID, PP_MRP_ID, product , null , QtyPlanned , null);
 			return;
 		}
 		
@@ -1064,14 +807,7 @@ public class MRP extends SvrProcess
 	}
 	
 	/**
-	 * Create supply document to balance QtyPlnned 
-	 * @param AD_Org_ID
-	 * @param PP_MRP_ID
-	 * @param product
-	 * @param QtyPlanned
-	 * @param DemandDateStartSchedule
-	 * @throws AdempiereException if there is any error
-	 * @throws SQLException 
+	 * 决定生产何种供给单据，生成供给单据
 	 */
 	protected void createSupply(int AD_Org_ID, int PP_MRP_ID, MProduct product, BigDecimal QtyPlanned ,Timestamp DemandDateStartSchedule)
 	throws AdempiereException, SQLException
@@ -1101,14 +837,6 @@ public class MRP extends SvrProcess
 	protected void createDDOrder(int AD_Org_ID, int PP_MRP_ID, MProduct product,BigDecimal QtyPlanned ,Timestamp DemandDateStartSchedule)
 	throws AdempiereException, SQLException
 	{		
-		//TODO vpj-cd I need to create logic for DRP-040 Shipment Due  Action Notice
-		//Indicates that a shipment for a Order Distribution is due. 
-		// Action should be taken at the source warehouse to ensure that the order is received on time.
-		
-		//TODO vpj-cd I need to create logic for DRP-050 Shipment Pas Due  Action Notice
-		//Indicates that a shipment for a Order Distribution is past due. You should either delay the orders created the requirement for the product 
-		//or expedite them when the product does arrive.
-		
 		if(m_product_planning.getDD_NetworkDistribution_ID() == 0)
 		{
 			//Indicates that the Product Planning Data for this product does not specify a valid network distribution.
@@ -1210,7 +938,7 @@ public class MRP extends SvrProcess
 			}   
 
 			BigDecimal QtyOrdered = QtyPlanned.multiply(network_line.getPercent()).divide(Env.ONEHUNDRED);
-
+			
 			MDDOrderLine oline = new MDDOrderLine(getCtx(), 0 , get_TrxName());
 			oline.setDD_Order_ID(order.getDD_Order_ID());
 			oline.setAD_Org_ID(target.getAD_Org_ID());
@@ -1262,93 +990,167 @@ public class MRP extends SvrProcess
 		
 		}
 		count_DO+=1;
-		commitEx();
+		//commitEx();
 	}
 	
-	protected void createRequisition(int AD_Org_ID, int PP_MRP_ID, MProduct product, BigDecimal QtyPlanned, Timestamp DemandDateStartSchedule)
-	throws AdempiereException, SQLException
-	{
-		log.info("Create Requisition");
-		
-		 
-		
-		int duration = MPPMRP.getDurationDays(null,QtyPlanned, m_product_planning);
-		// Get PriceList from BPartner/Group - teo_sarca, FR [ 2829476 ]
-		int M_PriceList_ID = -1;
-		if (m_product_planning.getC_BPartner_ID() > 0)
-		{
-			final String sql = "SELECT COALESCE(bp."+MBPartner.COLUMNNAME_PO_PriceList_ID
-			+",bpg."+X_C_BP_Group.COLUMNNAME_PO_PriceList_ID+")"
-			+" FROM C_BPartner bp"
-			+" INNER JOIN C_BP_Group bpg ON (bpg.C_BP_Group_ID=bp.C_BP_Group_ID)"
-			+" WHERE bp.C_BPartner_ID=?";
-			M_PriceList_ID = DB.getSQLValueEx(get_TrxName(), sql, m_product_planning.getC_BPartner_ID());
-		}
-
-		MRequisition req = new  MRequisition(getCtx(),0, get_TrxName()); 
-		req.setAD_Org_ID(AD_Org_ID);
-		req.setAD_User_ID(m_product_planning.getPlanner_ID());                                                        
-		req.setDateRequired(TimeUtil.addDays(DemandDateStartSchedule, 0 - duration));
-		req.setDescription("Requisition generated from MRP"); // TODO: add translation
-		req.setM_Warehouse_ID(m_product_planning.getM_Warehouse_ID());
-		req.setC_DocType_ID(docTypeReq_ID);
-		if (M_PriceList_ID > 0)
-			req.setM_PriceList_ID(M_PriceList_ID);
-		req.saveEx();
-
-		MRequisitionLine reqline = new  MRequisitionLine(req);
-		reqline.setLine(10);
-		reqline.setAD_Org_ID(AD_Org_ID);
-		reqline.setC_BPartner_ID(m_product_planning.getC_BPartner_ID());
-		reqline.setM_Product_ID(m_product_planning.getM_Product_ID());
-		reqline.setPrice();
-		reqline.setPriceActual(Env.ZERO);
-		reqline.setQty(QtyPlanned);
-		
-		// 如果 MRP 记录关联了生产订单，设置 ENo
-		MPPMRP ppOrderMrp = new MPPMRP(getCtx(), PP_MRP_ID, get_TrxName());
-		if (ppOrderMrp.getPP_Order_ID() > 0) {
-			MPPOrder order = new MPPOrder(getCtx(), ppOrderMrp.getPP_Order_ID(), get_TrxName());
-			reqline.set_ValueOfColumn("ENo", order.getDocumentNo());
-		}
-		reqline.saveEx();
-
-		// Set Correct Dates for Plan
-		final String whereClause = MPPMRP.COLUMNNAME_M_Requisition_ID+"=?";
-		List<MPPMRP> mrpList = new Query(getCtx(), MPPMRP.Table_Name, whereClause, get_TrxName())
-									.setParameters(new Object[]{req.getM_Requisition_ID()})
-									.list();
-		for (MPPMRP mrp : mrpList)
-		{
-			mrp.setDateOrdered(getToday());
-			mrp.setS_Resource_ID(m_product_planning.getS_Resource_ID());
-			mrp.setDatePromised(req.getDateRequired());                                                            
-			mrp.setDateStartSchedule(req.getDateRequired());                                                            
-			mrp.setDateFinishSchedule(DemandDateStartSchedule);
-			mrp.saveEx();
-
-		}
-		commitEx();	
-		count_MR += 1;
-		
-		
-		MProduct productInfo = MProduct.get(getCtx(), req.getLines()[0].getM_Product_ID());      
-		DocumentInfo docInfo = new DocumentInfo(      
-		    req.get_ID(),      
-		    req.getDocumentNo(),      
-		    productInfo.getValue(),      
-		    productInfo.getName(),    
-		    productInfo.get_ID(),                      
-		    req.getDateDoc(),                          
-		    req.getDateRequired(),                     
-		    req.getLines().length > 0 ? req.getLines()[0].getQty() : BigDecimal.ZERO,  
-		    MUOM.get(getCtx(), productInfo.getC_UOM_ID()).getUOMSymbol(),   
-		    req.getLines().length > 0 && req.getLines()[0].getC_BPartner_ID() > 0   
-		        ? MBPartner.get(getCtx(), req.getLines()[0].getC_BPartner_ID()).getName()   
-		        : ""  
-		);
-		createdMRInfos.add(docInfo);  
-	}
+	protected void createRequisition(int AD_Org_ID, int PP_MRP_ID, MProduct product, BigDecimal QtyPlanned, Timestamp DemandDateStartSchedule)  
+			throws AdempiereException, SQLException  
+			{  
+			    log.info("Create Requisition");  
+			  
+			    int duration = MPPMRP.getDurationDays(null,QtyPlanned, m_product_planning);  
+			    int M_PriceList_ID = -1;  
+			    if (m_product_planning.getC_BPartner_ID() > 0)  
+			    {  
+			        final String sql = "SELECT COALESCE(bp."+MBPartner.COLUMNNAME_PO_PriceList_ID  
+			        +",bpg."+X_C_BP_Group.COLUMNNAME_PO_PriceList_ID+")"  
+			        +" FROM C_BPartner bp"  
+			        +" INNER JOIN C_BP_Group bpg ON (bpg.C_BP_Group_ID=bp.C_BP_Group_ID)"  
+			        +" WHERE bp.C_BPartner_ID=?";  
+			        M_PriceList_ID = DB.getSQLValueEx(get_TrxName(), sql, m_product_planning.getC_BPartner_ID());  
+			    }  
+			  
+			    MPPMRP ppOrderMrp = new MPPMRP(getCtx(), PP_MRP_ID, get_TrxName());  
+			    int PP_Order_ID = ppOrderMrp.getPP_Order_ID();  
+			  
+			    String groupKey = (PP_Order_ID > 0 ? "ORDER_" + PP_Order_ID : "NOORDER")  
+			            + "_" + AD_Org_ID + "_" + m_product_planning.getM_Warehouse_ID();  
+			  
+			    MRequisition req = m_requisitionCache.get(groupKey);  
+			    boolean isNewRequisition = (req == null);  
+			    if (isNewRequisition)  
+			    {  
+			        req = new MRequisition(getCtx(), 0, get_TrxName());  
+			        req.setAD_Org_ID(AD_Org_ID);  
+			        req.setAD_User_ID(m_product_planning.getPlanner_ID());  
+			        req.setDateRequired(TimeUtil.addDays(DemandDateStartSchedule, 0 - duration));  
+			        req.setDescription("由MRP生成的申购单");  
+			        req.setM_Warehouse_ID(m_product_planning.getM_Warehouse_ID());  
+			        req.setC_DocType_ID(docTypeReq_ID);  
+			        if (M_PriceList_ID > 0)  
+			            req.setM_PriceList_ID(M_PriceList_ID);  
+			        req.saveEx();  
+			  
+			        m_requisitionCache.put(groupKey, req);  
+			        m_requisitionLineCache.put(groupKey, new java.util.HashMap<Integer, MRequisitionLine>());  
+			        // 新单据计数 + 加入展示列表  
+			        count_MR += 1;  
+			    }  
+			  
+			    java.util.Map<Integer, MRequisitionLine> lineCache = m_requisitionLineCache.get(groupKey);  
+			    MRequisitionLine reqline = lineCache.get(product.get_ID());  
+			  
+			    if (reqline == null)  
+			    {  
+			        reqline = new MRequisitionLine(req);  
+			        reqline.setLine((lineCache.size() + 1) * 10);  
+			        reqline.setAD_Org_ID(AD_Org_ID);  
+			        reqline.setC_BPartner_ID(m_product_planning.getC_BPartner_ID());  
+			        reqline.setM_Product_ID(m_product_planning.getM_Product_ID());  
+			        reqline.setPrice();  
+			        reqline.setPriceActual(Env.ZERO);  
+			        reqline.setQty(QtyPlanned);  
+			  
+			        if (PP_Order_ID > 0)  
+			        {  
+			            MPPOrder order = new MPPOrder(getCtx(), PP_Order_ID, get_TrxName());  
+			            reqline.set_ValueOfColumn("ENo", order.getDocumentNo());  
+			            reqline.set_ValueOfColumn("PP_Order_IDs", String.valueOf(PP_Order_ID));  
+			        }  
+			        reqline.saveEx();  
+			  
+			        lineCache.put(product.get_ID(), reqline);  
+			    }  
+			    else  
+			    {  
+			        reqline.setQty(reqline.getQty().add(QtyPlanned));  
+			  
+			        if (PP_Order_ID > 0)  
+			        {  
+			            String existing = (String) reqline.get_Value("PP_Order_IDs");  
+			            java.util.Set<String> ids = new java.util.LinkedHashSet<>();  
+			            if (existing != null && !existing.isEmpty())  
+			                ids.addAll(java.util.Arrays.asList(existing.split(",")));  
+			            ids.add(String.valueOf(PP_Order_ID));  
+			            reqline.set_ValueOfColumn("PP_Order_IDs", String.join(",", ids));  
+			        }  
+			        reqline.saveEx();  
+			    }  
+			  
+			    // Set Correct Dates for Plan（保留原逻辑）  
+			    final String whereClause = MPPMRP.COLUMNNAME_M_Requisition_ID+"=?";  
+			    List<MPPMRP> mrpList = new Query(getCtx(), MPPMRP.Table_Name, whereClause, get_TrxName())  
+			                                .setParameters(new Object[]{req.getM_Requisition_ID()})  
+			                                .list();  
+			    for (MPPMRP mrp : mrpList)  
+			    {  
+			        mrp.setDateOrdered(getToday());  
+			        mrp.setS_Resource_ID(m_product_planning.getS_Resource_ID());  
+			        mrp.setDatePromised(req.getDateRequired());  
+			        mrp.setDateStartSchedule(req.getDateRequired());  
+			        mrp.setDateFinishSchedule(DemandDateStartSchedule);  
+			        mrp.saveEx();  
+			    }  
+			    //commitEx();  
+			  
+			    // ---- 补回：更新/新增展示信息 ----  
+			    MProduct productInfo = MProduct.get(getCtx(), m_product_planning.getM_Product_ID());  
+			    if (isNewRequisition)  
+			    {  
+			        // 新单据：新增一条展示记录  
+			        DocumentInfo docInfo = new DocumentInfo(  
+			            req.get_ID(),  
+			            req.getDocumentNo(),  
+			            productInfo.getValue(),  
+			            productInfo.getName(),  
+			            productInfo.get_ID(),  
+			            req.getDateDoc(),  
+			            req.getDateRequired(),  
+			            reqline.getQty(),  
+			            MUOM.get(getCtx(), productInfo.getC_UOM_ID()).getUOMSymbol(),  
+			            m_product_planning.getC_BPartner_ID() > 0  
+			                ? MBPartner.get(getCtx(), m_product_planning.getC_BPartner_ID()).getName()  
+			                : ""  
+			        );  
+			        createdMRInfos.add(docInfo);  
+			        // 记录该行对应的 DocumentInfo，方便后续同产品累加数量时更新展示数量  
+			        // （需要新增一个缓存：groupKey+M_Product_ID -> DocumentInfo）  
+			        m_requisitionDocInfoCache  
+			            .computeIfAbsent(groupKey, k -> new java.util.HashMap<>())  
+			            .put(product.get_ID(), docInfo);  
+			    }  
+			    else  
+			    {  
+			        // 复用已有单据：如果该产品行是本次新增的，也要新增一条展示记录；  
+			        // 如果是累加到已有行，则更新已存在展示记录的数量  
+			        java.util.Map<Integer, DocumentInfo> docInfoMap =  
+			            m_requisitionDocInfoCache.computeIfAbsent(groupKey, k -> new java.util.HashMap<>());  
+			        DocumentInfo existingDocInfo = docInfoMap.get(product.get_ID());  
+			        if (existingDocInfo == null)  
+			        {  
+			            DocumentInfo docInfo = new DocumentInfo(  
+			                req.get_ID(),  
+			                req.getDocumentNo(),  
+			                productInfo.getValue(),  
+			                productInfo.getName(),  
+			                productInfo.get_ID(),  
+			                req.getDateDoc(),  
+			                req.getDateRequired(),  
+			                reqline.getQty(),  
+			                MUOM.get(getCtx(), productInfo.getC_UOM_ID()).getUOMSymbol(),  
+			                m_product_planning.getC_BPartner_ID() > 0  
+			                    ? MBPartner.get(getCtx(), m_product_planning.getC_BPartner_ID()).getName()  
+			                    : ""  
+			            );  
+			            createdMRInfos.add(docInfo);  
+			            docInfoMap.put(product.get_ID(), docInfo);  
+			        }  
+			        else  
+			        {  
+			            existingDocInfo.setQty(reqline.getQty()); // 需 DocumentInfo 支持 setQty，若没有需自行加上  
+			        }  
+			    }  
+			}
 	
 	protected void createPPOrder(int AD_Org_ID, int PP_MRP_ID, MProduct product,BigDecimal QtyPlanned,Timestamp DemandDateStartSchedule)
 	throws AdempiereException, SQLException
@@ -1376,7 +1178,7 @@ public class MRP extends SvrProcess
 			order.setC_DocTypeTarget_ID(docTypeMO_ID);
 			order.setC_DocType_ID(docTypeMO_ID);  
 		}
-		order.addDescription("MO generated from MRP");		
+		order.addDescription("由MRP生成的生产工单");		
  		order.setS_Resource_ID(m_product_planning.getS_Resource_ID());
 		order.setM_Warehouse_ID(m_product_planning.getM_Warehouse_ID());
 		order.setM_Product_ID(m_product_planning.getM_Product_ID());
@@ -1386,14 +1188,7 @@ public class MRP extends SvrProcess
  		order.setM_AttributeSetInstance_ID(0);
 		order.setDateOrdered(getToday());                       
 		order.setDatePromised(DemandDateStartSchedule);
-		
-		//TODO red1-- phepetko commented 
-//		int duration =  0;//MPPMRP.getDurationDays(null,QtyPlanned, m_product_planning);
-//		
-//		order.setDateStartSchedule(TimeUtil.addDays(DemandDateStartSchedule, 0 - duration));
-//		order.setDateFinishSchedule(DemandDateStartSchedule);
-		// 修改时间计算逻辑  
-	      
+
 	    // 添加工作时间转序时间和采购承诺交期  
 		int workingTime = 0;
 	    int transferTime = 0;  
@@ -1428,6 +1223,7 @@ public class MRP extends SvrProcess
 		order.setScheduleType(MPPMRP.TYPEMRP_Demand);
 		order.setPriorityRule(MPPOrder.PRIORITYRULE_Medium);
 		order.setDocAction(MPPOrder.DOCACTION_Complete);
+		  
 		try {
 			MPPMRP mrp = new Query(getCtx(), MPPMRP.Table_Name, "PP_MRP_ID=?", get_TrxName())  
 				    .setParameters(PP_MRP_ID)  
@@ -1479,7 +1275,6 @@ public class MRP extends SvrProcess
 	
 	private void deletePO(String tableName, String whereClause, Object[] params) throws SQLException
 	{
-		// TODO: refactor this method and move it to org.compiere.model.Query class
 		POResultSet<PO> rs = new Query(getCtx(), tableName, whereClause, get_TrxName())
 									.setParameters(params)
 									.scroll();
@@ -1491,136 +1286,14 @@ public class MRP extends SvrProcess
 		finally {
 			rs.close();
 		}
-		commitEx();
+		//commitEx();
 	}
 
 	/**
-	 * Create MRP Notice
-	 * @param code MRP/DRP Code (see MRP-xxx and DRP-xxx messages)
-	 * @param AD_Org_ID organization
-	 * @param PP_MRP_ID MRP record id 
-	 * @param product product (optional)
-	 * @param documentNo Document# (optional)
-	 * @param qty quantity (optional)
-	 * @param comment comment (optional)
-	 * @throws SQLException 
-	 */
-	protected void createMRPNote(String code, int AD_Org_ID, int PP_MRP_ID, MProduct product, String documentNo, BigDecimal qty, String comment) throws SQLException
-	{
-		documentNo = documentNo != null ? documentNo : "";
-		comment = comment != null ? comment : "";
-		qty = qty != null ? qty : Env.ZERO;
-		
-		MMessage msg = MMessage.get(getCtx(), code);
-		// If MRP code not found, use MRP-999 - unknown error 
-		if (msg == null)
-		{
-			msg = MMessage.get(getCtx(), "MRP-999");
-		}
-		String message = Msg.getMsg(getCtx(), msg.getValue());
-		
-		int user_id = 0;
-		if (m_product_planning != null)
-		{
-			user_id = m_product_planning.getPlanner_ID();
-		}
-		
-		String reference = "";
-		if (product != null)
-		{
-			reference = product.getValue() + " " + product.getName();
-		}
-		
-		if (!Util.isEmpty(documentNo, true))
-		{
-			message += " " + Msg.translate(getCtx(), MPPOrder.COLUMNNAME_DocumentNo) +":" + documentNo;
-		}
-		if (qty != null)
-		{
-			message += " " + Msg.translate(getCtx(), "QtyPlan") + ":" + qty;
-		}
-		if (!Util.isEmpty(comment, true))
-		{
-	        message +=  " " + comment;
-		}
-	
-		MNote note = new MNote(getCtx(),
-							msg.getAD_Message_ID(),
-							user_id,
-							MPPMRP.Table_ID, PP_MRP_ID,
-							reference,
-							message,
-							get_TrxName());
-		note.setAD_Org_ID(AD_Org_ID);
-		note.saveEx();
-		commitEx(); 
-		log.info(code+": "+note.getTextMsg());  
-		count_Msg += 1;
-	}
-	
-	private void createMRPNote(String code, MPPMRP mrp, MProduct product, String comment) throws SQLException
-	{
-//		String comment = Msg.translate(getCtx(), MPPMRP.COLUMNNAME_DateStartSchedule)
-//		 + ":" + mrp.getDateStartSchedule()
-//		 + " " + Msg.translate(getCtx(), MPPMRP.COLUMNNAME_DatePromised)
-//		 + ":" + DemandDateStartSchedule;
-		createMRPNote(code,  mrp.getAD_Org_ID(), mrp.get_ID(), product,
-				MPPMRP.getDocumentNo(mrp.get_ID()), mrp.getQty(), comment);
-	}
-	
-	protected void createMRPNote(String code, int AD_Org_ID, int PP_MRP_ID,
-			MProduct product, BigDecimal qty,
-			Timestamp DemandDateStartSchedule,
-			Exception e) throws SQLException
-	{
-		String documentNo = null;
-		String comment = e.getLocalizedMessage();
-		createMRPNote(code, AD_Org_ID, PP_MRP_ID, product, documentNo, qty, comment);
-	}
-	
-	private int getDDOrder_ID(int AD_Org_ID,int M_Warehouse_ID, int M_Shipper_ID,int C_BPartner_ID, Timestamp DatePromised)
-	{
-		String key = AD_Org_ID+"#"+M_Warehouse_ID+"#"+M_Shipper_ID+"#"+C_BPartner_ID+"#"+DatePromised+"DR";
-		Integer order_id = dd_order_id_cache.get(key.toString());
-		if ( order_id == null)
-		{
-			String sql = "SELECT DD_Order_ID FROM DD_Order WHERE AD_Org_ID=? AND M_Warehouse_ID=? AND M_Shipper_ID = ? AND C_BPartner_ID=? AND DatePromised=? AND DocStatus=?";
-			order_id = DB.getSQLValueEx(get_TrxName(), sql, 
-				new Object[]{	AD_Org_ID,
-								M_Warehouse_ID,
-								M_Shipper_ID,
-								C_BPartner_ID,
-								DatePromised,
-								MDDOrder.DOCSTATUS_Drafted });
-			if(order_id > 0)
-				dd_order_id_cache.put(key,order_id);
-		}
-		return order_id;
-	}
-	
-	private MBPartner getBPartner(int C_BPartner_ID)
-	{
-		MBPartner partner = partner_cache.get(C_BPartner_ID);
-		if ( partner == null)
-		{	
-			 partner = MBPartner.get(getCtx(), C_BPartner_ID);
-			 partner_cache.put(C_BPartner_ID, partner);
-		}
-		return partner;
-	}
-	
-	/**
-	 * Get ScheduledReceipts to cover the ProjectQtyOnhand
-	 * @param AD_Client_ID
-	 * @param AD_Org_ID
-	 * @param M_Warehouse_ID
-	 * @param product
-	 * @param ProjectQtyOnhand
-	 * @param DemandDateStartSchedule
-	 * @return Net Requirements:
-	 * 			<li>positive qty means entire qty is available or scheduled to receipt
-	 * 			<li>negative qty means qty net required
-	 * @throws SQLException 
+	 * 被calculatePlan调用，真正计算净需求/在手库存/在途供给
+	 * @return 净需求:
+	 * 			正数量表示整个数量可用或计划接收
+	 * 			负数量表示所需净数量
 	 */
 	private BigDecimal getNetRequirements(int AD_Client_ID, int AD_Org_ID, 
 											int M_Warehouse_ID, MProduct product,
@@ -1765,6 +1438,98 @@ public class MRP extends SvrProcess
 		return QtyNetReqs;
 	}
 	
+	/**
+	 * 生成 Action Notice（AD_Note），对应各种 MRP/DRP 消息代码。（多个重载）
+	 */
+	protected void createMRPNote(String code, int AD_Org_ID, int PP_MRP_ID, MProduct product, String documentNo, BigDecimal qty, String comment) throws SQLException
+	{
+		documentNo = documentNo != null ? documentNo : "";
+		comment = comment != null ? comment : "";
+		qty = qty != null ? qty : Env.ZERO;
+		
+		MMessage msg = MMessage.get(getCtx(), code);
+		// If MRP code not found, use MRP-999 - unknown error 
+		if (msg == null)
+		{
+			msg = MMessage.get(getCtx(), "MRP-999");
+		}
+		String message = Msg.getMsg(getCtx(), msg.getValue());
+		
+		int user_id = 0;
+		if (m_product_planning != null)
+		{
+			user_id = m_product_planning.getPlanner_ID();
+		}
+		
+		String reference = "";
+		if (product != null)
+		{
+			reference = product.getValue() + " " + product.getName();
+		}
+		
+		if (!Util.isEmpty(documentNo, true))
+		{
+			message += " " + Msg.translate(getCtx(), MPPOrder.COLUMNNAME_DocumentNo) +":" + documentNo;
+		}
+		if (qty != null)
+		{
+			message += " " + Msg.translate(getCtx(), "QtyPlan") + ":" + qty;
+		}
+		if (!Util.isEmpty(comment, true))
+		{
+	        message +=  " " + comment;
+		}
+	
+		MNote note = new MNote(getCtx(),
+							msg.getAD_Message_ID(),
+							user_id,
+							MPPMRP.Table_ID, PP_MRP_ID,
+							reference,
+							message,
+							get_TrxName());
+		note.setAD_Org_ID(AD_Org_ID);
+		note.saveEx();
+		//commitEx(); 
+		log.info(code+": "+note.getTextMsg());  
+		count_Msg += 1;
+	}
+	
+	private void createMRPNote(String code, MPPMRP mrp, MProduct product, String comment) throws SQLException
+	{
+		createMRPNote(code,  mrp.getAD_Org_ID(), mrp.get_ID(), product,
+				MPPMRP.getDocumentNo(mrp.get_ID()), mrp.getQty(), comment);
+	}
+	
+	protected void createMRPNote(String code, int AD_Org_ID, int PP_MRP_ID,
+			MProduct product, BigDecimal qty,
+			Timestamp DemandDateStartSchedule,
+			Exception e) throws SQLException
+	{
+		String documentNo = null;
+		String comment = e.getLocalizedMessage();
+		createMRPNote(code, AD_Org_ID, PP_MRP_ID, product, documentNo, qty, comment);
+	}
+	
+	private int getDDOrder_ID(int AD_Org_ID,int M_Warehouse_ID, int M_Shipper_ID,int C_BPartner_ID, Timestamp DatePromised)
+	{
+		String key = AD_Org_ID+"#"+M_Warehouse_ID+"#"+M_Shipper_ID+"#"+C_BPartner_ID+"#"+DatePromised+"DR";
+		Integer order_id = dd_order_id_cache.get(key.toString());
+		if ( order_id == null)
+		{
+			String sql = "SELECT DD_Order_ID FROM DD_Order WHERE AD_Org_ID=? AND M_Warehouse_ID=? AND M_Shipper_ID = ? AND C_BPartner_ID=? AND DatePromised=? AND DocStatus=?";
+			order_id = DB.getSQLValueEx(get_TrxName(), sql, 
+				new Object[]{	AD_Org_ID,
+								M_Warehouse_ID,
+								M_Shipper_ID,
+								C_BPartner_ID,
+								DatePromised,
+								MDDOrder.DOCSTATUS_Drafted });
+			if(order_id > 0)
+				dd_order_id_cache.put(key,order_id);
+		}
+		return order_id;
+	}
+	
 	protected int getDocType(String docBaseType, int AD_Org_ID)
 	{
 		MDocType[] docs = MDocType.getOfDocBaseType(getCtx(), docBaseType);
@@ -1808,31 +1573,15 @@ public class MRP extends SvrProcess
 		return BOMType;
 	}
 	
-	/**
-	 * get Product Planning data for Maintenance ID 
-	 * @return
-	 */
-	private int getPPDataForMaintenance(int M_ForecastLine_ID)
+	private MBPartner getBPartner(int C_BPartner_ID)
 	{
-		int ppd_id =0;
-		
-		if (checkColumnExists("M_ForecastLine", "PP_Product_Planning_ID")==1) {
-			ppd_id = DB.getSQLValue(get_TrxName(), "SELECT COALESCE(PP_Product_Planning_ID) FROM M_ForecastLine WHERE M_ForecastLine_ID =?;",M_ForecastLine_ID);
+		MBPartner partner = partner_cache.get(C_BPartner_ID);
+		if ( partner == null)
+		{	
+			 partner = MBPartner.get(getCtx(), C_BPartner_ID);
+			 partner_cache.put(C_BPartner_ID, partner);
 		}
-		return   ppd_id;
-	}
-	
-	/**
-	 * check Column Exists in the table because this custom field for Maintenance
-	 * @return
-	 */
-	private int checkColumnExists(String tablename, String columnname)
-	{
- 
-		return  DB.getSQLValue(get_TrxName(), "SELECT COUNT(column_name) FROM  information_schema.columns " + 
-			 		"WHERE table_schema = LOWER('adempiere') " + 
-			 		"AND  table_name = LOWER('"+tablename+"') " + 
-			 		"AND column_name = LOWER('"+columnname+"');");
+		return partner;
 	}
 	
 	/**  
@@ -1841,21 +1590,23 @@ public class MRP extends SvrProcess
 	 */  
 	private void displayCreatedDocuments() {  
 	    // 申购单表格  
-	    if (!createdMRInfos.isEmpty()) {  
-	        addBufferLog(0, null, null, "申购单", MRequisition.Table_ID, 0);  
-	          
-	        // 总是显示最多10条记录  
-	        int displayCount = Math.min(10, createdMRInfos.size());  
-	        List<DocumentInfo> displayList = createdMRInfos.subList(0, displayCount);  
-	        String[][] reqTable = createRequisitionTable(displayList);  
-	        String htmlTable = createHTMLTable(reqTable);  
-	        addBufferLog(0, null, null, htmlTable, MRequisition.Table_ID, 0);  
-	          
-	        // 如果超过10条，显示提示信息  
-	        if (createdMRInfos.size() > 10) {  
-	            addBufferLog(0, null, null, "记录已超过10条，全部记录请在申购单窗口中查看", MRequisition.Table_ID, 0);  
-	        }  
-	    }  
+		if (!createdMRInfos.isEmpty()) {    
+		    addBufferLog(0, null, null, "申购单", MRequisition.Table_ID, 0);    
+		  
+		    // 按 DocumentNo 排序  
+		    createdMRInfos.sort(java.util.Comparator.comparing(docInfo -> docInfo.documentNo == null ? "" : docInfo.documentNo));  
+		  
+		    // 总是显示最多10条记录    
+		    int displayCount = Math.min(10, createdMRInfos.size());    
+		    List<DocumentInfo> displayList = createdMRInfos.subList(0, displayCount);    
+		    String[][] reqTable = createRequisitionTable(displayList);    
+		    String htmlTable = createHTMLTable(reqTable);    
+		    addBufferLog(0, null, null, htmlTable, MRequisition.Table_ID, 0);    
+		  
+		    if (createdMRInfos.size() > 10) {    
+		        addBufferLog(0, null, null, "记录已超过10条，全部记录请在申购单窗口中查看", MRequisition.Table_ID, 0);    
+		    }    
+		} 
 	          
 	    // 生产工单表格  
 	    if (!createdMOInfos.isEmpty()) {  
@@ -1896,7 +1647,7 @@ public class MRP extends SvrProcess
 	    String[][] table = new String[reqInfos.size() + 1][7]; // +1 for header  
 	      
 	      
-	    table[0] = new String[]{"申购单号", "物料", "申购日期", "需求日期", "数量", "单位", "供应商"};  
+	    table[0] = new String[]{"申购单号", "物料", "申购日期", "需求日期", "需求数量", "单位", "供应商"};  
 	      
 	    // 数据行  
 	    for (int i = 0; i < reqInfos.size(); i++) {  
@@ -1996,4 +1747,125 @@ public class MRP extends SvrProcess
 	    return df.format(date);  
 	}
 	
+	public int getAD_Org_ID()
+	{
+		return p_AD_Org_ID;
+	}
+
+	public int getPlant_ID()
+	{
+		return p_S_Resource_ID;
+	}
+
+	public int getM_Warehouse_ID()
+	{
+		return p_M_Warehouse_ID;
+	}
+
+	public boolean isRequiredDRP()
+	{
+		return p_IsRequiredDRP;
+	}
+	
+	public boolean isSimulate()  
+	{  
+	    return p_IsSimulate;  
+	}
+	
+	public int getPlanner_ID()
+	{
+		if (this.p_Planner_ID <= 0)
+		{
+			this.p_Planner_ID = Env.getAD_User_ID(getCtx());
+		}
+		return this.p_Planner_ID;
+	}
+	
+    private String getOrgName() {  
+        if (getAD_Org_ID() > 0) {  
+            return MOrg.get(getCtx(), getAD_Org_ID()).getName();  
+        }  
+        return "全部组织";  
+    }  
+
+    private String getPlantName() {  
+        if (getPlant_ID() > 0) {  
+            return MResource.get(getCtx(), getPlant_ID()).getName();  
+        }  
+        return "全部资源";  
+    }  
+    private String getWarehouseName() {  
+        if (getM_Warehouse_ID() > 0) {  
+            return MWarehouse.get(getCtx(), getM_Warehouse_ID()).getName();  
+        }  
+        return "全部仓库";  
+    }  
+
+	// 在定义静态内部类，封装显示的数据信息  
+	// 在定义静态内部类，封装显示的数据信息  
+	private static class DocumentInfo {  
+	    int id;  
+	    String documentNo;  
+	    String productValue;  
+	    String productName;  
+	      
+	    int productId; // 新增：物料ID用于链接  
+	      
+	    // 申购单字段  
+	    Timestamp requisitionDate;  
+	    Timestamp requiredDate;  
+	    BigDecimal quantity;  
+	    String uom;  
+	    String supplier;  
+	        
+	    // 生产工单字段  
+	    Timestamp datePromised;  
+	    Timestamp orderDate;  
+	    String resource;  
+	      
+	    // 配送订单字段  
+	    Timestamp dateOrdered;  
+	    String warehouse;  
+	        
+	    // 基础构造函数  
+	    DocumentInfo(int id, String documentNo, String productValue, String productName) {  
+	        this.id = id;  
+	        this.documentNo = documentNo;  
+	        this.productValue = productValue;  
+	        this.productName = productName;  
+	    }  
+	      
+	    // 申购单构造函数 (10个参数)  
+	    DocumentInfo(int id, String documentNo, String productValue, String productName,   
+	                 int productId, Timestamp requisitionDate, Timestamp requiredDate,   
+	                 BigDecimal quantity, String uom, String supplier) {  
+	        this(id, documentNo, productValue, productName);  
+	        this.productId = productId;  
+	        this.requisitionDate = requisitionDate;  
+	        this.requiredDate = requiredDate;  
+	        this.quantity = quantity;  
+	        this.uom = uom;  
+	        this.supplier = supplier;  
+	    }  
+	      
+	    // 生产工单构造函数 (11个参数，包含boolean标记)  
+	    DocumentInfo(int id, String documentNo, String productValue, String productName,   
+	                 int productId, Timestamp datePromised, Timestamp orderDate,   
+	                 BigDecimal quantity, String uom, String resource, boolean isManufacturing) {  
+	        this(id, documentNo, productValue, productName);  
+	        this.productId = productId;  
+	        this.datePromised = datePromised;  
+	        this.orderDate = orderDate;  
+	        this.quantity = quantity;  
+	        this.uom = uom;  
+	        this.resource = resource;  
+	    }  
+	    
+	    private void setQty(BigDecimal quantity) {
+	    	this.quantity = quantity;
+	    }
+	}
+	
+
+
 }

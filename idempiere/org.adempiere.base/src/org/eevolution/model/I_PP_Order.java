@@ -875,4 +875,31 @@ public interface I_PP_Order
 	  * The Yield is the percentage of a lot that is expected to be of acceptable wuality may fall below 100 percent
 	  */
 	public BigDecimal getYield();
+	
+	/**
+	 * 印刷咬口
+	 */
+	public static final String COLUMNNAME_PrintingBiteEdge = "PrintingBiteEdge";
+	
+	public void setPrintingBiteEdge (String PrintingBiteEdge);
+	
+	public String getPrintingBiteEdge();
+	
+	/**
+	 * 纸张开料
+	 */
+	public static final String COLUMNNAME_PaperCutting = "PaperCutting";
+	
+	public void setPaperCutting (String PaperCutting);
+	
+	public String getPaperCutting();
+	
+	/**
+	 * 翻单单号（翻单工单ID）
+	 */
+	public static final String COLUMNNAME_Ref_PP_Order_ID = "Ref_PP_Order_ID";
+	
+	public void setRef_PP_Order_ID (int Ref_PP_Order_ID);
+	
+	public int getRef_PP_Order_ID();
 }

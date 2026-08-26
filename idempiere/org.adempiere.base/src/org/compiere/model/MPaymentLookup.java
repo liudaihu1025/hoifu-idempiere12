@@ -218,13 +218,7 @@ public class MPaymentLookup extends Lookup implements Serializable {
 		ValueNamePair[] values = getData();
 		for (ValueNamePair value : values)
 		{
-			String PaymentRule = value.getValue();
-			if (MInvoice.PAYMENTRULE_DirectDebit.equals(PaymentRule) //	SO
-				&& !m_isSOTrx)
-				continue;
-			else if (MInvoice.PAYMENTRULE_DirectDeposit.equals(PaymentRule)	//	PO 
-				&& m_isSOTrx)
-				continue;
+
 			list.add(value);
 		}
 		

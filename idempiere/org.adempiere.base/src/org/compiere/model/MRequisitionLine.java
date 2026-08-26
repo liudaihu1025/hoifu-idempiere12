@@ -278,10 +278,10 @@ public class MRequisitionLine extends X_M_RequisitionLine
 	@Override
 	protected boolean beforeSave (boolean newRecord)
 	{
-		if (newRecord && getParent().isProcessed()) {
-			log.saveError("ParentComplete", Msg.translate(getCtx(), "M_Requisition_ID"));
-			return false;
-		}
+//		if (newRecord && getParent().isProcessed()) {
+//			log.saveError("ParentComplete", Msg.translate(getCtx(), "M_Requisition_ID"));
+//			return false;
+//		}
 		// Set Line
 		if (getLine() == 0)
 		{

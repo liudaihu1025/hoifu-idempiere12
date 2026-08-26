@@ -23,15 +23,20 @@ import com.hoifu.model.MBillPool;
 import com.hoifu.model.MBillTransaction;
 import com.hoifu.model.MPaymentLine;
 
+/**
+ * 签发流程
+ */
 @org.adempiere.base.annotation.Process
 public class BillPaymentIssueProcess extends SvrProcess {
 	// 参数
-	private int p_C_BPartner_ID = 0;
-	private int p_Holder_Id = 0;
-	private int p_C_Charge_ID = 0;
-	private boolean p_IsGeneratePayment = false;
-	private int p_C_BankAccount_ID = 0;
-	private Timestamp p_BusinessDate = null;
+	private Timestamp p_BusinessDate = null;//业务日期
+	private int p_C_BPartner_ID = 0; //出票人
+	private int p_settle_bp_ID = 0; // 结算单位
+	private int Payee_Id= 0; //收票人
+	private int p_C_Charge_ID = 0; //费用项目
+	private boolean p_IsGeneratePayment = false; //是否生成付款单
+	private int p_C_BankAccount_ID = 0; //银行账户
+
 
 	// 选择标记
 	private boolean p_Selection = false;
@@ -42,18 +47,20 @@ public class BillPaymentIssueProcess extends SvrProcess {
 			String name = para[i].getParameterName();
 			if (para[i].getParameter() == null)
 				;
-			else if (name.equals("C_BPartner_ID"))
-				p_C_BPartner_ID = para[i].getParameterAsInt();
-			else if (name.equals("Holder_Id"))
-				p_Holder_Id = para[i].getParameterAsInt();
-			else if (name.equals("C_Charge_ID"))
-				p_C_Charge_ID = para[i].getParameterAsInt();
-			else if (name.equals("IsGeneratePayment"))
-				p_IsGeneratePayment = "Y".equals(para[i].getParameter());
-			else if (name.equals("C_BankAccount_ID"))
-				p_C_BankAccount_ID = para[i].getParameterAsInt();
 			else if (name.equals("BusinessDate"))
-				p_BusinessDate = (Timestamp) para[i].getParameter();
+				p_BusinessDate = (Timestamp) para[i].getParameter();//业务日期
+			else if (name.equals("C_BPartner_ID"))
+				p_C_BPartner_ID = para[i].getParameterAsInt();//出票人
+			else if (name.equals("settle_bp_ID"))
+				p_settle_bp_ID = para[i].getParameterAsInt();// 结算单位
+			else if (name.equals("Payee_Id"))
+				Payee_Id = para[i].getParameterAsInt();//收票人
+			else if (name.equals("C_Charge_ID"))
+				p_C_Charge_ID = para[i].getParameterAsInt();//费用项目
+			else if (name.equals("IsGeneratePayment"))
+				p_IsGeneratePayment = "Y".equals(para[i].getParameter());//是否生成付款单
+			else if (name.equals("C_BankAccount_ID"))
+				p_C_BankAccount_ID = para[i].getParameterAsInt();//银行账户
 			else
 				MProcessPara.validateUnknownParameter(getProcessInfo().getAD_Process_ID(), para[i]);
 		}
@@ -105,21 +112,26 @@ public class BillPaymentIssueProcess extends SvrProcess {
 	}
 
 	private void processBillReceipt(MBillPool billPool) throws Exception {
-		MBPartner drawer = MBPartner.get(Env.getCtx(), p_Holder_Id, get_TrxName());
-		MBPartner payee = MBPartner.get(Env.getCtx(), p_C_BPartner_ID, get_TrxName());
+		//出票人
+		MBPartner drawer = MBPartner.get(Env.getCtx(), p_C_BPartner_ID, get_TrxName());
+		//收票人
+		MBPartner payee = MBPartner.get(Env.getCtx(), Payee_Id, get_TrxName());
 
 		// 设置状态
 		billPool.setDocStatus("AP"); // 已审核
 		billPool.setBusinessStatus("P"); // 已签发
 
-		billPool.setHolder_Id(p_Holder_Id); // 持有人
-		if (drawer != null) {
-			billPool.setDrawer_Id(drawer.getName()); // 出票人
-		}
-		if (payee != null) {
-			billPool.setPayee_Id(payee.getName()); // 收款人
-		}
+		if (drawer != null)
+			billPool.setDrawer_Id(drawer.getName()); // 出票人名称
+		if (payee != null)
+			billPool.setPayee_Id(payee.getName()); // 收票人名称
 
+		billPool.set_ValueNoCheck("owner_bp_ID", p_C_BPartner_ID); // 收款单位
+		billPool.set_ValueNoCheck("settle_bp_ID", p_settle_bp_ID); // 结算单位
+		billPool.setHolder_Id(p_settle_bp_ID);//持有人
+		billPool.set_ValueNoCheck("C_BPartner_ID", Payee_Id); // 往来单位
+		billPool.set_ValueNoCheck("SettleDate", p_BusinessDate); // 结算日期
+		billPool.setProcessed(true);
 		// 保存
 		billPool.saveEx();
 
@@ -159,10 +171,12 @@ public class BillPaymentIssueProcess extends SvrProcess {
 		transaction.setBusinessStatus(billPool.getBusinessStatus());
 
 		// 设置相关方信息
-		transaction.setC_BPartner_ID(p_C_BPartner_ID);
+		transaction.setC_BPartner_ID(Payee_Id);//往来单位
+		transaction.set_ValueNoCheck("owner_bp_ID", p_C_BPartner_ID); // 收款单位
+		transaction.set_ValueNoCheck("settle_bp_ID", p_settle_bp_ID); // 结算单位
 		transaction.setC_Charge_ID(p_C_Charge_ID);
-		transaction.setDrawer_Id(billPool.getDrawer_Id());
-		transaction.setReceiver_Id(billPool.getPayee_Id());
+		transaction.setDrawer_Id(billPool.getDrawer_Id());// 出票人
+		transaction.setReceiver_Id(billPool.getPayee_Id());// 收票人
 		transaction.setAcceptor_Id(billPool.getAcceptor_Id());
 		transaction.setEndorser_Id(billPool.getEndorser_Id());
 		transaction.setEndorsee_Id(billPool.getEndorsee_Id());
@@ -211,7 +225,7 @@ public class BillPaymentIssueProcess extends SvrProcess {
 		payment.setAD_Org_ID(billPool.getAD_Org_ID());
 		payment.setDateTrx(new Timestamp(System.currentTimeMillis()));
 		payment.setDateAcct(new Timestamp(System.currentTimeMillis()));
-		payment.setC_BPartner_ID(p_C_BPartner_ID);
+		payment.setC_BPartner_ID(Payee_Id);
 		payment.setTenderType("M"); // 支付方式
 		payment.setC_Charge_ID(p_C_Charge_ID); // 费用
 

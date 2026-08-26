@@ -201,6 +201,11 @@
             tableName="PP_Order">
       </callout>
       <callout
+            class="org.libero.callouts.Callout_PP_Order"
+            columnName="C_OrderLine_ID"
+            tableName="PP_Order">
+      </callout>
+      <callout
             class="org.libero.callouts.Callout_DD_OrderLine"
             columnName="M_Product_ID"
             tableName="DD_OrderLine">
@@ -383,6 +388,30 @@
             class="org.libero.form.WTreeBOM">
       </form>
    </extension>
+      <extension
+         id="org.libero.form.OpenProcessCardInfo"
+         name="OpenProcessCardInfo"
+         point="org.adempiere.webui.Form">
+      <form
+            class="org.libero.form.OpenProcessCardInfo">
+      </form>
+   </extension>
+   <extension
+           id="org.libero.form.MRPSimulateExecutor"
+           name="MRPSimulateExecutor"
+           point="org.adempiere.webui.Form">
+      <form
+              class="org.libero.form.MRPSimulateExecutor">
+      </form>
+   </extension>
+   <extension
+           id="org.libero.form.ProcessCardScanner"
+           name="ProcessCardScanner"
+           point="org.adempiere.webui.Form">
+      <form
+              class="org.libero.form.ProcessCardScanner">
+      </form>
+   </extension>
    <extension      
    		 id="org.libero.form.WPPOrderQuickEntry"
          name="WPPOrderQuickEntry"
@@ -545,15 +574,29 @@
       <process  
             class="org.libero.process.ProductionFinishWorkReporting">  
       </process>  
-   </extension>  
-      <!-- 工单审批Process -->  
+   </extension>
+   <!-- 工单审批Process -->
    <extension  
          id="org.libero.process.PPCostCollectorApprovalProcess"  
          point="org.adempiere.base.Process">  
       <process  
             class="org.libero.process.PPCostCollectorApprovalProcess">  
       </process>  
-   </extension> 
+   </extension>
+   <extension
+           id="org.libero.process.ProcessCardPrintByPPOrder"
+           point="org.adempiere.base.Process">
+      <process
+              class="org.libero.process.ProcessCardPrintByPPOrder">
+      </process>
+   </extension>
+      <extension
+           id="org.libero.process.ProcessCardPrintById"
+           point="org.adempiere.base.Process">
+      <process
+              class="org.libero.process.ProcessCardPrintById">
+      </process>
+   </extension>
    <extension    
          id="org.libero.process.PP_Product_BOM_SubmitForApproval"    
          point="org.adempiere.base.Process">    
@@ -692,7 +735,35 @@
               class="org.libero.process.PPOrderNodeWorkReportingProcess">
       </process>
    </extension>
+<extension  
+      id="org.libero.process.CreateMRequisitionFromPPOrderBOM"  
+      point="org.adempiere.base.Process">  
+   <process  
+         class="org.libero.process.CreateMRequisitionFromPPOrderBOM">  
+   </process>  
+</extension>
 
+<extension
+        id="org.libero.process.PPOrderShortageApplyProcess"
+        point="org.adempiere.base.Process">
+   <process
+           class="org.libero.process.PPOrderShortageApplyProcess">
+   </process>
+</extension>
+<extension
+        id="org.libero.process.PPOrderNoRepairProcess"
+        point="org.adempiere.base.Process">
+   <process
+           class="org.libero.process.PPOrderNoRepairProcess">
+   </process>
+</extension>
+<extension
+        id="org.libero.process.PPOrderRepairCreateOrderProcess"
+        point="org.adempiere.base.Process">
+   <process
+           class="org.libero.process.PPOrderRepairCreateOrderProcess">
+   </process>
+</extension>
 
 
 </plugin>

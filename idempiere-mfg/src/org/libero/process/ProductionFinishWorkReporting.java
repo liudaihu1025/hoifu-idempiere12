@@ -58,20 +58,33 @@ public class ProductionFinishWorkReporting extends SvrProcess {
 					throw new AdempiereException("报工单 " + collector.getDocumentNo() + " 状态为已完成/已关闭/已作废，不允许重复完工");
 				}
 
-				// 校验：完工时移动数量必须 > 0
-				BigDecimal qty = collector.getMovementQty();
-				if (qty == null || qty.signum() <= 0) {
-					throw new AdempiereException("报工单 " + collector.getDocumentNo() + " 移动数量必须大于0，无法完工");
-				}
 
-                // 使用传入的时间参数，如果没有则使用当前时间
-                Timestamp finishTime = p_DateFinish != null ? p_DateFinish : new Timestamp(System.currentTimeMillis());
-                collector.setDateFinish(finishTime);
-                Timestamp startDate = collector.getDateStart();
-				if (startDate != null) {
-					collector.updateDurationRealFromDates(startDate, finishTime);
+
+				// 使用传入的时间参数，如果没有则使用当前时间
+				Timestamp finishTime = p_DateFinish != null ? p_DateFinish
+						: new Timestamp(System.currentTimeMillis());
+				collector.setDateFinish(finishTime);
+
+                boolean skipQtyCheck = collector.isActivityControl() && !collector.isWorkReportTypeProduce();
+
+                // 非生产报工不校验移动数量，不更新实际报工时间
+				if (!collector.isNonProduction()) {
+                    if (!skipQtyCheck) {
+                        // 校验：完工时移动数量必须 > 0
+                        BigDecimal qty = collector.getMovementQty();
+                        if (qty == null || qty.signum() <= 0) {
+                            throw new AdempiereException("报工单 " + collector.getDocumentNo() + " 移动数量必须大于0，无法完工");
+                        }
+                    }
+
+
+					Timestamp startDate = collector.getDateStart();
+					if (startDate != null) {
+                        BigDecimal roundedHours = MPPCostCollector.updateDurationRealFromDates(startDate, finishTime);
+                        collector.setDurationReal(roundedHours);
+					}
 				}
-                collector.saveEx();
+				collector.saveEx();
 
                 // 完成单据（走完整文档引擎：prepareIt 累加工序数量/工时 + completeIt 创建成本明细）
                 if (!collector.processIt(MPPCostCollector.DOCACTION_Complete)) {

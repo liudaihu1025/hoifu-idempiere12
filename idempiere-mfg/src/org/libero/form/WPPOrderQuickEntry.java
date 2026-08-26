@@ -70,7 +70,7 @@ import org.zkoss.zul.North;
 import org.zkoss.zul.Vbox;
 
 /**
- * 工单快速录入窗体
+ * 工单快速录入窗体  工程设计单
  * <p>
  * 布局（从上到下）：
  * <ol>
@@ -96,17 +96,27 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 	private Button btnQuery = new Button("查询");
 	private Button btnSubmit = new Button("提交");
 	private Button btnCopy = new Button("复制");
+	private Button btnRepeat = new Button("翻单");
 	private Button btnZoom = new Button("透视");
 	private Button btnNew = new Button("新建");
+
+	// 记录"翻单"来源工单ID（0=非翻单，普通新建/复制；>0=翻单来源 PP_Order_ID）
+	private int repeatFromOrderId = 0;
 
 	// ── 表头字段 ─────────────────────────────────────────────────────────────
 	private Textbox txtOrderNo = new Textbox();
 	private WSearchEditor fProduct;
+	// 注：fDateStart/fDatePromised 保留成员变量以复用提交/校验逻辑，但不再渲染到页面（改为隐藏字段+程序赋默认值）
 	private WDateEditor fDateStart = new WDateEditor("DateStartSchedule", true, false, true, "计划开工日期");
 	private WTableDirEditor fDocType;
 	private Textbox txtProductValue = new Textbox();
 	private WDateEditor fDatePromised = new WDateEditor("DatePromised", true, false, true, "计划交货日期");
 	private WTableDirEditor fOrderLine;
+
+	// ── 新增：印刷咬口 / 纸张开料（占用原"计划开工/交货日期"UI位置）──────────
+	private Textbox txtPrintingBiteEdge = new Textbox();
+	private Textbox txtPaperCutting = new Textbox();
+
 	private WNumberEditor fQtyEntered = new WNumberEditor("QtyEntered", true, false, true, DisplayType.Quantity,
 			"生产数量");
 	private WTableDirEditor fResource;
@@ -239,9 +249,16 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 		txtProductName.setReadonly(true);
 		txtDocStatus.setReadonly(true);
 		txtDocStatus.setValue(getOrderstatusName("Ready"));
+		
+		// 计划开工/交货日期不再展示于界面，程序赋默认值：开工=当前时间，交货=当前时间+7天
 		fDateStart.setValue(new Timestamp(System.currentTimeMillis()));
-//		txtDescription.setMultiline(true);
-//		txtDescription.setRows(3);
+		fDatePromised.setValue(new Timestamp(System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000));
+		
+		// 日期控件不加入页面布局，直接标记不可见（若其组件已创建，也不会渲染出来）
+		fDateStart.getComponent().setVisible(false);
+		fDatePromised.getComponent().setVisible(false);
+//				txtDescription.setMultiline(true);  
+//				txtDescription.setRows(3);  
 		fOrderLine.addValueChangeListener(this);
 		loadAllOperationClasses();
 
@@ -359,11 +376,13 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 		btnQuery.addEventListener(Events.ON_CLICK, this);
 		btnSubmit.addEventListener(Events.ON_CLICK, this);
 		btnCopy.addEventListener(Events.ON_CLICK, this);
+		btnRepeat.addEventListener(Events.ON_CLICK, this);
 		btnNew.addEventListener(Events.ON_CLICK, this);
 		btnZoom.addEventListener(Events.ON_CLICK, this);
 		hbox.appendChild(btnQuery);
 		hbox.appendChild(btnSubmit);
 		hbox.appendChild(btnCopy);
+		hbox.appendChild(btnRepeat);
 		hbox.appendChild(btnNew);
 		hbox.appendChild(btnZoom);
 		div.appendChild(hbox);
@@ -388,7 +407,7 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 		grid.appendChild(rows);
 		grid.setStyle("margin:0; padding:0;");
 
-		// 行1: 工程单号 | 值 | 产品 | 值 | 计划开工日期 | 值 | 工单类型 | 值
+		// 行1: 工程单号 | 值 | 产品 | 值 | 印刷咬口 | 值 | 工单类型 | 值
 		Row r1 = rows.newRow();
 		r1.setStyle("height: 30px; line-height: 30px; padding: 3;");
 		r1.appendCellChild(lbl("工程单号"));
@@ -397,14 +416,14 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 		r1.appendCellChild(lbl("产品 *"));
 		ZKUpdateUtil.setHflex(fProduct.getComponent(), "true");
 		r1.appendCellChild(fProduct.getComponent());
-		r1.appendCellChild(lbl("计划开工日期 *"));
-		ZKUpdateUtil.setHflex(fDateStart.getComponent(), "true");
-		r1.appendCellChild(fDateStart.getComponent());
+		r1.appendCellChild(lbl("印刷咬口 *"));
+		ZKUpdateUtil.setHflex(txtPrintingBiteEdge, "true");
+		r1.appendCellChild(txtPrintingBiteEdge);
 		r1.appendCellChild(lbl("工单类型 *"));
 		ZKUpdateUtil.setHflex(fDocType.getComponent(), "true");
 		r1.appendCellChild(fDocType.getComponent());
 
-		// Row 2（8 cells）：产品编码 | 产品名称 | 计划交货日期 | 关联销售订单
+		// Row 2（8 cells）：产品编码 | 产品名称 | 纸张开料 | 关联销售订单
 		Row r2 = rows.newRow();
 		r2.setStyle("height: 30px; line-height: 30px; padding: 3;");
 		r2.appendCellChild(lbl("产品编码"));
@@ -413,9 +432,9 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 		r2.appendCellChild(lbl("产品名称"));
 		ZKUpdateUtil.setHflex(txtProductName, "true");
 		r2.appendCellChild(txtProductName);
-		r2.appendCellChild(lbl("计划交货日期 *"));
-		ZKUpdateUtil.setHflex(fDatePromised.getComponent(), "true");
-		r2.appendCellChild(fDatePromised.getComponent());
+		r2.appendCellChild(lbl("纸张开料 *"));
+		ZKUpdateUtil.setHflex(txtPaperCutting, "true");
+		r2.appendCellChild(txtPaperCutting);
 		r2.appendCellChild(lbl("关联销售订单 *"));
 		ZKUpdateUtil.setHflex(fOrderLine.getComponent(), "true");
 		r2.appendCellChild(fOrderLine.getComponent());
@@ -453,22 +472,6 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 		r4.appendCellChild(fPriority.getComponent());
 
 		return grid;
-	}
-
-	private Hbox buildActionButtons() {
-		Hbox hbox = new Hbox();
-		hbox.setStyle("padding:8px 0;");
-		hbox.setSpacing("8px");
-		btnSubmit.addEventListener(Events.ON_CLICK, this);
-		btnCopy.addEventListener(Events.ON_CLICK, this);
-		btnNew.addEventListener(Events.ON_CLICK, this);
-		btnZoom.addEventListener(Events.ON_CLICK, this);
-		hbox.appendChild(btnSubmit);
-		hbox.appendChild(btnCopy);
-		hbox.appendChild(btnNew);
-		hbox.appendChild(btnZoom);
-		updateButtonState();
-		return hbox;
 	}
 
 	// ════════════════════════════════════════════════════════════════════════
@@ -540,7 +543,7 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 				continue;
 
 			// 新增行（未保存）始终可编辑；已保存行在 formReadOnly 时只读
-			boolean rowReadOnly = formReadOnly && vo.ppOrderBOMLineId > 0;
+			boolean rowReadOnly = formReadOnly || vo.ppOrderBOMLineId > 0;
 
 			Listitem item = new Listitem();
 
@@ -859,8 +862,12 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 		if (!getBtnDisabledStatus())
 			return cell;
 
+		final int finalIdx = idx;
+
+		// 第一行：删除按钮
 		Button btn = new Button("删除");
-		btn.setStyle("font-size:13px");
+		btn.setStyle("font-size:13px;");
+		btn.setWidth("93%");
 		btn.addEventListener(Events.ON_CLICK, e -> {
 			// 点击时校验：是否有领料成本归集单
 			if (vo.ppOrderBOMLineId > 0 && currentOrder != null) {
@@ -874,10 +881,85 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 				}
 			}
 			bomLines.get(idx).isDeleted = true;
+			renumberBOMLines();
 			refreshBOMList();
 		});
-		cell.appendChild(btn);
+
+		// 第二行：上移 + 下移按钮
+		Button btnUp = new Button("↑");
+		btnUp.setWidth("42%");
+		btnUp.addEventListener(Events.ON_CLICK, e -> onMoveBOMUp(finalIdx));
+
+		Button btnDown = new Button("↓");
+		btnDown.setWidth("42%");
+		btnDown.addEventListener(Events.ON_CLICK, e -> onMoveBOMDown(finalIdx));
+
+		org.zkoss.zul.Hbox hbox = new org.zkoss.zul.Hbox();
+		hbox.setStyle("justify-content:center;");
+		hbox.setWidth("100%");
+		hbox.appendChild(btnUp);
+		hbox.appendChild(btnDown);
+
+		org.zkoss.zul.Vbox vbox = new org.zkoss.zul.Vbox();
+		vbox.setStyle("align-items:center;width:100%;");
+		vbox.appendChild(btn);
+		vbox.appendChild(hbox);
+
+		cell.appendChild(vbox);
 		return cell;
+	}
+
+	/**
+	 * BOM物料行号重排（对应 renumberRoutingNodes）
+	 */
+	private void renumberBOMLines() {
+		int seq = 1;
+		for (BOMLineVO vo : bomLines) {
+			if (!vo.isDeleted) {
+				vo.lineNo = seq;
+				seq++;
+			}
+		}
+	}
+
+	/**
+	 * BOM 上移
+	 */
+	private void onMoveBOMUp(int listIdx) {
+		int prevIdx = -1;
+		for (int i = listIdx - 1; i >= 0; i--) {
+			if (!bomLines.get(i).isDeleted) {
+				prevIdx = i;
+				break;
+			}
+		}
+		if (prevIdx < 0)
+			return;
+		BOMLineVO tmp = bomLines.get(listIdx);
+		bomLines.set(listIdx, bomLines.get(prevIdx));
+		bomLines.set(prevIdx, tmp);
+		renumberBOMLines();
+		refreshBOMList();
+	}
+
+	/**
+	 * BOM 下移
+	 */
+	private void onMoveBOMDown(int listIdx) {
+		int nextIdx = -1;
+		for (int i = listIdx + 1; i < bomLines.size(); i++) {
+			if (!bomLines.get(i).isDeleted) {
+				nextIdx = i;
+				break;
+			}
+		}
+		if (nextIdx < 0)
+			return;
+		BOMLineVO tmp = bomLines.get(listIdx);
+		bomLines.set(listIdx, bomLines.get(nextIdx));
+		bomLines.set(nextIdx, tmp);
+		renumberBOMLines();
+		refreshBOMList();
 	}
 
 	// ════════════════════════════════════════════════════════════════════════
@@ -937,7 +1019,7 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 			if (vo.isDeleted)
 				continue;
 
-			boolean rowReadOnly = formReadOnly && vo.ppOrderNodeId > 0;
+			boolean rowReadOnly = formReadOnly || vo.ppOrderNodeId > 0;
 			Listitem item = new Listitem();
 			// 当前生产工序高亮（绿色背景）
 			if (vo.isCurrentNode) {
@@ -1193,6 +1275,8 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 			onSubmit();
 		else if (src == btnCopy)
 			onCopy();
+		else if (src == btnRepeat)
+			onRepeat();
 		else if (src == btnZoom)
 			onZoom();
 		else if (src == btnScrapCalc)
@@ -1218,6 +1302,7 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 		isNewOrder = true;
 		currentProductId = 0;
 		formReadOnly = false;
+		repeatFromOrderId = 0; // 新建：非翻单场景
 
 		txtOrderNo.setValue("");
 		txtProductValue.setValue("");
@@ -1226,7 +1311,7 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 		fProduct.setValue(null);
 		fDocType.setValue(null);
 		fDateStart.setValue(new Timestamp(System.currentTimeMillis()));
-		fDatePromised.setValue(null);
+		fDatePromised.setValue(new Timestamp(System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000));
 		fQtyEntered.setValue(null);
 		fUOM.setValue(null);
 		fResource.setValue(defaultResourceId > 0 ? defaultResourceId : null);
@@ -1237,6 +1322,8 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 		fImpositionCount.setValue((BigDecimal) null);
 		txtDescription.setValue("");
 		fBOMRatio.setValue(BigDecimal.valueOf(10000));
+		txtPrintingBiteEdge.setValue("");
+		txtPaperCutting.setValue("");
 
 		bomLines.clear();
 		routingNodes.clear();
@@ -1260,6 +1347,8 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 		fImpositionCount.setReadonly(ro);
 		fBOMRatio.setReadonly(ro);
 		txtDescription.setReadonly(ro);
+		txtPrintingBiteEdge.setReadonly(ro);
+		txtPaperCutting.setReadonly(ro);
 		// 刷新列表（使列表单元格也变为只读）
 		refreshBOMList();
 		refreshRoutingList();
@@ -1330,9 +1419,15 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 		// 工单类型
 		fDocType.setValue(order.getC_DocTypeTarget_ID());
 
-		// 计划日期
+		// 计划日期（隐藏字段，仍取工单已存的值用于展示/提交，不受默认值逻辑影响）
 		fDateStart.setValue(order.getDateStartSchedule());
 		fDatePromised.setValue(order.getDatePromised());
+
+		// 印刷咬口 / 纸张开料 回填
+		Object biteEdge = order.getPrintingBiteEdge();
+		txtPrintingBiteEdge.setValue(biteEdge != null ? biteEdge.toString() : "");
+		Object paperCutting = order.getPaperCutting();
+		txtPaperCutting.setValue(paperCutting != null ? paperCutting.toString() : "");
 
 		// 生产数量 & 单位
 		fQtyEntered.setValue(order.getQtyOrdered());
@@ -1489,11 +1584,15 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 					txtDescription.getValue(), // 15: description
 					0, // 16: existingBOMId（新建=0）
 					0, // 17: existingWFId（新建=0）
-					bomLines, routingNodes, createdByName // 20: createdByName
+					bomLines, routingNodes, createdByName, // 20: createdByName
+					txtPrintingBiteEdge.getValue(), // 21: printingBiteEdge（印刷咬口）
+					txtPaperCutting.getValue(), // 22: paperCutting（纸张开料）
+					repeatFromOrderId // 23: refPPOrderId（翻单来源工单ID，0=非翻单）
 			);
 
 			currentOrder = order;
 			isNewOrder = false;
+			repeatFromOrderId = 0; // 提交完成后重置，避免影响下一次新建/复制
 			txtOrderNo.setValue(order.getDocumentNo());
 			txtDocStatus.setValue(getOrderstatusName(order.get_ValueAsString("Orderstatus")));
 			updateButtonState();
@@ -1507,6 +1606,31 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 	}
 
 	private void onCopy() {
+		doCopyInternal(0);
+		Dialog.info(m_WindowNo, "", "已复制工单，请填写生产数量和日期后提交");
+	}
+
+	/**
+	 * "翻单"：与"复制"行为一致，唯一区别是记录被翻单的来源工单ID（repeatFromOrderId）， 提交时写入新工单的
+	 * Ref_PP_Order_ID 字段。
+	 */
+	private void onRepeat() {
+		if (currentOrder == null) {
+			Dialog.error(m_WindowNo, "", "请先查询到工单后再进行翻单");
+			return;
+		}
+		int sourceOrderId = currentOrder.getPP_Order_ID();
+		String sourceDocNo = currentOrder.getDocumentNo();
+		doCopyInternal(sourceOrderId);
+		Dialog.info(m_WindowNo, "", "已翻单，原工单号：" + sourceDocNo + "，请填写生产数量和日期后提交");
+	}
+
+	/**
+	 * 复制当前 BOM/工序数据并重置表单为新建状态（"复制"和"翻单"共用）。
+	 * 
+	 * @param refOrderId 0=普通复制（不记录来源）；>0=翻单来源工单ID
+	 */
+	private void doCopyInternal(int refOrderId) {
 		List<BOMLineVO> newBOM = new ArrayList<>();
 		for (BOMLineVO vo : bomLines) {
 			if (vo.isDeleted)
@@ -1540,17 +1664,20 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 			c.qtyPaperScrap = vo.qtyPaperScrap;
 			c.qtyPaperTotalScrap = vo.qtyPaperTotalScrap;
 			c.effectName = vo.effectName;
-			c.operationClassId = vo.operationClassId;  
+			c.operationClassId = vo.operationClassId;
 			c.operationClassName = vo.operationClassName;
 			newRouting.add(c);
 		}
+
+		repeatFromOrderId = refOrderId; // 记录来源；0=复制，>0=翻单
+
 		currentOrder = null;
 		isNewOrder = true;
 		txtOrderNo.setValue("");
 		txtDocStatus.setValue(getOrderstatusName("Ready"));
 		fQtyEntered.setValue(null);
 		fDateStart.setValue(new Timestamp(System.currentTimeMillis()));
-		fDatePromised.setValue(null);
+		fDatePromised.setValue(new Timestamp(System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000));
 		fOrderLine.setValue(null);
 		effectNameOptions.clear();
 		bomLines.clear();
@@ -1558,11 +1685,10 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 		bomLines.forEach(vo -> vo.qtyOnHand = getQtyOnHand(vo.productId));
 		routingNodes.clear();
 		routingNodes.addAll(newRouting);
-//		refreshBOMList();
-//		refreshRoutingList();
+//			refreshBOMList();  
+//			refreshRoutingList();  
 		setHeaderReadOnly(false);
 		updateButtonState();
-		Dialog.info(m_WindowNo, "", "已复制工单，请填写生产数量和日期后提交");
 	}
 
 	private void onZoom() {
@@ -1611,7 +1737,6 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 	// ════════════════════════════════════════════════════════════════════════
 	// 辅助方法
 	// ════════════════════════════════════════════════════════════════════════
-
 	private boolean validateHeader() {
 		if (currentProductId <= 0) {
 			Dialog.error(m_WindowNo, "", "请选择产品");
@@ -1627,6 +1752,14 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 		}
 		if (fDatePromised.getValue() == null) {
 			Dialog.error(m_WindowNo, "", "请填写计划交货日期");
+			return false;
+		}
+		if (txtPrintingBiteEdge.getValue() == null || txtPrintingBiteEdge.getValue().trim().isEmpty()) {
+			Dialog.error(m_WindowNo, "", "请填写印刷咬口");
+			return false;
+		}
+		if (txtPaperCutting.getValue() == null || txtPaperCutting.getValue().trim().isEmpty()) {
+			Dialog.error(m_WindowNo, "", "请填写纸张开料");
 			return false;
 		}
 		BigDecimal qty = (BigDecimal) fQtyEntered.getValue();
@@ -1670,8 +1803,9 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 		btnAddBOM.setVisible(canSubmit);
 		btnAddRouting.setVisible(canSubmit);
 
-		// 复制/透视按钮
+		// 复制/翻单/透视按钮：查询到已存在工单后才展示，与"复制"保持一致
 		btnCopy.setVisible(currentOrder != null);
+		btnRepeat.setVisible(currentOrder != null);
 		btnZoom.setVisible(currentOrder != null);
 		// 损耗计算按钮
 		btnScrapCalc.setVisible(canSubmit);

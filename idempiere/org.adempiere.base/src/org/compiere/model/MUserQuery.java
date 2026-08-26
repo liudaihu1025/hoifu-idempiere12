@@ -21,6 +21,8 @@ import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Properties;
 import java.util.logging.Level;
 
@@ -47,12 +49,20 @@ public class MUserQuery extends X_AD_UserQuery
 	 *	@param AD_Tab_ID tab
 	 *	@return array of queries
 	 */
-	public static MUserQuery[] get (Properties ctx, int AD_Tab_ID)
-	{
+	public static MUserQuery[] get(Properties ctx, int AD_Tab_ID) {
 		ArrayList<MUserQuery> list = getUserOnlyQueries(ctx, AD_Tab_ID);
 		list.addAll(getAllUsersQueries(ctx, AD_Tab_ID));
 		list.addAll(getClientQueries(ctx, AD_Tab_ID));
 		list.addAll(getRoleQueries(ctx, AD_Tab_ID));
+
+		// 按 AD_UserQuery_ID 去重：避免同一条物理记录被多个方法重复查出
+		// （例如当前会话 AD_Client_ID=0 时，getAllUsersQueries 与 getClientQueries
+		// 的 SQL 条件完全相同，会命中同一条记录两次）
+		Map<Integer, MUserQuery> dedupMap = new LinkedHashMap<Integer, MUserQuery>();
+		for (MUserQuery uq : list) {
+			dedupMap.put(uq.getAD_UserQuery_ID(), uq);
+		}
+		list = new ArrayList<MUserQuery>(dedupMap.values());
 
 		Collections.sort(list, new Comparator<MUserQuery>() {
 			@Override
@@ -64,7 +74,7 @@ public class MUserQuery extends X_AD_UserQuery
 		MUserQuery[] retValue = new MUserQuery[list.size()];
 		list.toArray(retValue);
 		return retValue;
-	}	//	get
+	} // get
 	
 	/**
 	 * 	Get all active user only queries for Tab

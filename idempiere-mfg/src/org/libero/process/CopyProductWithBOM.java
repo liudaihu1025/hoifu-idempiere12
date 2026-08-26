@@ -48,13 +48,12 @@ public class CopyProductWithBOM extends SvrProcess {
 
 		// 2. 复制产品主数据
 		MProduct newProduct = new MProduct(ctx, 0, get_TrxName());
+		newProduct.setName(sourceProduct.getName());
 		PO.copyValues(sourceProduct, newProduct);
 		newProduct.setAD_Org_ID(sourceProduct.getAD_Org_ID());
 		// 手动设置IsProduct为Y
 		newProduct.set_CustomColumn("IsProduct", Boolean.TRUE);
-		// Value 使用原值 + 时间戳，保证唯一性
-		String newProductValue = sourceProduct.getValue() + "_" + System.currentTimeMillis();
-		newProduct.setValue(newProductValue);
+	
 		newProduct.saveEx();
 		log.info("New product created: " + newProduct.getValue() + " (ID=" + newProduct.get_ID() + ")");
 

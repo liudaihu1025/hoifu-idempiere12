@@ -9,7 +9,6 @@ import org.compiere.model.MAllocationHdr;
 import org.compiere.model.MBPartner;
 import org.compiere.model.MInOut;
 import org.compiere.model.MInOutLine;
-import org.compiere.model.MInventory;
 import org.compiere.model.MInventoryLine;
 import org.compiere.model.MOrder;
 import org.compiere.model.MOrderLine;
@@ -29,11 +28,11 @@ import com.hoifu.event.processor.BPartnerEventProcessor;
 import com.hoifu.event.processor.COrderEventProcessor;
 import com.hoifu.event.processor.COrderLineEventProcessor;
 import com.hoifu.event.processor.DefectSummaryEventProcessor;
+import com.hoifu.event.processor.ExtSyncTriggerEventProcessor;
 import com.hoifu.event.processor.IEventProcessor;
 import com.hoifu.event.processor.IPQCEventProcessor;
 import com.hoifu.event.processor.InOutEventProcessor;
 import com.hoifu.event.processor.InOutLineEventProcessor;
-import com.hoifu.event.processor.InventoryEventProcessor;
 import com.hoifu.event.processor.InventoryLineEventProcessor;
 import com.hoifu.event.processor.ProductBOMLineEventProcessor;
 import com.hoifu.event.processor.ProductEventProcessor;
@@ -90,20 +89,13 @@ public class BaseEnventHandler extends AbstractEventHandler {
 		registerTableEvent(IEventTopics.PO_AFTER_NEW, X_QC_DefectRecord.Table_Name);
 		registerTableEvent(IEventTopics.PO_AFTER_CHANGE, X_QC_DefectRecord.Table_Name);
 		registerTableEvent(IEventTopics.PO_BEFORE_DELETE, X_QC_DefectRecord.Table_Name);
-
 		// ===== 物料管理 =====
 		registerTableEvent(IEventTopics.PO_BEFORE_NEW, MProduct.Table_Name);  
 		registerTableEvent(IEventTopics.PO_BEFORE_CHANGE, MProduct.Table_Name);
 		registerTableEvent(IEventTopics.PO_AFTER_NEW, MProduct.Table_Name);  
 		registerTableEvent(IEventTopics.PO_AFTER_CHANGE, MProduct.Table_Name);
 		
-		// ===== 库存退库 =====
-		registerTableEvent(IEventTopics.DOC_BEFORE_COMPLETE, MInventory.Table_Name);
-		registerTableEvent(IEventTopics.DOC_AFTER_COMPLETE, MInventory.Table_Name);
-		registerTableEvent(IEventTopics.DOC_AFTER_VOID, MInventory.Table_Name);
-		registerTableEvent(IEventTopics.DOC_AFTER_REVERSECORRECT, MInventory.Table_Name);
-		registerTableEvent(IEventTopics.DOC_AFTER_REVERSEACCRUAL, MInventory.Table_Name);
-
+		// ===== 库存退库明细 =====
 		registerTableEvent(IEventTopics.PO_BEFORE_NEW, MInventoryLine.Table_Name);
 		registerTableEvent(IEventTopics.PO_BEFORE_CHANGE, MInventoryLine.Table_Name);
 
@@ -130,7 +122,7 @@ public class BaseEnventHandler extends AbstractEventHandler {
 		//产品BOM明细
 		registerTableEvent(IEventTopics.PO_BEFORE_NEW, MPPProductBOMLine.Table_Name);
 		registerTableEvent(IEventTopics.PO_BEFORE_CHANGE, MPPProductBOMLine.Table_Name);
-		
+		 
 		//业务伙伴表
 		registerTableEvent(IEventTopics.PO_AFTER_NEW, MBPartner.Table_Name);
 		registerTableEvent(IEventTopics.PO_AFTER_CHANGE, MBPartner.Table_Name);
@@ -144,7 +136,7 @@ public class BaseEnventHandler extends AbstractEventHandler {
 				new VoucherEventProcessor(voucherService),
 				new InOutLineEventProcessor(iqcService, oqcService, rqcService),
 				new InOutEventProcessor(iqcService, oqcService, rqcService),
-				new InventoryEventProcessor(), new InventoryLineEventProcessor(),
+				new InventoryLineEventProcessor(),
 				new IPQCEventProcessor(ipqcService),
 				new DefectSummaryEventProcessor(defectService),
 				new ProductEventProcessor(),
@@ -153,7 +145,8 @@ public class BaseEnventHandler extends AbstractEventHandler {
 				new ProductBOMLineEventProcessor(),
 				new BPartnerEventProcessor(),
 				new WorkflowEventProcessor(),
-				new COrderLineEventProcessor()
+				new COrderLineEventProcessor(),
+				new ExtSyncTriggerEventProcessor()
 				);
 	}
 

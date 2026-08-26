@@ -23,17 +23,21 @@ import com.hoifu.model.MBillPool;
 import com.hoifu.model.MBillTransaction;
 import com.hoifu.model.MPaymentLine;
 
+/**
+ * 背书流程
+ */
 @org.adempiere.base.annotation.Process
 public class BillReceiptEndorseProcess extends SvrProcess {
 	// 参数
-	private int p_C_BPartner_ID = 0;
-	private int p_C_Charge_ID = 0;
-	private boolean p_IsTransferable = false;
-	private String p_Description = null;
-	private int p_Endorser_ID = 0;
-	private boolean p_IsGeneratePayment = false;
-	private int p_C_BankAccount_ID = 0;
-	private Timestamp p_BusinessDate = null;
+	private Timestamp p_BusinessDate = null;// 业务日期
+	private int p_Endorser_ID = 0;// 背书人
+	private int p_settle_bp_ID = 0;// 结算单位
+	private int p_Endorsee_ID = 0;// 被背书人
+	private boolean p_IsTransferable = false;// 是否可再转让
+	private String p_Description = null;// 描述
+	private int p_C_Charge_ID = 0;// 费用项目
+	private boolean p_IsGeneratePayment = false;// 是否生成付款单
+	private int p_C_BankAccount_ID = 0;// 银行账户
 
 	// 选择标记
 	private boolean p_Selection = false;
@@ -44,22 +48,24 @@ public class BillReceiptEndorseProcess extends SvrProcess {
 			String name = para[i].getParameterName();
 			if (para[i].getParameter() == null)
 				;
-			else if (name.equals("C_BPartner_ID"))
-				p_C_BPartner_ID = para[i].getParameterAsInt();
-			else if (name.equals("C_Charge_ID"))
-				p_C_Charge_ID = para[i].getParameterAsInt();
-			else if (name.equals("IsTransferable"))
-				p_IsTransferable = "Y".equals(para[i].getParameter());
-			else if (name.equals("Description"))
-				p_Description = para[i].getParameterAsString();
-			else if (name.equals("IsGeneratePayment"))
-				p_IsGeneratePayment = "Y".equals(para[i].getParameter());
-			else if (name.equals("C_BankAccount_ID"))
-				p_C_BankAccount_ID = para[i].getParameterAsInt();
-			else if (name.equals("Endorser_Id"))
-				p_Endorser_ID = para[i].getParameterAsInt();
 			else if (name.equals("BusinessDate"))
-				p_BusinessDate = (Timestamp) para[i].getParameter();
+				p_BusinessDate = (Timestamp) para[i].getParameter();// 业务日期
+			else if (name.equals("Endorser_Id"))
+				p_Endorser_ID = para[i].getParameterAsInt();// 背书人
+			else if (name.equals("settle_bp_ID"))
+				p_settle_bp_ID = para[i].getParameterAsInt();// 结算单位
+			else if (name.equals("Endorsee_Id"))
+				p_Endorsee_ID = para[i].getParameterAsInt();// 被背书人
+			else if (name.equals("IsTransferable"))
+				p_IsTransferable = "Y".equals(para[i].getParameter());// 是否可再转让
+			else if (name.equals("Description"))
+				p_Description = para[i].getParameterAsString();// 描述
+			else if (name.equals("C_Charge_ID"))
+				p_C_Charge_ID = para[i].getParameterAsInt();// 费用项目
+			else if (name.equals("IsGeneratePayment"))
+				p_IsGeneratePayment = "Y".equals(para[i].getParameter());// 是否生成付款单
+			else if (name.equals("C_BankAccount_ID"))
+				p_C_BankAccount_ID = para[i].getParameterAsInt();// 银行账户
 			else
 				MProcessPara.validateUnknownParameter(getProcessInfo().getAD_Process_ID(), para[i]);
 		}
@@ -112,7 +118,7 @@ public class BillReceiptEndorseProcess extends SvrProcess {
 
 	private void processBillReceipt(MBillPool billPool) throws Exception {
 		MBPartner endorser = MBPartner.get(Env.getCtx(), p_Endorser_ID, get_TrxName());
-		MBPartner endorsee = MBPartner.get(Env.getCtx(), p_C_BPartner_ID, get_TrxName());
+		MBPartner endorsee = MBPartner.get(Env.getCtx(), p_Endorsee_ID, get_TrxName());
 
 		// 设置相关字段
 		billPool.setDocStatus("AP"); // 已审核
@@ -126,6 +132,12 @@ public class BillReceiptEndorseProcess extends SvrProcess {
 			billPool.setEndorsee_Id(endorsee.getName()); // 被背书人
 		}
 
+		billPool.set_ValueNoCheck("owner_bp_ID", p_Endorser_ID); // 收款单位
+		billPool.set_ValueNoCheck("settle_bp_ID", p_settle_bp_ID); // 结算单位
+		billPool.set_ValueNoCheck("C_BPartner_ID", p_Endorsee_ID); // 往来单位
+		billPool.set_ValueNoCheck("SettleDate", p_BusinessDate); // 结算日期
+		billPool.set_ValueNoCheck("EndorsementDate", p_BusinessDate); // 背书日期
+		billPool.setProcessed(true);
 		// 保存
 		billPool.saveEx();
 
@@ -166,13 +178,15 @@ public class BillReceiptEndorseProcess extends SvrProcess {
 		transaction.setBusinessStatus(billPool.getBusinessStatus());
 
 		// 设置相关方信息
-		transaction.setC_BPartner_ID(p_C_BPartner_ID);
+		transaction.setC_BPartner_ID(p_Endorsee_ID);// 往来单位
+		transaction.set_ValueNoCheck("owner_bp_ID", p_Endorser_ID); // 收款单位
+		transaction.set_ValueNoCheck("settle_bp_ID", p_settle_bp_ID); // 结算单位
 		transaction.setC_Charge_ID(p_C_Charge_ID);
 		transaction.setDrawer_Id(billPool.getDrawer_Id());
 		transaction.setReceiver_Id(billPool.getPayee_Id());
 		transaction.setAcceptor_Id(billPool.getAcceptor_Id());
-		transaction.setEndorser_Id(billPool.getEndorser_Id());
-		transaction.setEndorsee_Id(billPool.getEndorsee_Id());
+		transaction.setEndorser_Id(billPool.getEndorser_Id());// 背书人
+		transaction.setEndorsee_Id(billPool.getEndorsee_Id());// 被背书人
 
 		// 设置金额信息
 		transaction.setC_Currency_ID(billPool.getC_Currency_ID());
@@ -218,7 +232,7 @@ public class BillReceiptEndorseProcess extends SvrProcess {
 		payment.setAD_Org_ID(billPool.getAD_Org_ID());
 		payment.setDateTrx(new Timestamp(System.currentTimeMillis()));
 		payment.setDateAcct(new Timestamp(System.currentTimeMillis()));
-		payment.setC_BPartner_ID(p_C_BPartner_ID);
+		payment.setC_BPartner_ID(p_Endorsee_ID);
 		payment.setTenderType("M"); // 支付方式：混合
 		payment.setC_Charge_ID(p_C_Charge_ID); // 费用
 

@@ -8,8 +8,17 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.security.cert.X509Certificate;
 import java.util.Map;
 import java.util.logging.Level;
+
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 
 import org.adempiere.exceptions.AdempiereException;
 import org.compiere.util.CLogger;
@@ -105,8 +114,8 @@ public class HttpClientUtils {
 			return responseStr;
 
 		} catch (IOException e) {
-			log.log(Level.SEVERE, "Failed to call OA API: " + url, e);
-			throw new AdempiereException("Failed to call OA API: " + e.getMessage(), e);
+			log.log(Level.SEVERE, "Failed to call API: " + url, e);
+			throw new AdempiereException("Failed to call API: " + e.getMessage(), e);
 		} finally {
 			if (conn != null) {
 				conn.disconnect();
@@ -260,6 +269,108 @@ public class HttpClientUtils {
 		} catch (IOException e) {
 			log.log(Level.SEVERE, "Failed to call OA API: " + url, e);
 			throw new AdempiereException("Failed to call OA API: " + e.getMessage(), e);
+		} finally {
+			if (conn != null) {
+				conn.disconnect();
+			}
+		}
+	}
+
+	/**
+	 * 发送POST请求，忽略SSL证书校验（用于自签名证书环境）
+	 */
+	public static String postIgnoreSSL(String url, String jsonBody, Map<String, String> headers) throws Exception {
+		HttpsURLConnection conn = null;
+		try {
+			// 创建全信任 SSLContext
+			TrustManager[] trustAllCerts = new TrustManager[] { new X509TrustManager() {
+				@Override
+				public void checkClientTrusted(X509Certificate[] chain, String authType) {
+				}
+
+				@Override
+				public void checkServerTrusted(X509Certificate[] chain, String authType) {
+				}
+
+				@Override
+				public X509Certificate[] getAcceptedIssuers() {
+					return new X509Certificate[0];
+				}
+			} };
+
+			SSLContext sslContext = SSLContext.getInstance("TLS");
+			sslContext.init(null, trustAllCerts, new SecureRandom());
+
+			URL urlObj = new URL(url);
+			conn = (HttpsURLConnection) urlObj.openConnection();
+			conn.setSSLSocketFactory(sslContext.getSocketFactory());
+			conn.setHostnameVerifier(new HostnameVerifier() {
+				@Override
+				public boolean verify(String hostname, SSLSession session) {
+					return true;
+				}
+			});
+
+			conn.setRequestMethod("POST");
+			conn.setRequestProperty("Accept", "application/json");
+			conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+			conn.setConnectTimeout(TIMEOUT);
+			conn.setReadTimeout(TIMEOUT);
+			conn.setDoOutput(true);
+			conn.setDoInput(true);
+			conn.setUseCaches(false);
+
+			if (headers != null) {
+				for (Map.Entry<String, String> entry : headers.entrySet()) {
+					conn.setRequestProperty(entry.getKey(), entry.getValue());
+				}
+			}
+
+			if (log.isLoggable(Level.FINE)) {
+				log.fine("POST URL (ignore SSL): " + url);
+				log.fine("Request Body: " + jsonBody);
+			}
+
+			if (jsonBody != null && !jsonBody.isEmpty()) {
+				try (OutputStream os = conn.getOutputStream()) {
+					byte[] input = jsonBody.getBytes(StandardCharsets.UTF_8);
+					os.write(input, 0, input.length);
+					os.flush();
+				}
+			}
+
+			int responseCode = conn.getResponseCode();
+			if (log.isLoggable(Level.FINE)) {
+				log.fine("Response Code: " + responseCode);
+			}
+
+			InputStream is = (responseCode >= 400) ? conn.getErrorStream() : conn.getInputStream();
+			if (is == null) {
+				throw new AdempiereException("No response from server");
+			}
+
+			StringBuilder response = new StringBuilder();
+			try (BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+				String line;
+				while ((line = br.readLine()) != null) {
+					response.append(line);
+				}
+			}
+
+			String responseStr = response.toString();
+			if (log.isLoggable(Level.FINE)) {
+				log.fine("Response: " + responseStr);
+			}
+
+			if (responseCode >= 400) {
+				throw new AdempiereException("HTTP Error " + responseCode + ": " + responseStr);
+			}
+
+			return responseStr;
+
+		} catch (IOException e) {
+			log.log(Level.SEVERE, "Failed to call SSO API: " + url, e);
+			throw new AdempiereException("Failed to call SSO API: " + e.getMessage(), e);
 		} finally {
 			if (conn != null) {
 				conn.disconnect();

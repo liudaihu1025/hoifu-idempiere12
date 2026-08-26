@@ -1187,7 +1187,12 @@ public class MProduct extends X_M_Product implements ImmutablePOSupport
 		else
 			return false;
 	}
-	
+
+	public boolean isCSM()
+	{
+		return "CUSTOMER_SUPPLIEDL".equals(get_ValueAsString("PurposeType"));
+	}
+
 	// 实例方法：当前产品是客供料，且系统配置不需要求过账
 	public boolean isCSMAndNotNeedPost() {  
 	    return isCSM() && !MSysConfig.getBooleanValue(  

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scr:component xmlns:scr="http://www.osgi.org/xmlns/scr/v1.1.0"
+    name="com.hoifu.window.PPOrderRepairReminderValidator">
+    <implementation class="com.hoifu.window.PPOrderRepairReminderValidator"/>
+    <service>
+        <provide interface="org.adempiere.webui.adwindow.validator.WindowValidator"/>
+    </service>
+    <!-- AD_Window_UU: 需要替换为 PP_Order 窗口的实际 UUID -->
+    <property name="AD_Window_UU" value="5ef23094-c8fa-40e1-be99-7d8610e27eaa"/>
+    <property name="events" value="beforeSave"/>
+</scr:component>

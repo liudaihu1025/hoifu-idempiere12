@@ -53,6 +53,8 @@ public class MBPartner extends X_C_BPartner implements ImmutablePOSupport
 	 */
 	private static final long serialVersionUID = 2256035503713773448L;
 
+	private static final java.util.regex.Pattern INVALID_NAME_CHARS = java.util.regex.Pattern.compile("[\\s()]");
+
 	/**
 	 * 	Create new Business Partner from template (not save)
 	 * 	@param ctx context
@@ -1074,6 +1076,52 @@ public class MBPartner extends X_C_BPartner implements ImmutablePOSupport
 				return false;
 			}
 			setBPGroup(grp);	//	setDefaults
+		}
+
+		// 自定义：名称非法字符校验（不允许空格、英文半角括号），对所有往来单位生效
+		if (newRecord || is_ValueChanged(COLUMNNAME_Name)) {
+			String name = getName();
+			if (name != null && INVALID_NAME_CHARS.matcher(name).find()) {
+				String adMessage = "BPartnerInvalidNameChars";
+				log.saveError(adMessage, Msg.getMsg(Env.getCtx(), adMessage));
+				return false;
+			}
+		}
+
+		// 自定义：供应商/客户禁止重名校验
+		if (newRecord || is_ValueChanged(COLUMNNAME_Name) || is_ValueChanged(COLUMNNAME_IsVendor)
+				|| is_ValueChanged(COLUMNNAME_IsCustomer)) {
+			if (isVendor() || isCustomer()) {
+				String name = getName();
+				if (name != null && !name.trim().isEmpty()) {
+					String sql = "SELECT COUNT(*) FROM C_BPartner "
+							+ "WHERE AD_Client_ID=? AND Name=? AND C_BPartner_ID<>? "
+							+ "AND (IsVendor='Y' OR IsCustomer='Y') ";
+					int count = DB.getSQLValueEx(get_TrxName(), sql, getAD_Client_ID(), name,
+							getC_BPartner_ID());
+					if (count > 0) {
+						String adMessage = "BPartnerDuplicateName";
+						log.saveError(adMessage, name);
+						return false;
+					}
+				}
+			}
+		}
+
+		// 自定义：编码(Value)禁止重复校验
+		if (newRecord || is_ValueChanged(COLUMNNAME_Value)) {
+			String value = getValue();
+			if (value != null && !value.trim().isEmpty()) {
+				String sql = "SELECT COUNT(*) FROM C_BPartner "
+						+ "WHERE AD_Client_ID=? AND Value = ? AND C_BPartner_ID<>? ";
+				int count = DB.getSQLValueEx(get_TrxName(), sql, getAD_Client_ID(), value,
+						getC_BPartner_ID());
+				if (count > 0) {
+					String adMessage = "SaveErrorNotUnique";
+					log.saveError(adMessage, Msg.getMsg(Env.getCtx(), adMessage));
+					return false;
+				}
+			}
 		}
 		return true;
 	}	//	beforeSave

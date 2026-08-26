@@ -1,5 +1,6 @@
 package com.hoifu.info;
 
+import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.util.List;
 
@@ -12,6 +13,10 @@ import org.compiere.util.Env;
 import com.hoifu.model.MBillPool;
 
 public class BillPoolInfoWindow extends InfoWindow {  
+	// 贴现流程类名常量
+	private static final String DISCOUNT_PROCESS_CLASSNAME = "com.hoifu.process.BillDiscountProcess";
+	// 传递给贴现参数监听器的 Env context key
+	private static final String CTX_KEY_BILLPOOL_ID = "_IWInfo_BillDiscount_M_BillPool_ID";
 
 	// 基础构造函数 - 7个参数
 	public BillPoolInfoWindow(int WindowNo, String tableName, String keyColumn, String queryValue,
@@ -38,6 +43,27 @@ public class BillPoolInfoWindow extends InfoWindow {
 			String predefinedContextVariables) {
 		super(WindowNo, tableName, keyColumn, queryValue, multipleSelection, whereClause, AD_InfoWindow_ID, lookup,
 				field, predefinedContextVariables);
+	}
+
+	/**
+	 * 点击流程按钮时（早于弹出参数面板），若是贴现流程且为单选， 把票据 ID 写入 Env context，供
+	 * BillDiscountParameterListener.onInit 读取。
+	 */
+	@Override
+	protected void preRunProcess(Integer processId) {
+		if (processId != null) {
+			MProcess process = MProcess.get(Env.getCtx(), processId);
+			if (process != null && DISCOUNT_PROCESS_CLASSNAME.equals(process.getClassname())) {
+				List<Integer> selectedKeys = getSelectedRowKeys();
+				if (selectedKeys != null && selectedKeys.size() == 1) {
+					Env.setContext(Env.getCtx(), p_WindowNo, CTX_KEY_BILLPOOL_ID, selectedKeys.get(0).toString());
+				} else {
+					// 非单选时清空，避免读到旧值
+					Env.setContext(Env.getCtx(), p_WindowNo, CTX_KEY_BILLPOOL_ID, "");
+				}
+			}
+		}
+		super.preRunProcess(processId);
 	}
       
     @Override  
@@ -127,16 +153,25 @@ public class BillPoolInfoWindow extends InfoWindow {
     }  
       
     private boolean checkMaturityCondition(List<Integer> selectedKeys) {  
-        Timestamp currentDate = new Timestamp(System.currentTimeMillis());  
+		Timestamp currentDate = new Timestamp(System.currentTimeMillis());
+		boolean multiSelect = selectedKeys.size() > 1;
         for (Integer key : selectedKeys) {  
 			MBillPool bill = new MBillPool(Env.getCtx(), key, null);
+			String businessStatus = bill.getBusinessStatus();
+			boolean isDiscounted = "true".equals(bill.get_ValueAsString("IsDiscounted"));
+			boolean isRecourse = bill.isRecourse();
+			BigDecimal billRate = bill.getBillRate();
+			// 条件1：已签收(H)  条件2：已贴现并且带有追索权
+			boolean statusOk = "H".equals(businessStatus) || ("C".equals(businessStatus) && isDiscounted && isRecourse);
 
-			// 业务状态必须为"H"且当前日期>=到期日期
-			if (!"H".equals(bill.getBusinessStatus()) || bill.getMaturityDate() == null
+			// 多选限制：多选时所有票据必须都是"票面利率=0"（无息票据）
+			boolean rateOk = !multiSelect || billRate == null || billRate.compareTo(Env.ZERO) == 0;
+
+			if (!statusOk || !rateOk || bill.getMaturityDate() == null
 					|| currentDate.before(bill.getMaturityDate())) {
-                return false;  
-            }  
-        }  
+				return false;
+			}
+		}
         return true;  
     }  
 
@@ -172,6 +207,10 @@ public class BillPoolInfoWindow extends InfoWindow {
 	}
 
 	private boolean checkDiscountCondition(List<Integer> selectedKeys) {
+		//贴现单选
+		if (selectedKeys.size() != 1) {
+			return false;
+		}
 		Timestamp currentDate = new Timestamp(System.currentTimeMillis());
 		for (Integer key : selectedKeys) {
 			MBillPool bill = new MBillPool(Env.getCtx(), key, null);

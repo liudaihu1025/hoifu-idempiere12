@@ -1584,4 +1584,41 @@ public class X_PP_Order extends PO implements I_PP_Order, I_Persistent
 			 return Env.ZERO;
 		return bd;
 	}
+
+	@Override
+	public void setPrintingBiteEdge(String PrintingBiteEdge) {
+		set_Value(COLUMNNAME_PrintingBiteEdge, PrintingBiteEdge);
+	}
+
+	@Override
+	public String getPrintingBiteEdge() {
+		return (String) get_Value(COLUMNNAME_PrintingBiteEdge);
+	}
+
+	@Override
+	public void setPaperCutting(String PaperCutting) {
+		set_Value(COLUMNNAME_PaperCutting, PaperCutting);
+	}
+
+	@Override
+	public String getPaperCutting() {
+		return (String) get_Value(COLUMNNAME_PaperCutting);
+	}
+
+	@Override
+	public void setRef_PP_Order_ID(int Ref_PP_Order_ID) {
+		if (Ref_PP_Order_ID < 1)
+			set_Value(COLUMNNAME_Ref_PP_Order_ID, null);
+		else
+			set_Value(COLUMNNAME_Ref_PP_Order_ID, Integer.valueOf(Ref_PP_Order_ID));
+	}
+
+	@Override
+	public int getRef_PP_Order_ID() {
+		Integer ii = (Integer) get_Value(COLUMNNAME_Ref_PP_Order_ID);
+		if (ii == null)
+			return 0;
+		return ii.intValue();
+	}
+
 }

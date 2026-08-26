@@ -296,7 +296,7 @@ public class CostEngine
 							|| MCostElement.COSTELEMENTTYPE_Overhead.equals(element.getCostElementType())) {// 成本要素是资源/制造成本
 						// 获取该工单的所有活动控制<生产报工>成本收集器
 						List<MPPCostCollector> activities = new Query(cc.getCtx(), MPPCostCollector.Table_Name,
-								"PP_Order_ID=? AND CostCollectorType=?", cc.get_TrxName())
+								"PP_Order_ID=? AND CostCollectorType=? AND DocStatus='CO'", cc.get_TrxName())
 								.setParameters(new Object[] { cc.getPP_Order_ID(), MPPCostCollector.COSTCOLLECTORTYPE_ActivityControl })
 								.list();
 						
@@ -433,7 +433,8 @@ public class CostEngine
 				continue;
 
 			MProduct component = MProduct.get(cc.getCtx(), bomLine.getM_Product_ID());
-			BigDecimal bomQty = bomLine.getQty(true);
+//			BigDecimal bomQty = bomLine.getQty(true);
+			BigDecimal bomQty = bomLine.getQtyBOM(); // 不经过 UOM 精度舍入,只用于金额计算
 			BigDecimal componentQty = cc.getMovementQty().multiply(bomQty);
 
 			// 只有当组件是BOM物料时才递归调用本身方法
@@ -734,142 +735,141 @@ public class CostEngine
 		} // Account Schema 			
 	}
 	
-	public void createRateVariances(MPPCostCollector cc)
-	{
-		final MProduct product;
-		if (cc.isCostCollectorType(MPPCostCollector.COSTCOLLECTORTYPE_ActivityControl))
-		{
-			final I_AD_WF_Node node = cc.getPP_Order_Node().getAD_WF_Node();
-			product = MProduct.forS_Resource_ID(cc.getCtx(), node.getS_Resource_ID(), null);
-		}
-		else if (cc.isCostCollectorType(MPPCostCollector.COSTCOLLECTORTYPE_ComponentIssue))
-		{
-			final I_PP_Order_BOMLine bomLine = cc.getPP_Order_BOMLine();
-			product = MProduct.get(cc.getCtx(), bomLine.getM_Product_ID());
-		}
-		else
-		{
-			return;
-		}
-
-		// 如果产品为空，跳过差异计算
-		if (Objects.isNull(product)) return;
-		
-		MPPCostCollector ccrv = null; // Cost Collector - Rate Variance
-		for (MAcctSchema as : getAcctSchema(cc))
-		{
-			for (MCostElement element : getCostElements(cc.getCtx(), product, as))
-			{
-				final MCostDetail cd = getCostDetail(cc, element.getM_CostElement_ID());
-				if (cd == null)
-					continue;
-				//
-				final BigDecimal qty = cd.getQty();
-				final BigDecimal priceStd = getProductStandardCostPrice(cc, product, as, element);
-				final BigDecimal priceActual = getProductActualCostPrice(cc, product, as, element, cc.get_TrxName());
-				final BigDecimal amtStd = roundCost(priceStd.multiply(qty), as.getC_AcctSchema_ID());
-				final BigDecimal amtActual = roundCost(priceActual.multiply(qty), as.getC_AcctSchema_ID());
-				if (amtStd.compareTo(amtActual) == 0)
-					continue;
-				//
-				if (ccrv == null)
-				{
-					ccrv = createVarianceCostCollector(cc, MPPCostCollector.COSTCOLLECTORTYPE_RateVariance);
-				}
-				//
-				createVarianceCostDetail(ccrv,
-						amtActual.negate(), qty.negate(),
-						cd, null, as, element);
-				createVarianceCostDetail(ccrv,
-						amtStd, qty,
-						cd, null, as, element);
-			}
-		}
-		//
-		if (ccrv != null)
-		{
-			boolean ok = ccrv.processIt(MPPCostCollector.ACTION_Complete);
-			ccrv.saveEx();
-			if (!ok)
-				throw new AdempiereException(ccrv.getProcessMsg());
-		}
+	public void createRateVariances(MPPCostCollector cc)  
+	{  
+		final MProduct product;  
+		if (cc.isCostCollectorType(MPPCostCollector.COSTCOLLECTORTYPE_ActivityControl))  
+		{  
+			// 优化：直接从 PP_Order_Node 自身读取 S_Resource_ID，不再反查 AD_WF_Node  
+			product = MProduct.forS_Resource_ID(cc.getCtx(), cc.getPP_Order_Node().getS_Resource_ID(), null);  
+		}  
+		else if (cc.isCostCollectorType(MPPCostCollector.COSTCOLLECTORTYPE_ComponentIssue))  
+		{  
+			final I_PP_Order_BOMLine bomLine = cc.getPP_Order_BOMLine();  
+			product = MProduct.get(cc.getCtx(), bomLine.getM_Product_ID());  
+		}  
+		else  
+		{  
+			return;  
+		}  
+	  
+		// 如果产品为空，跳过差异计算  
+		if (Objects.isNull(product)) return;  
+		  
+		MPPCostCollector ccrv = null; // Cost Collector - Rate Variance  
+		for (MAcctSchema as : getAcctSchema(cc))  
+		{  
+			for (MCostElement element : getCostElements(cc.getCtx(), product, as))  
+			{  
+				final MCostDetail cd = getCostDetail(cc, element.getM_CostElement_ID());  
+				if (cd == null)  
+					continue;  
+				//  
+				final BigDecimal qty = cd.getQty();  
+				final BigDecimal priceStd = getProductStandardCostPrice(cc, product, as, element);  
+				final BigDecimal priceActual = getProductActualCostPrice(cc, product, as, element, cc.get_TrxName());  
+				final BigDecimal amtStd = roundCost(priceStd.multiply(qty), as.getC_AcctSchema_ID());  
+				final BigDecimal amtActual = roundCost(priceActual.multiply(qty), as.getC_AcctSchema_ID());  
+				if (amtStd.compareTo(amtActual) == 0)  
+					continue;  
+				//  
+				if (ccrv == null)  
+				{  
+					ccrv = createVarianceCostCollector(cc, MPPCostCollector.COSTCOLLECTORTYPE_RateVariance);  
+				}  
+				//  
+				createVarianceCostDetail(ccrv,  
+						amtActual.negate(), qty.negate(),  
+						cd, null, as, element);  
+				createVarianceCostDetail(ccrv,  
+						amtStd, qty,  
+						cd, null, as, element);  
+			}  
+		}  
+		//  
+		if (ccrv != null)  
+		{  
+			boolean ok = ccrv.processIt(MPPCostCollector.ACTION_Complete);  
+			ccrv.saveEx();  
+			if (!ok)  
+				throw new AdempiereException(ccrv.getProcessMsg());  
+		}  
 	}
-
-	public void createMethodVariances(MPPCostCollector cc)
-	{
-		if(cc.isCostCollectorType(MPPCostCollector.COSTCOLLECTORTYPE_MethodChangeVariance))
-		{		
-			for (MAcctSchema as : getAcctSchema(cc))
-			{
-			
-				for (MCostElement element : getCostElements(cc.getCtx(), cc.getM_Product(), as))
-				{
-					final MProduct product = cc.getM_Product(); 
-					final BigDecimal qty = cc.getMovementQty();
-					final BigDecimal priceStd = getProductActualCostPrice(cc, product, as, element, cc.get_TrxName());
-					final BigDecimal amtStd = priceStd.multiply(qty);
-					createVarianceCostDetail(cc,
-							amtStd,qty,
-							null, product, as, element);
-				}
-			}
-			return;
-		}
-		//create the variance for routing	
-		if (!cc.isCostCollectorType(MPPCostCollector.COSTCOLLECTORTYPE_ActivityControl))
-			return;
-		//
-		final int std_resource_id = cc.getPP_Order_Node().getAD_WF_Node().getS_Resource_ID();
-		final int actual_resource_id = cc.getS_Resource_ID();
-		if (std_resource_id == actual_resource_id)
-		{
-			return;
-		}
-		// 添加空值检查 - 如果任一资源id为空，跳过差异计算  
-		if (std_resource_id <= 0 || actual_resource_id <= 0) {  
-		    return; 
-		}
-		//
-		MPPCostCollector ccmv = null; // Cost Collector - Method Change Variance
-		final RoutingService routingService = RoutingServiceFactory.get().getRoutingService(cc.getAD_Client_ID());
-		for (MAcctSchema as : getAcctSchema(cc))
-		{
-			for (MCostElement element : getCostElements(cc.getCtx(), cc.getM_Product(), as))
-			{
-				final MProduct resourcePStd = MProduct.forS_Resource_ID(cc.getCtx(), std_resource_id, null); 
-				final MProduct resourcePActual = MProduct.forS_Resource_ID(cc.getCtx(), actual_resource_id, null);
-				final BigDecimal priceStd = getProductActualCostPrice(cc, resourcePStd, as, element, cc.get_TrxName());
-				final BigDecimal priceActual = getProductActualCostPrice(cc, resourcePActual, as, element, cc.get_TrxName());
-				if (priceStd.compareTo(priceActual) == 0)
-				{
-					continue;
-				}
-				//
-				if (ccmv == null)
-				{
-					ccmv = createVarianceCostCollector(cc, MPPCostCollector.COSTCOLLECTORTYPE_MethodChangeVariance);
-				}
-				//
-				final BigDecimal qty = routingService.getResourceBaseValue(cc.getS_Resource_ID(), cc);
-				final BigDecimal amtStd = priceStd.multiply(qty); 
-				final BigDecimal amtActual = priceActual.multiply(qty);
-				//
-				createVarianceCostDetail(ccmv,
-						amtActual, qty,
-						null, resourcePActual, as, element);
-				createVarianceCostDetail(ccmv,
-						amtStd.negate(), qty.negate(),
-						null, resourcePStd, as, element);
-			}
-		}
-		//
-		if (ccmv != null)
-		{
-			boolean ok = ccmv.processIt(MPPCostCollector.ACTION_Complete);
-			ccmv.saveEx();
-			if (!ok)
-				throw new AdempiereException(ccmv.getProcessMsg());
-		}
+	public void createMethodVariances(MPPCostCollector cc)  
+	{  
+		if(cc.isCostCollectorType(MPPCostCollector.COSTCOLLECTORTYPE_MethodChangeVariance))  
+		{		  
+			for (MAcctSchema as : getAcctSchema(cc))  
+			{  
+			  
+				for (MCostElement element : getCostElements(cc.getCtx(), cc.getM_Product(), as))  
+				{  
+					final MProduct product = cc.getM_Product();   
+					final BigDecimal qty = cc.getMovementQty();  
+					final BigDecimal priceStd = getProductActualCostPrice(cc, product, as, element, cc.get_TrxName());  
+					final BigDecimal amtStd = priceStd.multiply(qty);  
+					createVarianceCostDetail(cc,  
+							amtStd,qty,  
+							null, product, as, element);  
+				}  
+			}  
+			return;  
+		}  
+		//create the variance for routing	  
+		if (!cc.isCostCollectorType(MPPCostCollector.COSTCOLLECTORTYPE_ActivityControl))  
+			return;  
+		//  
+		// 优化：直接从 PP_Order_Node 自身读取 S_Resource_ID，不再反查 AD_WF_Node  
+		final int std_resource_id = cc.getPP_Order_Node().getS_Resource_ID();  
+		final int actual_resource_id = cc.getS_Resource_ID();  
+		if (std_resource_id == actual_resource_id)  
+		{  
+			return;  
+		}  
+		// 添加空值检查 - 如果任一资源id为空，跳过差异计算    
+		if (std_resource_id <= 0 || actual_resource_id <= 0) {    
+		    return;   
+		}  
+		//  
+		MPPCostCollector ccmv = null; // Cost Collector - Method Change Variance  
+		final RoutingService routingService = RoutingServiceFactory.get().getRoutingService(cc.getAD_Client_ID());  
+		for (MAcctSchema as : getAcctSchema(cc))  
+		{  
+			for (MCostElement element : getCostElements(cc.getCtx(), cc.getM_Product(), as))  
+			{  
+				final MProduct resourcePStd = MProduct.forS_Resource_ID(cc.getCtx(), std_resource_id, null);   
+				final MProduct resourcePActual = MProduct.forS_Resource_ID(cc.getCtx(), actual_resource_id, null);  
+				final BigDecimal priceStd = getProductActualCostPrice(cc, resourcePStd, as, element, cc.get_TrxName());  
+				final BigDecimal priceActual = getProductActualCostPrice(cc, resourcePActual, as, element, cc.get_TrxName());  
+				if (priceStd.compareTo(priceActual) == 0)  
+				{  
+					continue;  
+				}  
+				//  
+				if (ccmv == null)  
+				{  
+					ccmv = createVarianceCostCollector(cc, MPPCostCollector.COSTCOLLECTORTYPE_MethodChangeVariance);  
+				}  
+				//  
+				final BigDecimal qty = routingService.getResourceBaseValue(cc.getS_Resource_ID(), cc);  
+				final BigDecimal amtStd = priceStd.multiply(qty);   
+				final BigDecimal amtActual = priceActual.multiply(qty);  
+				//  
+				createVarianceCostDetail(ccmv,  
+						amtActual, qty,  
+						null, resourcePActual, as, element);  
+				createVarianceCostDetail(ccmv,  
+						amtStd.negate(), qty.negate(),  
+						null, resourcePStd, as, element);  
+			}  
+		}  
+		//  
+		if (ccmv != null)  
+		{  
+			boolean ok = ccmv.processIt(MPPCostCollector.ACTION_Complete);  
+			ccmv.saveEx();  
+			if (!ok)  
+				throw new AdempiereException(ccmv.getProcessMsg());  
+		}  
 	}
-
 }

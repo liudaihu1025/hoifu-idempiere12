@@ -31,7 +31,6 @@ import java.util.Properties;
 import java.util.Vector;
 
 import org.adempiere.exceptions.AdempiereException;
-import org.adempiere.util.ProcessUtil;
 import org.adempiere.webui.apps.AEnv;
 import org.adempiere.webui.component.Button;
 import org.adempiere.webui.component.Combobox;
@@ -81,6 +80,7 @@ import org.compiere.model.MTab;
 import org.compiere.model.MUOM;
 import org.compiere.model.MWindow;
 import org.compiere.model.Query;
+import org.compiere.process.DocAction;
 import org.compiere.process.ProcessInfo;
 import org.compiere.util.CLogger;
 import org.compiere.util.DB;
@@ -91,7 +91,6 @@ import org.compiere.util.Language;
 import org.compiere.util.Msg;
 import org.compiere.util.Trx;
 import org.compiere.util.TrxRunnable;
-import org.compiere.wf.MWFProcess;
 import org.compiere.wf.MWorkflow;
 import org.eevolution.model.I_PP_Order_BOMLine;
 import org.libero.model.MPPOrder;
@@ -105,6 +104,7 @@ import org.zkoss.zul.Center;
 import org.zkoss.zul.Div;
 import org.zkoss.zul.Hbox;
 import org.zkoss.zul.Html;
+import org.zkoss.zul.Listheader;
 import org.zkoss.zul.Messagebox;
 import org.zkoss.zul.North;
 import org.zkoss.zul.Row;
@@ -112,33 +112,33 @@ import org.zkoss.zul.South;
 import org.zkoss.zul.Tabpanel;
 import org.zkoss.zul.Tabpanels;
 import org.zkoss.zul.Window;
+
 /**
- *  @author Cristina Ghita, www.arhipac.ro
- *  @author Adi Takacs, www.arhipac.ro
- *  @author victor.perez@e-evolution.com, www.e-evolution.com
+ * @author Cristina Ghita, www.arhipac.ro
+ * @author Adi Takacs, www.arhipac.ro
+ * @author victor.perez@e-evolution.com, www.e-evolution.com
  */
 
-public class WOrderReceiptIssue extends OrderReceiptIssue  implements IFormController, EventListener,  
-ValueChangeListener,Serializable,WTableModelListener  
-{
+public class WOrderReceiptIssue extends OrderReceiptIssue
+		implements IFormController, EventListener, ValueChangeListener, Serializable, WTableModelListener {
 
 	/**
 	 * 
 	 */
 	private static final long serialVersionUID = -3451096834043054791L;
 	private static final CLogger log = CLogger.getCLogger(WOrderReceiptIssue.class);
-	
-	/**	Window No			*/
+
+	/** Window No */
 	private int m_WindowNo = 0;
 	private String m_sql;
 	private MPPOrder m_PP_order = null;
-	
+
 	private Panel Generate = new Panel();
 	private Panel PanelBottom = new Panel();
 	private Panel mainPanel = new Panel();
 	private Panel northPanel = new Panel();
 	private Button Process = new Button();
-	
+
 	private Label attributeLabel = new Label();
 	private Label orderedQtyLabel = new Label();
 	private Label deliveredQtyLabel = new Label();
@@ -149,17 +149,17 @@ ValueChangeListener,Serializable,WTableModelListener
 	private Label rejectQtyLabel = new Label();
 	private Label resourceLabel = new Label();
 	private Label nodeLabel = new Label("工序"); // 添加工序标签
-	
+
 	private CustomForm form = new CustomForm();
 	private Borderlayout ReceiptIssueOrder = new Borderlayout();
 	private Tabbox TabsReceiptsIssue = new Tabbox();
 	private Html info = new Html();
 	private Grid fieldGrid = GridFactory.newGridLayout();
 	private WPAttributeEditor attribute = null;
-	
+
 	private Label warehouseLabel = new Label();
 	private Label scrapQtyLabel = new Label();
-	private Label productLabel = new Label(Msg.translate(Env.getCtx(),"M_Product_ID"));
+	private Label productLabel = new Label(Msg.translate(Env.getCtx(), "M_Product_ID"));
 	private Label uomLabel = new Label(Msg.translate(Env.getCtx(), "C_UOM_ID"));
 	private Label uomorderLabel = new Label(Msg.translate(Env.getCtx(), "Altert UOM"));
 	private Label locatorLabel = new Label(Msg.translate(Env.getCtx(), "M_Locator_ID"));
@@ -167,18 +167,26 @@ ValueChangeListener,Serializable,WTableModelListener
 	private Label labelcombo = new Label(Msg.translate(Env.getCtx(), "DeliveryRule"));
 	private Label QtyBatchsLabel = new Label();
 	private Label QtyBatchSizeLabel = new Label();
-	
+
 	private Textbox backflushGroup = new Textbox();
-	
-	private WNumberEditor orderedQtyField = new WNumberEditor("QtyOrdered", false, false, false, DisplayType.Quantity, "QtyOrdered");
-	private WNumberEditor deliveredQtyField = new WNumberEditor("QtyDelivered", false, false, false, DisplayType.Quantity, "QtyDelivered");
-	private WNumberEditor openQtyField = new WNumberEditor("QtyOpen", false, false, false, DisplayType.Quantity, "QtyOpen");
-	private WNumberEditor toDeliverQty = new WNumberEditor("QtyToDeliver", true, false, true, DisplayType.Quantity, "QtyToDeliver");
-	private WNumberEditor rejectQty = new WNumberEditor("Qtyreject", false, false, true, DisplayType.Quantity, "QtyReject");
-	private WNumberEditor scrapQtyField = new WNumberEditor("Qtyscrap", false, false, true, DisplayType.Quantity, "Qtyscrap");
-	private WNumberEditor qtyBatchsField = new WNumberEditor("QtyBatchs", false, false, false, DisplayType.Quantity, "QtyBatchs");
-	private WNumberEditor qtyBatchSizeField = new WNumberEditor("QtyBatchSize", false, false, false, DisplayType.Quantity, "QtyBatchSize");
-	
+
+	private WNumberEditor orderedQtyField = new WNumberEditor("QtyOrdered", false, false, false, DisplayType.Quantity,
+			"QtyOrdered");
+	private WNumberEditor deliveredQtyField = new WNumberEditor("QtyDelivered", false, false, false,
+			DisplayType.Quantity, "QtyDelivered");
+	private WNumberEditor openQtyField = new WNumberEditor("QtyOpen", false, false, false, DisplayType.Quantity,
+			"QtyOpen");
+	private WNumberEditor toDeliverQty = new WNumberEditor("QtyToDeliver", true, false, true, DisplayType.Quantity,
+			"QtyToDeliver");
+	private WNumberEditor rejectQty = new WNumberEditor("Qtyreject", false, false, true, DisplayType.Quantity,
+			"QtyReject");
+	private WNumberEditor scrapQtyField = new WNumberEditor("Qtyscrap", false, false, true, DisplayType.Quantity,
+			"Qtyscrap");
+	private WNumberEditor qtyBatchsField = new WNumberEditor("QtyBatchs", false, false, false, DisplayType.Quantity,
+			"QtyBatchs");
+	private WNumberEditor qtyBatchSizeField = new WNumberEditor("QtyBatchSize", false, false, false,
+			DisplayType.Quantity, "QtyBatchSize");
+
 	private WSearchEditor orderField = null;
 	private Combobox nodeCombo = new Combobox(); // 改为Combobox下拉框
 //	private WSearchEditor resourceField = null;
@@ -188,20 +196,20 @@ ValueChangeListener,Serializable,WTableModelListener
 	private WSearchEditor productField = null;
 	private WSearchEditor uomField = null;
 	private WSearchEditor uomorderField = null;
-	
+
 	private WListbox issue = ListboxFactory.newDataTable();
-	private WDateEditor movementDateField = new WDateEditor("MovementDate", true, false, true,  "MovementDate");	
-	
+	private WDateEditor movementDateField = new WDateEditor("MovementDate", true, false, true, "MovementDate");
+
 	private WLocatorEditor locatorField = null;
 	private Label activityLabel = new Label("部门");
 	private Combobox activityCombo = new Combobox();
-	
+
 	// 在类开头，添加以下成员变量
 	private Map<Integer, BigDecimal> originalValues = new HashMap<>(); // 保存编辑前的值
 	private boolean isRestoringValue = false; // 标记是否正在恢复值
 	private int currentEditingRow = -1; // 当前正在编辑的行
 	private BigDecimal currentEditingOriginalValue = null; // 当前编辑的原始值
-	
+
 	private Combobox pickcombo = new Combobox();
 
 	private Label fulfilledFilterLabel = new Label("仅显示已领物料");
@@ -215,38 +223,34 @@ ValueChangeListener,Serializable,WTableModelListener
 	private Button generalIssueButton = new Button("通用物料领用");
 
 	/**
-	 *	Initialize Panel
-	 *  @param WindowNo window
-	 *  @param frame frame
+	 * Initialize Panel
+	 * 
+	 * @param WindowNo window
+	 * @param frame    frame
 	 */
-	
-	public WOrderReceiptIssue() 
-	{
+
+	public WOrderReceiptIssue() {
 		Env.setContext(Env.getCtx(), form.getWindowNo(), "IsSOTrx", "Y");
-		try 
-		{
-			//	UI
+		try {
+			// UI
 			fillPicks();
 			jbInit();
 			//
 			dynInit();
 			pickcombo.addEventListener(Events.ON_CHANGE, this);
 
-		} 
-		catch (Exception e) 
-		{
+		} catch (Exception e) {
 			throw new AdempiereException(e);
 		}
-	} //	init
+	} // init
 
 	/**
-	 *	Fill Picks
-	 *		Column_ID from C_Order
-	 *	This is only run as part of the windows initialization process
-	 *  @throws Exception if Lookups cannot be initialized
+	 * Fill Picks Column_ID from C_Order This is only run as part of the windows
+	 * initialization process
+	 * 
+	 * @throws Exception if Lookups cannot be initialized
 	 */
-	private void fillPicks() throws Exception 
-	{
+	private void fillPicks() throws Exception {
 
 		Properties ctx = Env.getCtx();
 		Language language = Language.getLoginLanguage(); // Base Language
@@ -261,9 +265,8 @@ ValueChangeListener,Serializable,WTableModelListener
 		});
 
 		MLookup orderLookup = MLookupFactory.get(ctx, m_WindowNo,
-											MColumn.getColumn_ID(MPPOrder.Table_Name, MPPOrder.COLUMNNAME_PP_Order_ID),
-											DisplayType.Search, language, "PP_Order_ID", 0, false,
-											"PP_Order.DocStatus = '" + MPPOrder.DOCACTION_Complete + "'");
+				MColumn.getColumn_ID(MPPOrder.Table_Name, MPPOrder.COLUMNNAME_PP_Order_ID), DisplayType.Search,
+				language, "PP_Order_ID", 0, false, "PP_Order.DocStatus = '" + MPPOrder.DOCACTION_Complete + "'");
 
 		orderField = new WSearchEditor(MPPOrder.COLUMNNAME_PP_Order_ID, false, false, true, orderLookup);
 		orderField.addValueChangeListener(this);
@@ -274,50 +277,48 @@ ValueChangeListener,Serializable,WTableModelListener
 //		resourceField = new WSearchEditor(MPPOrder.COLUMNNAME_S_Resource_ID, false, false, false, resourceLookup);
 
 		MLookup warehouseLookup = MLookupFactory.get(ctx, m_WindowNo, 0,
-												MColumn.getColumn_ID(MPPOrder.Table_Name, MPPOrder.COLUMNNAME_M_Warehouse_ID),
-												DisplayType.TableDir);
+				MColumn.getColumn_ID(MPPOrder.Table_Name, MPPOrder.COLUMNNAME_M_Warehouse_ID), DisplayType.TableDir);
 		warehouseField = new WSearchEditor(MPPOrder.COLUMNNAME_M_Warehouse_ID, false, false, false, warehouseLookup);
 
 		MLookup productLookup = MLookupFactory.get(ctx, m_WindowNo, 0,
-											  	   MColumn.getColumn_ID(MPPOrder.Table_Name, MPPOrder.COLUMNNAME_M_Product_ID),
-											  	   DisplayType.TableDir);
+				MColumn.getColumn_ID(MPPOrder.Table_Name, MPPOrder.COLUMNNAME_M_Product_ID), DisplayType.TableDir);
 		productField = new WSearchEditor(MPPOrder.COLUMNNAME_M_Product_ID, false, false, false, productLookup);
 
 		MLookup uomLookup = MLookupFactory.get(ctx, m_WindowNo, 0,
-											   MColumn.getColumn_ID(MPPOrder.Table_Name, MPPOrder.COLUMNNAME_C_UOM_ID),
-											   DisplayType.TableDir);
+				MColumn.getColumn_ID(MPPOrder.Table_Name, MPPOrder.COLUMNNAME_C_UOM_ID), DisplayType.TableDir);
 		uomField = new WSearchEditor(MPPOrder.COLUMNNAME_C_UOM_ID, false, false, false, uomLookup);
 
 		MLookup uomOrderLookup = MLookupFactory.get(ctx, m_WindowNo, 0,
-													MColumn.getColumn_ID(MPPOrder.Table_Name, MPPOrder.COLUMNNAME_C_UOM_ID),
-													DisplayType.TableDir);
-		
+				MColumn.getColumn_ID(MPPOrder.Table_Name, MPPOrder.COLUMNNAME_C_UOM_ID), DisplayType.TableDir);
+
 		uomorderField = new WSearchEditor(MPPOrder.COLUMNNAME_C_UOM_ID, false, false, false, uomOrderLookup);
 
 		MLocatorLookup locatorL = new MLocatorLookup(ctx, m_WindowNo);
+		// 排除线边仓库位，调拨单已禁止线边仓参与，此处UI也过滤掉
+		locatorL.setValidationCode(
+				"M_Locator.M_LocatorType_ID NOT IN (SELECT M_LocatorType_ID FROM M_LocatorType WHERE Name='生产线边仓')");
 		locatorField = new WLocatorEditor(MLocator.COLUMNNAME_M_Locator_ID, true, false, true, locatorL, m_WindowNo);
 
-		
-		//  Tab, Window
+		// Tab, Window
 		int m_Window = MWindow.getWindow_ID("Manufacturing Order");
-		GridFieldVO vo = GridFieldVO.createStdField(ctx, m_WindowNo, 0,m_Window, MTab.getTab_ID(m_Window, "Manufacturing Order"), 
-													false, false, false);
+		GridFieldVO vo = GridFieldVO.createStdField(ctx, m_WindowNo, 0, m_Window,
+				MTab.getTab_ID(m_Window, "Manufacturing Order"), false, false, false);
 		vo.AD_Column_ID = MColumn.getColumn_ID(MPPOrder.Table_Name, MPPOrder.COLUMNNAME_M_AttributeSetInstance_ID);
 		vo.ColumnName = MPPOrder.COLUMNNAME_M_AttributeSetInstance_ID;
-		vo.displayType = DisplayType.PAttribute;  
+		vo.displayType = DisplayType.PAttribute;
 
 		GridField field = new GridField(vo);
 		// M_AttributeSetInstance_ID
-		attribute = new WPAttributeEditor(field.getGridTab(),field);
+		attribute = new WPAttributeEditor(field.getGridTab(), field);
 		attribute.setValue(0);
 		// 4Layers - Further init
 		scrapQtyField.setValue(Env.ZERO);
 		rejectQty.setValue(Env.ZERO);
 		// 4Layers - end
 		// 修改这里：调整为生产领料、生产补领、生产退料
-	    pickcombo.appendItem("生产领料", 1);           // 修改：生产发料改为生产领料
-	    pickcombo.appendItem("生产补领", 2);           // 生产补领
-	    pickcombo.appendItem("生产退料", 3);           // 生产退料
+		pickcombo.appendItem("生产领料", 1); // 修改：生产发料改为生产领料
+		pickcombo.appendItem("生产补领", 2); // 生产补领
+		pickcombo.appendItem("生产退料", 3); // 生产退料
 
 		pickcombo.appendItem("委外发料", 4);
 		pickcombo.appendItem("委外补领", 5);
@@ -328,12 +329,11 @@ ValueChangeListener,Serializable,WTableModelListener
 		scrapQtyField.addValueChangeListener(this);
 
 		loadActivityComboData();
-	} //	fillPicks
-	
+	} // fillPicks
+
 	/**
-	 * 静态初始化方法
-	 * 放置静态视觉元素到窗口中
-	 * 这仅在窗口初始化过程中运行
+	 * 静态初始化方法 放置静态视觉元素到窗口中 这仅在窗口初始化过程中运行
+	 * 
 	 * <pre>
 	 * mainPanel
 	 *     northPanel
@@ -343,6 +343,7 @@ ValueChangeListener,Serializable,WTableModelListener
 	 *         xMathedTo
 	 *     southPanel
 	 * </pre>
+	 * 
 	 * @throws Exception
 	 */
 	private void jbInit() throws Exception {
@@ -533,26 +534,25 @@ ValueChangeListener,Serializable,WTableModelListener
 
 	}
 
-	public void dynInit() {  
-	    disableToDeliver();  
-	    prepareTable(issue);  
-	    issue.autoSize();  
-	      
-	    // 先加载数据  
-	    executeQuery();  
-	    
-	    // 添加表格模型监听器  
-	    if (issue.getModel() != null) {  
-	        issue.getModel().addTableModelListener(this);  
-	    }  
-	      
-	    issue.setRowCount(0);  
-	    
+	public void dynInit() {
+		disableToDeliver();
+		prepareTable(issue);
+		issue.autoSize();
+
+		// 先加载数据
+		executeQuery();
+
+		// 添加表格模型监听器
+		if (issue.getModel() != null) {
+			issue.getModel().addTableModelListener(this);
+		}
+
+		issue.setRowCount(0);
+
 	}
-	
-	
-	@Override  
-	public void tableChanged(WTableModelEvent event) {  
+
+	@Override
+	public void tableChanged(WTableModelEvent event) {
 
 		// 1. 检查是否有选中的行，控制删除按钮状态
 		boolean hasSelection = false;
@@ -566,79 +566,100 @@ ValueChangeListener,Serializable,WTableModelListener
 		deleteMaterialButton.setEnabled(hasSelection);
 		viewOrderButton.setEnabled(hasSelection);
 
-	    if (isRestoringValue) return; // 避免递归调用  
-	      
-	    int row = event.getFirstRow();  
-	    int column = event.getColumn();  
-	      
-		// 2. 处理领取数量列的变化
-	    if (column == 7 && row >= 0) {   
-	        try {  
-	            Object value = issue.getValueAt(row, column);  
-	            BigDecimal newValue = convertToBigDecimal(value);  
-	            validateAndAdjustQuantity(row, column, newValue);  
-	        } catch (Exception ex) {  
-	            log.severe("表格变化处理出错: " + ex.getMessage());  
-	        }  
-	    }  
+		if (isRestoringValue)
+			return; // 避免递归调用
 
+		int row = event.getFirstRow();
+		int column = event.getColumn();
+
+		// 2. 处理仓库申请数量列（列7）的变化 → 重算线边仓申请数量（列8）
+		if (column == 7 && row >= 0) {
+			try {
+				Object value = issue.getValueAt(row, column);
+				BigDecimal newValue = convertToBigDecimal(value);
+
+				// 生产退料时，输入数量不足最小包装，直接归入线边仓（列8）
+				if (isProductionReturn() && newValue.compareTo(Env.ZERO) > 0) {
+					KeyNamePair productKey = (KeyNamePair) issue.getValueAt(row, 2);
+					if (productKey != null && isLineSideWarehouseProduct(productKey.getKey())) {
+						BigDecimal minPack = getUnitsPerPack(productKey.getKey());
+						if (newValue.compareTo(minPack) < 0) {
+							isRestoringValue = true;
+							issue.setValueAt(Env.ZERO, row, 7);
+							issue.setValueAt(newValue, row, 8);
+							isRestoringValue = false;
+							return;
+						}
+					}
+				}
+
+				// 先根据用户原始输入反算线边仓申请数量（需在包装取整之前，否则取整后的值会影响线边仓计算）
+				if (isProductionReturn()) {
+					recalcReturnLineSideQty(row);
+				} else {
+					recalcLineSideRequestQty(row);
+				}
+
+				// 再做包装取整校验（会调整列7的值）
+				validateAndAdjustQuantity(row, column, newValue);
+			} catch (Exception ex) {
+				log.severe("表格变化处理出错: " + ex.getMessage());
+			}
+		}
 	}
-	private BigDecimal convertToBigDecimal(Object value) {  
-	    if (value == null) return Env.ZERO;  
-	    if (value instanceof BigDecimal) return (BigDecimal) value;  
-	    if (value instanceof Number) return new BigDecimal(value.toString());  
-	    if (value instanceof String) {  
-	        try {  
-	            String str = ((String) value).trim();  
-	            return str.isEmpty() ? Env.ZERO : new BigDecimal(str);  
-	        } catch (NumberFormatException e) {  
-	            return Env.ZERO;  
-	        }  
-	    }  
-	    return Env.ZERO;  
+
+	private BigDecimal convertToBigDecimal(Object value) {
+		if (value == null)
+			return Env.ZERO;
+		if (value instanceof BigDecimal)
+			return (BigDecimal) value;
+		if (value instanceof Number)
+			return new BigDecimal(value.toString());
+		if (value instanceof String) {
+			try {
+				String str = ((String) value).trim();
+				return str.isEmpty() ? Env.ZERO : new BigDecimal(str);
+			} catch (NumberFormatException e) {
+				return Env.ZERO;
+			}
+		}
+		return Env.ZERO;
 	}
 
-	
-
-	public void prepareTable(IMiniTable miniTable)
-	{
+	public void prepareTable(IMiniTable miniTable) {
 		configureMiniTable(miniTable);
 	}
-	
-	/**
-	 * Called when events occur in the window
-	 */
-	
-	/**
-	 * Called when events occur in the window
-	 */
-	public void onEvent(Event e) throws Exception 
-	{
-	    if (e.getName().equals(Events.ON_CANCEL))
-	    {
-	        dispose();
-	        return;
-	    }
 
-	    if (e.getTarget().equals(Process))
-	    {
-	        // 首先检查是否有选择生产工单
-	        if (getPP_Order_ID() <= 0) {
-	            Messagebox.show("请先选择生产工单", "提示", Messagebox.OK, Messagebox.INFORMATION);
-	            return;
-	        }
-	        
-	        if (getMovementDate() == null)
-	        {
-	            Messagebox.show(Msg.getMsg(Env.getCtx(), "日期为空"), "提示", Messagebox.OK, Messagebox.INFORMATION);
-	            return;
-	        }
-	        
-	        // 检查领料类型选择
-	        if (pickcombo.getSelectedIndex() < 0) {
-	            Messagebox.show("请选择领退料类型", "提示", Messagebox.OK, Messagebox.INFORMATION);
-	            return;
-	        }
+	/**
+	 * Called when events occur in the window
+	 */
+
+	/**
+	 * Called when events occur in the window
+	 */
+	public void onEvent(Event e) throws Exception {
+		if (e.getName().equals(Events.ON_CANCEL)) {
+			dispose();
+			return;
+		}
+
+		if (e.getTarget().equals(Process)) {
+			// 首先检查是否有选择生产工单
+			if (getPP_Order_ID() <= 0) {
+				Messagebox.show("请先选择生产工单", "提示", Messagebox.OK, Messagebox.INFORMATION);
+				return;
+			}
+
+			if (getMovementDate() == null) {
+				Messagebox.show(Msg.getMsg(Env.getCtx(), "日期为空"), "提示", Messagebox.OK, Messagebox.INFORMATION);
+				return;
+			}
+
+			// 检查领料类型选择
+			if (pickcombo.getSelectedIndex() < 0) {
+				Messagebox.show("请选择领退料类型", "提示", Messagebox.OK, Messagebox.INFORMATION);
+				return;
+			}
 			// 添加机台必填校验
 			if (getS_Resource_ID() <= 0) {
 				Messagebox.show("机台字段为必填项，请选择机台", "提示", Messagebox.OK, Messagebox.INFORMATION);
@@ -649,78 +670,85 @@ ValueChangeListener,Serializable,WTableModelListener
 				return;
 			}
 
+			// 根据领料类型检查库位
+			String selectedType = pickcombo.getSelectedItem().getLabel();
+			if ("生产退料".equals(selectedType) && getM_Locator_ID() <= 0) {
+				Messagebox.show(Msg.getMsg(Env.getCtx(), "库位为空"), "提示", Messagebox.OK, Messagebox.INFORMATION);
+				return;
+			}
 
-	        // 根据领料类型检查库位
-	        String selectedType = pickcombo.getSelectedItem().getLabel();
-	        if ("生产退料".equals(selectedType) && getM_Locator_ID() <= 0) 
-	        {
-	            Messagebox.show(Msg.getMsg(Env.getCtx(), "库位为空"), "提示", Messagebox.OK, Messagebox.INFORMATION);
-	            return;
-	        }
-	        
-	        // 检查是否至少勾选了一行物料
-	        boolean hasSelectedMaterial = false;
-	        for (int i = 0; i < issue.getRowCount(); i++) {
-	            IDColumn idColumn = (IDColumn) issue.getValueAt(i, 0);
-	            if (idColumn != null && idColumn.isSelected()) {
-	                hasSelectedMaterial = true;
-	                break;
-	            }
-	        }
-	        
-	        if (!hasSelectedMaterial) {
-	            Messagebox.show("请至少勾选一行物料", "提示", Messagebox.OK, Messagebox.INFORMATION);
-	            return;
-	        }
-	        
-	        // 检查是否所有勾选的行都有有效的领取数量
-	        boolean hasValidQty = true;
-	        StringBuilder errorMessage = new StringBuilder();
-	        for (int i = 0; i < issue.getRowCount(); i++) {
-	            IDColumn idColumn = (IDColumn) issue.getValueAt(i, 0);
-	            if (idColumn != null && idColumn.isSelected()) {
-	                // 获取领取数量（第7列）
-	                Object qtyObj = issue.getValueAt(i, 7);
-	                BigDecimal qtyToDeliver = Env.ZERO;
-	                
-	                if (qtyObj instanceof BigDecimal) {
-	                    qtyToDeliver = (BigDecimal) qtyObj;
-	                } else if (qtyObj instanceof String) {
-	                    try {
-	                        qtyToDeliver = new BigDecimal((String) qtyObj);
-	                    } catch (NumberFormatException ex) {
-	                        // 忽略格式错误，后面会检查是否为0
-	                    }
-	                } else if (qtyObj instanceof Number) {
-	                    qtyToDeliver = new BigDecimal(qtyObj.toString());
-	                }
-	                
-	                // 获取物料名称（第1列或第2列，根据具体实现）
-	                String materialCode = "";
-	                Object materialCodeObj = issue.getValueAt(i, 1);
-	                if (materialCodeObj != null) {
-	                    materialCode = materialCodeObj.toString();
-	                }
-	                
-	                // 检查领取数量是否大于0
-	                if (qtyToDeliver.compareTo(Env.ZERO) <= 0) {
-	                    hasValidQty = false;
-	                    errorMessage.append("物料[").append(materialCode).append("]的领取数量必须大于0\n");
-	                }
-	                
-	                // 获取需求数量和已领数量
-	                Object requiredQtyObj = issue.getValueAt(i, 5);
-	                Object deliveredQtyObj = issue.getValueAt(i, 6);
-	                BigDecimal requiredQty = Env.ZERO;
-	                BigDecimal deliveredQty = Env.ZERO;
-	                
-	                if (requiredQtyObj instanceof BigDecimal) {
-	                    requiredQty = (BigDecimal) requiredQtyObj;
-	                }
-	                if (deliveredQtyObj instanceof BigDecimal) {
-	                    deliveredQty = (BigDecimal) deliveredQtyObj;
-	                }
-	                
+			// 检查是否至少勾选了一行物料
+			boolean hasSelectedMaterial = false;
+			for (int i = 0; i < issue.getRowCount(); i++) {
+				IDColumn idColumn = (IDColumn) issue.getValueAt(i, 0);
+				if (idColumn != null && idColumn.isSelected()) {
+					hasSelectedMaterial = true;
+					break;
+				}
+			}
+
+			if (!hasSelectedMaterial) {
+				Messagebox.show("请至少勾选一行物料", "提示", Messagebox.OK, Messagebox.INFORMATION);
+				return;
+			}
+
+			// 检查是否所有勾选的行都有有效的领取数量
+			boolean hasValidQty = true;
+			StringBuilder errorMessage = new StringBuilder();
+			for (int i = 0; i < issue.getRowCount(); i++) {
+				IDColumn idColumn = (IDColumn) issue.getValueAt(i, 0);
+				if (idColumn != null && idColumn.isSelected()) {
+					// 获取领取数量（第7列）
+					Object qtyObj = issue.getValueAt(i, 7);
+					BigDecimal qtyToDeliver = Env.ZERO;
+
+					if (qtyObj instanceof BigDecimal) {
+						qtyToDeliver = (BigDecimal) qtyObj;
+					} else if (qtyObj instanceof String) {
+						try {
+							qtyToDeliver = new BigDecimal((String) qtyObj);
+						} catch (NumberFormatException ex) {
+							// 忽略格式错误，后面会检查是否为0
+						}
+					} else if (qtyObj instanceof Number) {
+						qtyToDeliver = new BigDecimal(qtyObj.toString());
+					}
+
+					// 获取物料名称
+					String materialCode = "";
+					Object materialCodeObj = issue.getValueAt(i, 1);
+					if (materialCodeObj != null) {
+						materialCode = materialCodeObj.toString();
+					}
+
+					// 获取线边仓申请数量（第8列）
+					BigDecimal lineSideQty_check = Env.ZERO;
+					Object lineSideObj = issue.getValueAt(i, 8);
+					if (lineSideObj instanceof BigDecimal) {
+						lineSideQty_check = (BigDecimal) lineSideObj;
+					} else if (lineSideObj instanceof Number) {
+						lineSideQty_check = new BigDecimal(lineSideObj.toString());
+					}
+
+					// 检查仓库申请数量和线边仓申请数量不能同时为0
+					if (qtyToDeliver.compareTo(Env.ZERO) <= 0 && lineSideQty_check.compareTo(Env.ZERO) <= 0) {
+						hasValidQty = false;
+						errorMessage.append("物料[").append(materialCode).append("]的仓库申请数量和线边仓申请数量不能同时为0\n");
+					}
+
+					// 获取需求数量和已领数量
+					Object requiredQtyObj = issue.getValueAt(i, 5);
+					Object deliveredQtyObj = issue.getValueAt(i, 6);
+					BigDecimal requiredQty = Env.ZERO;
+					BigDecimal deliveredQty = Env.ZERO;
+
+					if (requiredQtyObj instanceof BigDecimal) {
+						requiredQty = (BigDecimal) requiredQtyObj;
+					}
+					if (deliveredQtyObj instanceof BigDecimal) {
+						deliveredQty = (BigDecimal) deliveredQtyObj;
+					}
+
 //	                // 检查领取数量是否超过待领数量（需求数量 - 已领数量）
 //	                BigDecimal availableQty = requiredQty.subtract(deliveredQty);
 //	                if (qtyToDeliver.compareTo(availableQty) > 0) {
@@ -728,90 +756,86 @@ ValueChangeListener,Serializable,WTableModelListener
 //	                    errorMessage.append("物料[").append(materialCode).append("]的领取数量(")
 //	                               .append(qtyToDeliver).append(")超过可领取数量(").append(availableQty).append(")\n");
 //	                }
-	            }
-	        }
-	        
-	        if (!hasValidQty) {
-	            Messagebox.show("以下物料存在问题：\n" + errorMessage.toString(), "物料数据错误", Messagebox.OK, Messagebox.ERROR);
-	            return;
-	        }
-	        
-	        // 检查是否有可领取的物料（领取数量大于0）
-	        boolean hasQtyToDeliver = false;
-	        for (int i = 0; i < issue.getRowCount(); i++) {
-	            IDColumn idColumn = (IDColumn) issue.getValueAt(i, 0);
-	            if (idColumn != null && idColumn.isSelected()) {
-	                Object qtyObj = issue.getValueAt(i, 7);
-	                BigDecimal qtyToDeliver = Env.ZERO;
-	                
-	                if (qtyObj instanceof BigDecimal) {
-	                    qtyToDeliver = (BigDecimal) qtyObj;
-	                } else if (qtyObj instanceof String) {
-	                    try {
-	                        qtyToDeliver = new BigDecimal((String) qtyObj);
-	                    } catch (NumberFormatException ex) {
-	                        // 忽略格式错误
-	                    }
-	                }
-	                
-	                if (qtyToDeliver.compareTo(Env.ZERO) > 0) {
-	                    hasQtyToDeliver = true;
-	                    break;
-	                }
-	            }
-	        }
-	        
-	        if (!hasQtyToDeliver) {
-	            Messagebox.show("所有勾选物料的领取数量都为0，无需提交", "提示", Messagebox.OK, Messagebox.INFORMATION);
-	            return;
-	        }
-	        
-	        // 异步确认对话框
-	        Messagebox.show("确认提交领退料申请？",  
-	        	    "确认", Messagebox.OK | Messagebox.CANCEL,  
-	        	    Messagebox.QUESTION,  
-	        	    new org.zkoss.zk.ui.event.EventListener() {  
-	        	        public void onEvent(Event e) {  
-	        	            if ("onOK".equals(e.getName())) {  
-	        	                if (cmd_process(false, issue)) {  
-	        	                    // 用 ProcessInfoDialog 替换原来的 Messagebox  
-	        	                    if (lastProcessInfo != null) {  
-	        	                        lastProcessInfo.setSummary("领退料申请已成功提交！");  
-	        	                        ProcessInfoDialog dialog = ProcessInfoDialog.showProcessInfo(  
-	        	                            lastProcessInfo,  
-	        	                            m_WindowNo,   // 你的 Form 的 windowNo  
-	        	                            form,  // Form 组件本身（Component）  
-	        	                            false         // 不从 DB 重新加载 log  
-	        	                        );  
-	        	                        dialog.setAutoCloseAfterZoom(true); // 点击链接后自动关闭弹窗  
-	        	                    }  
-	        	  
-	        	                    Integer currentOrderId = getPP_Order_ID();  
-	        	                    if (currentOrderId != null && currentOrderId > 0) {  
-	        	                        reloadOrderData(currentOrderId);  
-	        	                    }  
-	        	                }  
-	        	            }  
-	        	        }  
-	        	    }  
-	        	);
-	    }    
+				}
+			}
+
+			if (!hasValidQty) {
+				Messagebox.show("以下物料存在问题：\n" + errorMessage.toString(), "物料数据错误", Messagebox.OK, Messagebox.ERROR);
+				return;
+			}
+
+			// 检查是否有可领取的物料（领取数量大于0）
+			boolean hasQtyToDeliver = false;
+			for (int i = 0; i < issue.getRowCount(); i++) {
+				IDColumn idColumn = (IDColumn) issue.getValueAt(i, 0);
+				if (idColumn != null && idColumn.isSelected()) {
+					Object qtyObj = issue.getValueAt(i, 7);
+					BigDecimal qtyToDeliver = Env.ZERO;
+
+					if (qtyObj instanceof BigDecimal) {
+						qtyToDeliver = (BigDecimal) qtyObj;
+					} else if (qtyObj instanceof String) {
+						try {
+							qtyToDeliver = new BigDecimal((String) qtyObj);
+						} catch (NumberFormatException ex) {
+							// 忽略格式错误
+						}
+					}
+
+					if (qtyToDeliver.compareTo(Env.ZERO) > 0 || getLineSideQty(issue, i).compareTo(Env.ZERO) > 0) {
+						hasQtyToDeliver = true;
+						break;
+					}
+				}
+			}
+
+			if (!hasQtyToDeliver) {
+				Messagebox.show("所有勾选物料的领取数量都为0，无需提交", "提示", Messagebox.OK, Messagebox.INFORMATION);
+				return;
+			}
+
+			// 异步确认对话框
+			Messagebox.show("确认提交领退料申请？", "确认", Messagebox.OK | Messagebox.CANCEL, Messagebox.QUESTION,
+					new org.zkoss.zk.ui.event.EventListener() {
+						public void onEvent(Event e) {
+							if ("onOK".equals(e.getName())) {
+								if (cmd_process(false, issue)) {
+									// 用 ProcessInfoDialog 替换原来的 Messagebox
+									if (lastProcessInfo != null) {
+										lastProcessInfo.setSummary("领退料申请已成功提交！");
+										ProcessInfoDialog dialog = ProcessInfoDialog.showProcessInfo(lastProcessInfo,
+												m_WindowNo, // 你的 Form 的 windowNo
+												form, // Form 组件本身（Component）
+												false // 不从 DB 重新加载 log
+										);
+										dialog.setAutoCloseAfterZoom(true); // 点击链接后自动关闭弹窗
+									}
+
+									Integer currentOrderId = getPP_Order_ID();
+									if (currentOrderId != null && currentOrderId > 0) {
+										reloadOrderData(currentOrderId);
+									}
+								}
+							}
+						}
+					});
+		}
 
 		if (e.getTarget().equals(pickcombo)) {
 			// 委外退料显示库位
 			if (isSubcontractingReturn()) {
-	            locatorLabel.setVisible(true);  
-	            locatorField.setVisible(true);  
-	            issue.setVisible(true);  
-	            executeQuery();  
-	        }  
+				locatorLabel.setVisible(true);
+				locatorField.setVisible(true);
+				issue.setVisible(true);
+				executeQuery();
+			}
 			// 委外发料/委外补领隐藏库位
 			else if (isSubcontractingIssue() || isSubcontractingReplenishment()) {
 				locatorLabel.setVisible(false);
-	            locatorField.setVisible(false);  
-	            issue.setVisible(true);  
-	            executeQuery();  
-	        }  
+				locatorField.setVisible(false);
+				issue.setVisible(true);
+				executeQuery();
+			}
 			// 生产退料显示库位
 			else if (isProductionReturn()) {
 				locatorLabel.setVisible(true);
@@ -822,11 +846,12 @@ ValueChangeListener,Serializable,WTableModelListener
 			// 生产领料/生产补领隐藏库位
 			else if (isOnlyIssue() || isProductionReplenishment()) {
 				locatorLabel.setVisible(false);
-	            locatorField.setVisible(false);  
-	            issue.setVisible(true);  
-	            executeQuery();  
-	        }  
-	    }
+				locatorField.setVisible(false);
+				issue.setVisible(true);
+				executeQuery();
+			}
+		}
+		updateColumn7Header(isProductionReturn());
 
 		if (e.getTarget().equals(fulfilledFilterCombo)) {
 			executeQuery();
@@ -859,71 +884,71 @@ ValueChangeListener,Serializable,WTableModelListener
 			onGeneralIssue();
 		}
 	}
-	
-	
+
 	/**
 	 * 重新加载工单数据
+	 * 
 	 * @param orderId 工单ID
 	 */
 	private void reloadOrderData(int orderId) {
-	    try {
-	        // 1. 保存当前选中的工序
+		try {
+			// 1. 保存当前选中的工序
 			Integer selectedNodeId = getPP_Order_Node_ID();
-	        
-	        // 2. 重新加载工单基本信息
-	        MPPOrder pp_order = new MPPOrder(Env.getCtx(), orderId, null);
-	        if (pp_order != null) {
-	            // 更新工单数量相关字段
-	            setDeliveredQty(pp_order.getQtyDelivered());
-	            setOrderedQty(pp_order.getQtyOrdered());
-	            setQtyBatchs(pp_order.getQtyBatchs());
-	            setQtyBatchSize(pp_order.getQtyBatchSize());
-	            setDeliveredQty(pp_order.getQtyOrdered());
-	            setToDeliverQty(getOpenQty());
-	            
-	            // 更新产品信息
-	            setM_Product_ID(pp_order.getM_Product_ID());
-	            MProduct m_product = MProduct.get(Env.getCtx(), pp_order.getM_Product_ID());
-	            setC_UOM_ID(m_product.getC_UOM_ID());
-	            setOrder_UOM_ID(pp_order.getC_UOM_ID());
-	            
-	            // 3. 重新加载工序下拉框数据
+
+			// 2. 重新加载工单基本信息
+			MPPOrder pp_order = new MPPOrder(Env.getCtx(), orderId, null);
+			if (pp_order != null) {
+				// 更新工单数量相关字段
+				setDeliveredQty(pp_order.getQtyDelivered());
+				setOrderedQty(pp_order.getQtyOrdered());
+				setQtyBatchs(pp_order.getQtyBatchs());
+				setQtyBatchSize(pp_order.getQtyBatchSize());
+				setDeliveredQty(pp_order.getQtyOrdered());
+				setToDeliverQty(getOpenQty());
+
+				// 更新产品信息
+				setM_Product_ID(pp_order.getM_Product_ID());
+				MProduct m_product = MProduct.get(Env.getCtx(), pp_order.getM_Product_ID());
+				setC_UOM_ID(m_product.getC_UOM_ID());
+				setOrder_UOM_ID(pp_order.getC_UOM_ID());
+
+				// 3. 重新加载工序下拉框数据
 				int ppOrderId = pp_order.get_ID();
 				loadNodeComboData(ppOrderId);
-	            
-	            // 4. 恢复之前选中的工序
-	            if (selectedNodeId != null && selectedNodeId > 0) {
-	                // 查找并选中原来的工序
-	                for (int i = 0; i < nodeCombo.getItemCount(); i++) {
-	                    org.zkoss.zul.Comboitem item = nodeCombo.getItemAtIndex(i);
-	                    Object itemValue = item.getValue();
-	                    if (itemValue != null && itemValue instanceof Integer) {
-	                        if (((Integer) itemValue).intValue() == selectedNodeId) {
-	                            nodeCombo.setSelectedIndex(i);
-	                            // 触发工序变更事件，自动带出机台
-	                            onNodeComboChanged();
-	                            break;
-	                        }
-	                    }
-	                }
-	            }
-	            
-	            // 5. 重新查询并加载物料表格数据
-	            executeQuery();
-	            
+
+				// 4. 恢复之前选中的工序
+				if (selectedNodeId != null && selectedNodeId > 0) {
+					// 查找并选中原来的工序
+					for (int i = 0; i < nodeCombo.getItemCount(); i++) {
+						org.zkoss.zul.Comboitem item = nodeCombo.getItemAtIndex(i);
+						Object itemValue = item.getValue();
+						if (itemValue != null && itemValue instanceof Integer) {
+							if (((Integer) itemValue).intValue() == selectedNodeId) {
+								nodeCombo.setSelectedIndex(i);
+								// 触发工序变更事件，自动带出机台
+								onNodeComboChanged();
+								break;
+							}
+						}
+					}
+				}
+
+				// 5. 重新查询并加载物料表格数据
+				executeQuery();
+
 				updateMaterialButtonsVisibility();
 
-	            log.info("工单数据已重新加载，工单ID: " + orderId);
-	        }
-	    } catch (Exception ex) {
-	        log.severe("重新加载工单数据时出错: " + ex.getMessage());
-	        // 如果重新加载失败，至少清空表格并显示错误
-	        issue.clearTable();
-	        issue.setRowCount(0);
-	        issue.repaint();
-	    }
+				log.info("工单数据已重新加载，工单ID: " + orderId);
+			}
+		} catch (Exception ex) {
+			log.severe("重新加载工单数据时出错: " + ex.getMessage());
+			// 如果重新加载失败，至少清空表格并显示错误
+			issue.clearTable();
+			issue.setRowCount(0);
+			issue.repaint();
+		}
 	}
-	
+
 	/**
 	 * 加载机台下拉框数据
 	 */
@@ -932,24 +957,22 @@ ValueChangeListener,Serializable,WTableModelListener
 		resourceCombo.appendItem("请选择机台", null);
 
 		// 从当前选中的 PP_Order 获取 AD_Org_ID\AD_Client_ID
-	    MPPOrder ppOrder = getPP_Order();  
-	    int orgId    = (ppOrder != null) ? ppOrder.getAD_Org_ID() : 0;  
-	    int clientId = Env.getAD_Client_ID(Env.getCtx());  
-	  
-	    String sql = "SELECT S_Resource_ID, Name FROM S_Resource "  
-	               + "WHERE IsActive='Y' "  
-	               + "AND AD_Client_ID = ? "  
-	               + "AND (AD_Org_ID = ? OR AD_Org_ID = 0) "  
-	               + "ORDER BY Name";  
+		MPPOrder ppOrder = getPP_Order();
+		int orgId = (ppOrder != null) ? ppOrder.getAD_Org_ID() : 0;
+		int clientId = Env.getAD_Client_ID(Env.getCtx());
 
-		//String sql = "SELECT S_Resource_ID, Name FROM S_Resource WHERE IsActive='Y' AND S_ResourceType_ID = 1000003 ORDER BY Name";
+		String sql = "SELECT S_Resource_ID, Name FROM S_Resource " + "WHERE IsActive='Y' " + "AND AD_Client_ID = ? "
+				+ "AND (AD_Org_ID = ? OR AD_Org_ID = 0) " + "ORDER BY Name";
+
+		// String sql = "SELECT S_Resource_ID, Name FROM S_Resource WHERE IsActive='Y'
+		// AND S_ResourceType_ID = 1000003 ORDER BY Name";
 		PreparedStatement pstmt = null;
 		ResultSet rs = null;
 
 		try {
 			pstmt = DB.prepareStatement(sql, null);
-	        pstmt.setInt(1, clientId);  
-	        pstmt.setInt(2, orgId); 
+			pstmt.setInt(1, clientId);
+			pstmt.setInt(2, orgId);
 			rs = pstmt.executeQuery();
 
 			while (rs.next()) {
@@ -980,29 +1003,28 @@ ValueChangeListener,Serializable,WTableModelListener
 	private void loadNodeComboData(int ppOrderId) {
 		// 清空当前选项
 		nodeCombo.getItems().clear();
-		
+
 		if (ppOrderId <= 0) {
 			// 添加工序为空的选项
 			nodeCombo.appendItem("请选择工序", null);
 			nodeCombo.setSelectedIndex(0);
 			return;
 		}
-		
-		
+
 		// 查询该工单的所有工序节点
 		String sql = "SELECT PP_Order_Node_ID, Name FROM PP_Order_Node WHERE PP_Order_ID = ? AND IsActive='Y' ORDER BY Value";
 
 		PreparedStatement pstmt = null;
 		ResultSet rs = null;
-		
+
 		try {
 			pstmt = DB.prepareStatement(sql, null);
 			pstmt.setInt(1, ppOrderId);
 			rs = pstmt.executeQuery();
-			
+
 			// 添加工序为空的选项
 			nodeCombo.appendItem("请选择工序", null);
-			
+
 			boolean hasData = false;
 			while (rs.next()) {
 				int nodeId = rs.getInt("PP_Order_Node_ID");
@@ -1013,7 +1035,7 @@ ValueChangeListener,Serializable,WTableModelListener
 				nodeCombo.appendItem(nodeName, nodeId);
 				hasData = true;
 			}
-			
+
 			// 默认选择第一个工序（如果有）
 			if (hasData) {
 				nodeCombo.setSelectedIndex(1); // 跳过"请选择工序"
@@ -1022,7 +1044,7 @@ ValueChangeListener,Serializable,WTableModelListener
 			} else {
 				nodeCombo.setSelectedIndex(0);
 			}
-			
+
 		} catch (SQLException e) {
 			log.severe("加载工序数据时出错: " + e.getMessage());
 			nodeCombo.appendItem("加载工序失败", null);
@@ -1034,10 +1056,9 @@ ValueChangeListener,Serializable,WTableModelListener
 			pstmt = null;
 		}
 	}
-	
+
 	/**
-	 * 工序下拉框变更监听方法
-	 * 当工序选择变更时，自动带出机台数据
+	 * 工序下拉框变更监听方法 当工序选择变更时，自动带出机台数据
 	 */
 	private void onNodeComboChanged() {
 		if (nodeCombo.getSelectedItem() == null) {
@@ -1047,7 +1068,7 @@ ValueChangeListener,Serializable,WTableModelListener
 			executeQuery();
 			return;
 		}
-		
+
 		Object nodeObj = nodeCombo.getSelectedItem().getValue();
 		if (nodeObj != null && nodeObj instanceof Integer) {
 			Integer nodeId = (Integer) nodeObj;
@@ -1056,7 +1077,7 @@ ValueChangeListener,Serializable,WTableModelListener
 				// String sql = "SELECT S_Resource_ID FROM AD_WF_Node WHERE AD_WF_Node_ID = ?";
 				String sql = "SELECT S_Resource_ID FROM PP_Order_Node WHERE PP_Order_Node_ID = ?";
 				int resourceId = DB.getSQLValue(null, sql, nodeId);
-				
+
 				if (resourceId > 0) {
 					// 设置机台字段
 //					resourceField.setValue(resourceId);
@@ -1074,20 +1095,17 @@ ValueChangeListener,Serializable,WTableModelListener
 		}
 		executeQuery();
 	}
-	
-	public void enableToDeliver()
-	{
+
+	public void enableToDeliver() {
 		setToDeliver(true);
 	}
 
-	public void disableToDeliver()
-	{
+	public void disableToDeliver() {
 		setToDeliver(false);
 	}
-	
-	private void setToDeliver(Boolean state)
-	{
-		toDeliverQty.getComponent().setEnabled(state); 
+
+	private void setToDeliver(Boolean state) {
+		toDeliverQty.getComponent().setEnabled(state);
 		scrapQtyLabel.setVisible(state);
 		scrapQtyField.setVisible(state);
 		rejectQtyLabel.setVisible(state);
@@ -1095,11 +1113,9 @@ ValueChangeListener,Serializable,WTableModelListener
 	}
 
 	/**
-	 * 查询并填充屏幕下半部分的表格
-	 * 仅当 isBackflush() 或 isOnlyIssue 时运行
+	 * 查询并填充屏幕下半部分的表格 仅当 isBackflush() 或 isOnlyIssue 时运行
 	 */
-	public void executeQuery()
-	{
+	public void executeQuery() {
 		// 重置表格
 		issue.clearTable();
 		issue.setRowCount(0);
@@ -1110,7 +1126,7 @@ ValueChangeListener,Serializable,WTableModelListener
 		}
 		setFulfilledFilter(filterValue); // 传给基类
 		// ↑↑↑ 新增结束 ↑↑↑
-		
+
 		// ↓ 新增：工序过滤
 		setNodeFilter(getPP_Order_Node_ID());
 
@@ -1121,13 +1137,13 @@ ValueChangeListener,Serializable,WTableModelListener
 		this.applySubstituteRules();
 
 		issue.repaint();
-		
+
 		// 确保表格正确显示
 		if (issue.getRowCount() == 0) {
 			// 如果没有数据，显示提示信息
 			log.info("当前工单没有物料数据或已全部领料完成");
 		}
-	} //  executeQuery
+	} // executeQuery
 
 	public void valueChange(ValueChangeEvent e) {
 		String name = e.getPropertyName();
@@ -1233,188 +1249,161 @@ ValueChangeListener,Serializable,WTableModelListener
 			}
 		}
 	}
-	
-	public void showMessage(String message, boolean error)
-	{
-		try
-		{
-			if(!error)
-				Messagebox.show(message, "Info",Messagebox.OK, Messagebox.INFORMATION);
+
+	public void showMessage(String message, boolean error) {
+		try {
+			if (!error)
+				Messagebox.show(message, "Info", Messagebox.OK, Messagebox.INFORMATION);
 			else
-				Messagebox.show(message,"",Messagebox.OK,Messagebox.ERROR);
-		}
-		catch(Exception e)
-		{
-			
+				Messagebox.show(message, "", Messagebox.OK, Messagebox.ERROR);
+		} catch (Exception e) {
+
 		}
 	}
 
 	/**
 	 * 判断是否为"OnlyReciept"模式
-	 * @return	
+	 * 
+	 * @return
 	 */
-	protected boolean isOnlyReceipt() 
-	{
+	protected boolean isOnlyReceipt() {
 		super.setIsOnlyReceipt("OnlyReceipt".equals(pickcombo.getText()));
 		return super.isOnlyReceipt();
 	}
-	
+
 	/**
 	 * 判断是否为"OnlyIssue"模式
-	 * @return	
+	 * 
+	 * @return
 	 */
-	protected boolean isOnlyIssue() {  
-	    String selectedType = pickcombo.getSelectedItem() != null ? pickcombo.getSelectedItem().getLabel() : "";  
-	      
-	    // 如果是委外工单，使用基类中已设置的值  
-	    if (selectedType.contains("委外")) {  
-	        return super.isOnlyIssue();  
-	    }  
-	      
-	    // 普通工单：根据下拉框文本设置  
-	    super.setIsOnlyIssue("生产领料".equals(selectedType));  
-	    return super.isOnlyIssue();  
+	protected boolean isOnlyIssue() {
+		String selectedType = pickcombo.getSelectedItem() != null ? pickcombo.getSelectedItem().getLabel() : "";
+
+		// 如果是委外工单，使用基类中已设置的值
+		if (selectedType.contains("委外")) {
+			return super.isOnlyIssue();
+		}
+
+		// 普通工单：根据下拉框文本设置
+		super.setIsOnlyIssue("生产领料".equals(selectedType));
+		return super.isOnlyIssue();
 	}
+
 	/**
 	 * 判断是否为"isBackflush"模式
-	 * @return	
+	 * 
+	 * @return
 	 */
-	protected boolean isBackflush()
-	{
+	protected boolean isBackflush() {
 		super.setIsBackflush("IsBackflush".equals(pickcombo.getText()));
 		return super.isBackflush();
 	}
 
-	protected Timestamp getMovementDate()
-	{
+	protected Timestamp getMovementDate() {
 		return (Timestamp) movementDateField.getValue();
 	}
 
-	
-	protected BigDecimal getOrderedQty()
-	{
+	protected BigDecimal getOrderedQty() {
 		BigDecimal bd = (BigDecimal) orderedQtyField.getValue();
 		return bd != null ? bd : Env.ZERO;
 	}
 
-	protected void setOrderedQty(BigDecimal qty)
-	{
+	protected void setOrderedQty(BigDecimal qty) {
 		this.orderedQtyField.setValue(qty);
 	}
 
-	protected BigDecimal getDeliveredQty()
-	{
+	protected BigDecimal getDeliveredQty() {
 		BigDecimal bd = (BigDecimal) deliveredQtyField.getValue();
 		return bd != null ? bd : Env.ZERO;
 	}
-	
-	protected void setDeliveredQty(BigDecimal qty)
-	{
+
+	protected void setDeliveredQty(BigDecimal qty) {
 		deliveredQtyField.setValue(qty);
 	}
 
-	protected BigDecimal getToDeliverQty()
-	{
+	protected BigDecimal getToDeliverQty() {
 		BigDecimal bd = (BigDecimal) toDeliverQty.getValue();
 		return bd != null ? bd : Env.ZERO;
 	}
-	
-	protected void setToDeliverQty(BigDecimal qty)
-	{
+
+	protected void setToDeliverQty(BigDecimal qty) {
 		toDeliverQty.setValue(qty);
 	}
 
-	protected BigDecimal getScrapQty()
-	{
+	protected BigDecimal getScrapQty() {
 		BigDecimal bd = (BigDecimal) scrapQtyField.getValue();
 		return bd != null ? bd : Env.ZERO;
 	}
 
-	protected BigDecimal getRejectQty() 
-	{
+	protected BigDecimal getRejectQty() {
 		BigDecimal bd = (BigDecimal) rejectQty.getValue();
 		return bd != null ? bd : Env.ZERO;
 	}
 
-	protected BigDecimal getOpenQty()
-	{
+	protected BigDecimal getOpenQty() {
 		BigDecimal bd = (BigDecimal) openQtyField.getValue();
 		return bd != null ? bd : Env.ZERO;
 	}
-	protected void setOpenQty(BigDecimal qty)
-	{
+
+	protected void setOpenQty(BigDecimal qty) {
 		openQtyField.setValue(qty);
 	}
-	
-	protected BigDecimal getQtyBatchs()
-	{
+
+	protected BigDecimal getQtyBatchs() {
 		BigDecimal bd = (BigDecimal) qtyBatchsField.getValue();
 		return bd != null ? bd : Env.ZERO;
 	}
-	protected void setQtyBatchs(BigDecimal qty)
-	{
+
+	protected void setQtyBatchs(BigDecimal qty) {
 		qtyBatchsField.setValue(qty);
 	}
-	
-	protected BigDecimal getQtyBatchSize()
-	{
+
+	protected BigDecimal getQtyBatchSize() {
 		BigDecimal bd = (BigDecimal) qtyBatchSizeField.getValue();
 		return bd != null ? bd : Env.ZERO;
 	}
-	
-	protected void setQtyBatchSize(BigDecimal qty)
-	{
+
+	protected void setQtyBatchSize(BigDecimal qty) {
 		qtyBatchSizeField.setValue(qty);
 	}
 
-	protected int getM_AttributeSetInstance_ID()
-	{
+	protected int getM_AttributeSetInstance_ID() {
 		Integer ii = (Integer) attribute.getValue();
 		return ii != null ? ii.intValue() : 0;
 	}
-	
-	protected void setM_AttributeSetInstance_ID(int M_AttributeSetInstance_ID)
-	{
+
+	protected void setM_AttributeSetInstance_ID(int M_AttributeSetInstance_ID) {
 		attribute.setValue(M_AttributeSetInstance_ID);
 	}
 
-	protected int getM_Locator_ID()
-	{
+	protected int getM_Locator_ID() {
 		Integer ii = (Integer) locatorField.getValue();
 		return ii != null ? ii.intValue() : 0;
 	}
-	
-	protected void setM_Locator_ID(int M_Locator_ID)
-	{
+
+	protected void setM_Locator_ID(int M_Locator_ID) {
 		locatorField.setValue(M_Locator_ID);
 	}
 
-	protected int getPP_Order_ID()
-	{
+	protected int getPP_Order_ID() {
 		Integer ii = (Integer) orderField.getValue();
 		return ii != null ? ii.intValue() : 0;
-	}	
-	
-	protected MPPOrder getPP_Order()
-	{
+	}
+
+	protected MPPOrder getPP_Order() {
 		int id = getPP_Order_ID();
-		if (id <= 0)
-		{
+		if (id <= 0) {
 			m_PP_order = null;
 			return null;
 		}
-		if (m_PP_order == null || m_PP_order.get_ID() != id)
-		{
-			
+		if (m_PP_order == null || m_PP_order.get_ID() != id) {
+
 			m_PP_order = new MPPOrder(Env.getCtx(), id, null);
 		}
 		return m_PP_order;
 	}
-	
-	
-	
-	protected void setS_Resource_ID(int S_Resource_ID)
-	{
+
+	protected void setS_Resource_ID(int S_Resource_ID) {
 //		resourceField.setValue(S_Resource_ID);
 		for (int i = 0; i < resourceCombo.getItemCount(); i++) {
 			org.zkoss.zul.Comboitem item = resourceCombo.getItemAtIndex(i);
@@ -1427,106 +1416,85 @@ ValueChangeListener,Serializable,WTableModelListener
 			}
 		}
 	}
-	
-	protected int getM_Warehouse_ID()
-	{
+
+	protected int getM_Warehouse_ID() {
 		Integer ii = (Integer) warehouseField.getValue();
 		return ii != null ? ii.intValue() : 0;
 	}
-	
-	protected void setM_Warehouse_ID(int M_Warehouse_ID)
-	{
+
+	protected void setM_Warehouse_ID(int M_Warehouse_ID) {
 		warehouseField.setValue(M_Warehouse_ID);
 		// 设置上下文
 		Env.setContext(Env.getCtx(), m_WindowNo, "M_Warehouse_ID", M_Warehouse_ID);
 	}
-	
-	protected int getM_Product_ID()
-	{
+
+	protected int getM_Product_ID() {
 		Integer ii = (Integer) productField.getValue();
 		return ii != null ? ii.intValue() : 0;
 	}
-	
-	protected void setM_Product_ID(int M_Product_ID)
-	{
+
+	protected void setM_Product_ID(int M_Product_ID) {
 		productField.setValue(M_Product_ID);
 		// Env.setContext(Env.getCtx(), m_WindowNo, "M_Product_ID", M_Product_ID);
 	}
-	
-	protected int getC_UOM_ID()
-	{
+
+	protected int getC_UOM_ID() {
 		Integer ii = (Integer) uomField.getValue();
 		return ii != null ? ii.intValue() : 0;
 	}
-	
-	protected void setC_UOM_ID(int C_UOM_ID)
-	{
+
+	protected void setC_UOM_ID(int C_UOM_ID) {
 		uomField.setValue(C_UOM_ID);
 	}
-	
-	protected int getOrder_UOM_ID()
-	{
+
+	protected int getOrder_UOM_ID() {
 		Integer ii = (Integer) uomorderField.getValue();
 		return ii != null ? ii.intValue() : 0;
 	}
-	
-	protected void setOrder_UOM_ID(int C_UOM_ID)
-	{
+
+	protected void setOrder_UOM_ID(int C_UOM_ID) {
 		uomorderField.setValue(C_UOM_ID);
 	}
-	
 
-	public void dispose()
-	{
+	public void dispose() {
 		SessionManager.getAppDesktop().closeActiveWindow();
-	}	//	dispose
-	
-	public ADForm getForm() 
-	{
+	} // dispose
+
+	public ADForm getForm() {
 		return form;
 	}
 
-	
-	
-	
-	public boolean cmd_process(final boolean isCloseDocument, final IMiniTable issue)
-	{
-		 lastProcessInfo = null; // 每次执行前重置  
-	    if (isOnlyReceipt() || isBackflush() || isProductionReturn()) 
-	    {
-	        if (getM_Locator_ID() <= 0)
-	        {
-	            showMessage( Msg.getMsg(Env.getCtx(),"NoLocator"), false);
-	            return false;
-	        }
-	    }
-	    if (getPP_Order() == null || getMovementDate() == null)
-	    {
-	        return false;
-	    }    
-	    
-	    // 获取工序和机台ID
+	public boolean cmd_process(final boolean isCloseDocument, final IMiniTable issue) {
+		lastProcessInfo = null; // 每次执行前重置
+		if (isOnlyReceipt() || isBackflush() || isProductionReturn()) {
+			if (getM_Locator_ID() <= 0) {
+				showMessage(Msg.getMsg(Env.getCtx(), "NoLocator"), false);
+				return false;
+			}
+		}
+		if (getPP_Order() == null || getMovementDate() == null) {
+			return false;
+		}
+
+		// 获取工序和机台ID
 		int nodeId = getPP_Order_Node_ID();
-	    int resourceId = getS_Resource_ID();
-	    
-	    // 记录选择的工序和机台
-	    if (nodeId > 0) {
-	        log.info("选择的工序ID: " + nodeId);
-	    }
-	    if (resourceId > 0) {
-	        log.info("选择的机台ID: " + resourceId);
-	    }
-	    
-	    try
-	    {
-	        Trx.run(new TrxRunnable() {
-	            public void run(String trxName)
-	            {
-	                MPPOrder order = new MPPOrder(Env.getCtx(), getPP_Order_ID(), trxName);
-	                if (isOnlyIssue() || isProductionReplenishment() || isProductionReturn()) 
-	                {
-	                    // 根据不同类型创建不同单据
-	                    String costCollectorType = null;
+		int resourceId = getS_Resource_ID();
+
+		// 记录选择的工序和机台
+		if (nodeId > 0) {
+			log.info("选择的工序ID: " + nodeId);
+		}
+		if (resourceId > 0) {
+			log.info("选择的机台ID: " + resourceId);
+		}
+
+		try {
+			Trx.run(new TrxRunnable() {
+				public void run(String trxName) {
+					MPPOrder order = new MPPOrder(Env.getCtx(), getPP_Order_ID(), trxName);
+					if (isOnlyIssue() || isProductionReplenishment() || isProductionReturn()) {
+						// 根据不同类型创建不同单据
+						String costCollectorType = null;
 						if (isSubcontractingIssue()) {
 							costCollectorType = OrderReceiptIssue.COSTCOLLECTORTYPE_SUBCONTRACTING_ISSUE; // 130
 						} else if (isSubcontractingReplenishment()) {
@@ -1540,57 +1508,44 @@ ValueChangeListener,Serializable,WTableModelListener
 						} else if (isOnlyIssue()) {
 							costCollectorType = OrderReceiptIssue.COSTCOLLECTORTYPE_PRODUCTION_ISSUE; // 110
 						}
-	                    
-	                    // 创建发料单，传递工序和机台ID
-	                    createIssue(order, issue, costCollectorType);
-	                }
-	                if (isOnlyReceipt() || isBackflush()) 
-	                {
-	                    MPPOrder.createReceipt(order,
-	                            getMovementDate(),
-	                            getDeliveredQty(),
-	                            getToDeliverQty(), 
-	                            getScrapQty(),
-	                            getRejectQty(),
-	                            getM_Locator_ID(),
-	                            getM_AttributeSetInstance_ID()
-	                    );
-	                    if (isCloseDocument)
-	                    {
-	                        order.setDateFinish(getMovementDate());
-	                        order.closeIt();
-	                        order.saveEx();
-	                    }
-	                }
-	            }});
-	    }
-	    catch (Exception e)
-	    {
-	        showMessage(e.getLocalizedMessage(), true);
-	        return false;
-	    }
-	    finally
-	    {
-	        m_PP_order = null;
-	    }
 
-	    return true;
-	}
-	
-	protected boolean isProductionReplenishment() 
-	{
-	    super.setIsProductionReplenishment("生产补领".equals(pickcombo.getText()));
-	    return super.isProductionReplenishment();
+						// 创建发料单，传递工序和机台ID
+						createIssue(order, issue, costCollectorType);
+					}
+					if (isOnlyReceipt() || isBackflush()) {
+						MPPOrder.createReceipt(order, getMovementDate(), getDeliveredQty(), getToDeliverQty(),
+								getScrapQty(), getRejectQty(), getM_Locator_ID(), getM_AttributeSetInstance_ID());
+						if (isCloseDocument) {
+							order.setDateFinish(getMovementDate());
+							order.closeIt();
+							order.saveEx();
+						}
+					}
+				}
+			});
+		} catch (Exception e) {
+			showMessage(e.getLocalizedMessage(), true);
+			return false;
+		} finally {
+			m_PP_order = null;
+		}
+
+		return true;
 	}
 
-	protected boolean isProductionReturn() 
-	{
-	    super.setIsProductionReturn("生产退料".equals(pickcombo.getText()));
-	    return super.isProductionReturn();
+	protected boolean isProductionReplenishment() {
+		super.setIsProductionReplenishment("生产补领".equals(pickcombo.getText()));
+		return super.isProductionReplenishment();
 	}
-	
+
+	protected boolean isProductionReturn() {
+		super.setIsProductionReturn("生产退料".equals(pickcombo.getText()));
+		return super.isProductionReturn();
+	}
+
 	/**
 	 * 获取成本归集类型
+	 * 
 	 * @return 成本归集类型常量
 	 */
 	public String getCostCollectorType() {
@@ -1613,89 +1568,86 @@ ValueChangeListener,Serializable,WTableModelListener
 		}
 		return null;
 	}
-	
+
 	// 在 WOrderReceiptIssue 类中添加这个方法
 	public void setupTableListeners(final IMiniTable issue) {
-	    try {
-	        // 尝试使用 Swing 的方式获取表格模型
-	        // 首先尝试将 issue 转换为 JTable 或获取其 TableModel
-	        java.awt.Component component = (java.awt.Component) issue;
-	        
-	        if (component instanceof javax.swing.JTable) {
-	            javax.swing.JTable table = (javax.swing.JTable) component;
-	            
-	            // 获取表格模型并添加监听器
-	            table.getModel().addTableModelListener(new javax.swing.event.TableModelListener() {
-	                @Override
-	                public void tableChanged(javax.swing.event.TableModelEvent e) {
-	                    if (e.getType() == javax.swing.event.TableModelEvent.UPDATE) {
-	                        int row = e.getFirstRow();
-	                        int col = e.getColumn();
-	                        
-	                        // 检查是否是已领数量列（第6列）
-	                        if (col == 6) {
-	                            try {
-	                                BigDecimal newDeliveredQty = (BigDecimal) issue.getValueAt(row, col);
-	                                if (newDeliveredQty == null) {
-	                                    newDeliveredQty = Env.ZERO;
-	                                }
-	                                
-	                                BigDecimal requiredQty = (BigDecimal) issue.getValueAt(row, 5);
-	                                if (requiredQty == null) {
-	                                    requiredQty = Env.ZERO;
-	                                }
-	                                
-	                                // 计算新的领取数量 = 需求数量 - 新的已领数量
-	                                BigDecimal newToDeliverQty = requiredQty.subtract(newDeliveredQty);
-	                                if (newToDeliverQty.compareTo(BigDecimal.ZERO) < 0) {
-	                                    newToDeliverQty = BigDecimal.ZERO;
-	                                }
-	                                
-	                                // 更新领取数量列（第7列）
-	                                issue.setValueAt(newToDeliverQty, row, 7);
-	                            } catch (Exception ex) {
-	                                log.severe("表格监听器出错: " + ex.getMessage());
-	                            }
-	                        }
-	                    }
-	                }
-	            });
-	        } else {
-	            log.severe("无法获取表格模型，issue 不是 JTable 类型");
-	            // 尝试其他方式
-	        }
-	    } catch (Exception e) {
-	        log.severe("设置表格监听器失败: " + e.getMessage());
-	    }
+		try {
+			// 尝试使用 Swing 的方式获取表格模型
+			// 首先尝试将 issue 转换为 JTable 或获取其 TableModel
+			java.awt.Component component = (java.awt.Component) issue;
+
+			if (component instanceof javax.swing.JTable) {
+				javax.swing.JTable table = (javax.swing.JTable) component;
+
+				// 获取表格模型并添加监听器
+				table.getModel().addTableModelListener(new javax.swing.event.TableModelListener() {
+					@Override
+					public void tableChanged(javax.swing.event.TableModelEvent e) {
+						if (e.getType() == javax.swing.event.TableModelEvent.UPDATE) {
+							int row = e.getFirstRow();
+							int col = e.getColumn();
+
+							// 检查是否是已领数量列（第6列）
+							if (col == 6) {
+								try {
+									BigDecimal newDeliveredQty = (BigDecimal) issue.getValueAt(row, col);
+									if (newDeliveredQty == null) {
+										newDeliveredQty = Env.ZERO;
+									}
+
+									BigDecimal requiredQty = (BigDecimal) issue.getValueAt(row, 5);
+									if (requiredQty == null) {
+										requiredQty = Env.ZERO;
+									}
+
+									// 计算新的领取数量 = 需求数量 - 新的已领数量
+									BigDecimal newToDeliverQty = requiredQty.subtract(newDeliveredQty);
+									if (newToDeliverQty.compareTo(BigDecimal.ZERO) < 0) {
+										newToDeliverQty = BigDecimal.ZERO;
+									}
+
+									// 更新领取数量列（第7列）
+									issue.setValueAt(newToDeliverQty, row, 7);
+								} catch (Exception ex) {
+									log.severe("表格监听器出错: " + ex.getMessage());
+								}
+							}
+						}
+					}
+				});
+			} else {
+				log.severe("无法获取表格模型，issue 不是 JTable 类型");
+				// 尝试其他方式
+			}
+		} catch (Exception e) {
+			log.severe("设置表格监听器失败: " + e.getMessage());
+		}
 	}
+
 	/**
-	 * 获取工序ID
-	 * 从工序下拉框获取选择的工序ID
-	 * 这个值会被传递到生成的生产发料单的"工单工序"字段
+	 * 获取工序ID 从工序下拉框获取选择的工序ID 这个值会被传递到生成的生产发料单的"工单工序"字段
 	 * 
 	 * @return 工序ID (PP_Order_Node_ID)
 	 */
 	protected int getPP_Order_Node_ID() {
-	    if (nodeCombo.getSelectedItem() != null && nodeCombo.getSelectedItem().getValue() != null) {
-	        Object value = nodeCombo.getSelectedItem().getValue();
-	        if (value instanceof Integer) {
-	            return (Integer) value;
-	        } else if (value instanceof String) {
-	            try {
-	                return Integer.parseInt((String) value);
-	            } catch (NumberFormatException e) {
-	                log.severe("工序ID格式错误: " + value);
-	                return 0;
-	            }
-	        }
-	    }
-	    return 0;
+		if (nodeCombo.getSelectedItem() != null && nodeCombo.getSelectedItem().getValue() != null) {
+			Object value = nodeCombo.getSelectedItem().getValue();
+			if (value instanceof Integer) {
+				return (Integer) value;
+			} else if (value instanceof String) {
+				try {
+					return Integer.parseInt((String) value);
+				} catch (NumberFormatException e) {
+					log.severe("工序ID格式错误: " + value);
+					return 0;
+				}
+			}
+		}
+		return 0;
 	}
 
 	/**
-	 * 获取机台ID
-	 * 从机台字段获取机台ID
-	 * 这个值会被传递到生成的生产发料单的"资源"字段
+	 * 获取机台ID 从机台字段获取机台ID 这个值会被传递到生成的生产发料单的"资源"字段
 	 * 
 	 * @return 机台ID (S_Resource_ID)
 	 */
@@ -1710,7 +1662,7 @@ ValueChangeListener,Serializable,WTableModelListener
 				return (Integer) value;
 			}
 		}
-	    return 0;
+		return 0;
 	}
 
 	private void validateAndAdjustQuantity(int row, int column, BigDecimal inputValue) {
@@ -1731,30 +1683,37 @@ ValueChangeListener,Serializable,WTableModelListener
 			BigDecimal requiredQty = convertToBigDecimal(issue.getValueAt(row, 5));
 			BigDecimal deliveredQty = convertToBigDecimal(issue.getValueAt(row, 6));
 
-
-
-			// 计算向上取整的最大值
-			BigDecimal maxQtyWithPack = calculateMaxQtyWithPack(requiredQty, unitsPerPack);
-
 			// 获取领退类型
 			String selectedType = pickcombo.getSelectedItem() != null ? pickcombo.getSelectedItem().getLabel() : "";
 
 			BigDecimal maxQty = BigDecimal.ZERO;
 
 			if ("生产领料".equals(selectedType)) {
-				// 领料：最大值 = min(向上取整的最大值 - 已领数量, 库存数量)
+				// 负数不允许，归零
+				if (inputValue.compareTo(Env.ZERO) < 0) {
+					isRestoringValue = true;
+					issue.setValueAt(Env.ZERO, row, column);
+					isRestoringValue = false;
+					return;
+				}
+
+				// 领料：用户输入 - 线边仓库存，再按包装数量向上取整
+				BigDecimal lineSideOnHand = convertToBigDecimal(issue.getValueAt(row, 14));
+				BigDecimal qtyToRound = inputValue.subtract(lineSideOnHand);
+				if (qtyToRound.compareTo(Env.ZERO) < 0)
+					qtyToRound = Env.ZERO;
+				BigDecimal adjustedValue = calculateMaxQtyWithPack(qtyToRound, unitsPerPack);
+
+				// 上限 = min(calculateIssueQty + 1个包装量, 库存数量)
 				BigDecimal n = calculateIssueQty(requiredQty, deliveredQty, unitsPerPack);
-				// 新上限 = min(N + 最小包装数量, 库存数量)
 				BigDecimal safeUnitsPerPack = (unitsPerPack == null || unitsPerPack.compareTo(Env.ZERO) <= 0)
 						? BigDecimal.ONE
 						: unitsPerPack;
 				BigDecimal nPlusOnePack = n.add(safeUnitsPerPack);
 
-				// 检查库存数量 - 内联获取逻辑
 				BigDecimal stockQty = Env.ZERO;
 				try {
-					Object stockObj = issue.getValueAt(row, 8);
-					log.info("第" + row + "行库存数量: " + stockObj);
+					Object stockObj = issue.getValueAt(row, 9);
 					if (stockObj instanceof BigDecimal) {
 						stockQty = (BigDecimal) stockObj;
 					} else if (stockObj != null) {
@@ -1764,26 +1723,29 @@ ValueChangeListener,Serializable,WTableModelListener
 					log.warning("获取库存数量出错: " + e.getMessage());
 				}
 				maxQty = nPlusOnePack.compareTo(stockQty) > 0 ? stockQty : nPlusOnePack;
-				// 新下限：输入值必须 > 0
-				if (inputValue.compareTo(Env.ZERO) <= 0) {
-					BigDecimal restoreValue = n.compareTo(stockQty) > 0 ? stockQty : n;
-					isRestoringValue = true;
-					issue.setValueAt(restoreValue, row, column);
-					isRestoringValue = false;
-					log.info("领退数量必须大于0，已恢复为: " + restoreValue);
-					return;
+
+				// 超出上限时截断
+				if (adjustedValue.compareTo(maxQty) > 0) {
+					adjustedValue = maxQty;
 				}
+
+				// 将调整后的值写回表格
+				if (adjustedValue.compareTo(inputValue) != 0) {
+					String materialName = productKey.getName();
+					log.info("物料[" + materialName + "]的领退数量已按包装规格调整: " + inputValue + " → " + adjustedValue);
+					isRestoringValue = true;
+					issue.setValueAt(adjustedValue, row, column);
+					isRestoringValue = false;
+				}
+
 			} else if ("生产退料".equals(selectedType)) {
 				// 退料：最大值 = min(已领数量, 向上取整的最大值)
 				maxQty = deliveredQty;
-
 			} else if ("生产补领".equals(selectedType)) {
 				// 补领：最大值 = min(向上取整的最大值 - 已领数量, 库存数量)
-				BigDecimal calculatedQty = calculateIssueQty(requiredQty, deliveredQty, unitsPerPack);
-				BigDecimal stockQty = convertToBigDecimal(issue.getValueAt(row, 8));
-				maxQty = stockQty;
-			}
-			else if ("委外发料".equals(selectedType)) {
+				BigDecimal stockQty2 = convertToBigDecimal(issue.getValueAt(row, 9));
+				maxQty = stockQty2;
+			} else if ("委外发料".equals(selectedType)) {
 				// 委外发料：考虑包装规格的最大值
 				BigDecimal remainingQty = requiredQty.subtract(deliveredQty);
 				if (remainingQty.compareTo(Env.ZERO) > 0) {
@@ -1793,24 +1755,27 @@ ValueChangeListener,Serializable,WTableModelListener
 				}
 			} else if ("委外补领".equals(selectedType)) {
 				// 委外补领：考虑包装规格的最大值
-				BigDecimal stockQty = convertToBigDecimal(issue.getValueAt(row, 8));
+				BigDecimal stockQty = convertToBigDecimal(issue.getValueAt(row, 9));
 				maxQty = stockQty;
 			} else if ("委外退料".equals(selectedType)) {
 				// 退料：最大值 = min(已领数量, 向上取整的最大值)
 				maxQty = deliveredQty;
-
 			}
-			// 修改点：退料始终限制；领料/补领根据配置参数决定
-			boolean isReturnType = "生产退料".equals(selectedType) || "委外退料".equals(selectedType);
-			boolean shouldRestrict = isReturnType || restrictOverIssue;
 
-			if (shouldRestrict && inputValue.compareTo(maxQty) > 0) {
-				isRestoringValue = true;
-				issue.setValueAt(maxQty, row, column);
-				isRestoringValue = false;
+			// 以下逻辑仅针对非"生产领料"类型（生产领料已在上方单独处理）
+			if (!"生产领料".equals(selectedType)) {
+				// 修改点：退料始终限制；领料/补领根据配置参数决定
+				boolean isReturnType = "生产退料".equals(selectedType) || "委外退料".equals(selectedType);
+				boolean shouldRestrict = isReturnType || restrictOverIssue;
 
-				String materialName = productKey.getName();
-				log.info("物料[" + materialName + "]的领取数量已自动调整为最大值: " + maxQty);
+				if (shouldRestrict && inputValue.compareTo(maxQty) > 0) {
+					isRestoringValue = true;
+					issue.setValueAt(maxQty, row, column);
+					isRestoringValue = false;
+
+					String materialName = productKey.getName();
+					log.info("物料[" + materialName + "]的领取数量已自动调整为最大值: " + maxQty);
+				}
 			}
 
 		} catch (Exception ex) {
@@ -1824,11 +1789,6 @@ ValueChangeListener,Serializable,WTableModelListener
 	 * @param productId 产品ID
 	 * @return 包装数量
 	 */
-	private BigDecimal getUnitsPerPack(int productId) {
-		String sql = "SELECT UnitsPerPack FROM M_Product WHERE M_Product_ID = ?";
-		return DB.getSQLValueBD(null, sql, productId);
-	}
-
 	protected boolean isSubcontractingIssue() {
 		super.setIsSubcontracting("委外发料".equals(pickcombo.getText()));
 		return super.isSubcontracting();
@@ -1845,7 +1805,6 @@ ValueChangeListener,Serializable,WTableModelListener
 	private void loadActivityComboData() {
 		activityCombo.getItems().clear();
 		activityCombo.appendItem("请选择部门", null);
-
 
 		int clientId = Env.getAD_Client_ID(Env.getCtx());
 		// 从当前选中的 PP_Order 获取 AD_Org_ID
@@ -2112,9 +2071,6 @@ ValueChangeListener,Serializable,WTableModelListener
 		outerTable.setMultiple(true);
 	}
 
-
-	
-
 	private void addProductsToOrderBOM(final List<Object[]> products) {
 		try {
 			final MPPOrder order = getPP_Order();
@@ -2127,9 +2083,9 @@ ValueChangeListener,Serializable,WTableModelListener
 				Messagebox.show("未找到工单对应的BOM，无法新增物料", "错误", Messagebox.OK, Messagebox.ERROR);
 				return;
 			}
-			if (order.getQtyOrdered() == null || order.getQtyOrdered().compareTo(BigDecimal.ZERO) == 0) {  
-			    Messagebox.show("工单数量为零，无法计算BOM用量", "错误", Messagebox.OK, Messagebox.ERROR);  
-			    return;  
+			if (order.getQtyOrdered() == null || order.getQtyOrdered().compareTo(BigDecimal.ZERO) == 0) {
+				Messagebox.show("工单数量为零，无法计算BOM用量", "错误", Messagebox.OK, Messagebox.ERROR);
+				return;
 			}
 
 			final List<String> skipped = new ArrayList<String>();
@@ -2164,10 +2120,10 @@ ValueChangeListener,Serializable,WTableModelListener
 						newLine.setQtyBatch(Env.ZERO);
 						newLine.setIsQtyPercentage(false);
 						newLine.setComponentType(MPPOrderBOMLine.COMPONENTTYPE_Component);
-						//newLine.setQtyPlusScrap(order.getQtyOrdered().multiply(qty));
+						// newLine.setQtyPlusScrap(order.getQtyOrdered().multiply(qty));
 //						newLine.setQtyBOM(qty);
 						newLine.setQtyBOM(qty.divide(order.getQtyOrdered(), 2, RoundingMode.HALF_UP));
-						newLine.setQtyRequiered(qty);  
+						newLine.setQtyRequiered(qty);
 						newLine.setValidFrom(new Timestamp(System.currentTimeMillis()));
 						newLine.saveEx(trxName);
 
@@ -2223,13 +2179,11 @@ ValueChangeListener,Serializable,WTableModelListener
 		}
 	}
 
-	
 	// ==================== 替代料相关方法 ====================
-	
+
 	/**
 	 * 对表格中每行物料应用替代料规则： - 查询该主料的有效替代规则（SubstituteStatus='A'=已审批，在有效期内） -
-	 * 根据替代方式（S=替代料优先/M=主料优先）决定是否替换 - 按优先级遍历替代料，过滤省份限制，找第一条有库存的替代料 -
-	 * 修改表格中的物料和库存相关数量
+	 * 根据替代方式（S=替代料优先/M=主料优先）决定是否替换 - 按优先级遍历替代料，过滤省份限制，找第一条有库存的替代料 - 修改表格中的物料和库存相关数量
 	 */
 	private void applySubstituteRules() {
 		int warehouseId = getM_Warehouse_ID();
@@ -2279,14 +2233,14 @@ ValueChangeListener,Serializable,WTableModelListener
 
 				// 列6：已领数量 — 不改（属于BOM行的历史记录）
 
-				// 列7：领退数量（替代比例≠1时按比例调整）
+				// 列7：仓库申请数量（替代比例≠1时按比例调整）
 				BigDecimal origToDeliver = convertToBigDecimal(issue.getValueAt(row, 7));
 				BigDecimal newToDeliver = origToDeliver.multiply(result.ratio);
 				issue.setValueAt(newToDeliver, row, 7);
 
-				// 列8：库存数量（替代料在当前仓库的库存）
+				// 列8：仓库库存（替代料在当前仓库的库存）
 				BigDecimal subOnHand = MStorageOnHand.getQtyOnHand(result.substituteProductId, warehouseId, 0, null);
-				issue.setValueAt(subOnHand, row, 8);
+				issue.setValueAt(subOnHand, row, 9);
 
 				// 列9：预留数量（替代料在当前仓库的预留数量）
 				// isSOTrx=false 表示查询采购/生产侧预留
@@ -2295,18 +2249,25 @@ ValueChangeListener,Serializable,WTableModelListener
 				BigDecimal subReserved = (reservation != null) ? reservation.getQty() : BigDecimal.ZERO;
 				if (subReserved == null)
 					subReserved = BigDecimal.ZERO;
-				issue.setValueAt(subReserved, row, 9);
+				issue.setValueAt(subReserved, row, 10);
 
 				// 列10：可用数量 = 库存 - 预留
 				BigDecimal subAvailable = subOnHand.subtract(subReserved);
-				issue.setValueAt(subAvailable, row, 10);
+				issue.setValueAt(subAvailable, row, 11);
+
+				// 列13-14：计算替代料的线边仓库存和申请数量
+				BigDecimal subLineSideOnHand = getLineSideOnHand(result.substituteProductId);
+				BigDecimal subLineSideRequestQty = subLineSideOnHand.compareTo(newToDeliver) > 0 ? newToDeliver
+						: subLineSideOnHand;
+				issue.setValueAt(subLineSideRequestQty, row, 8); // 线边仓申请数量
+				issue.setValueAt(subLineSideOnHand, row, 14); // 线边仓库存
 
 				// 列11：仓库 — 不改（仓库不变）
 
 				// 列12：BOM数量 — 不改（BOM定义的数量不变）
 
-				// 列13：主料信息（新增列，显示被替代的主料）
-				issue.setValueAt(mainProduct.getValue() + " - " + mainProduct.getName(), row, 13);
+				// 列15：主料信息（新增列，显示被替代的主料）
+				issue.setValueAt(mainProduct.getValue() + " - " + mainProduct.getName(), row, 15);
 
 				log.info("替代料应用: 主料[" + mainProduct.getValue() + "] → 替代料[" + subProduct.getValue() + "] 比例="
 						+ result.ratio);
@@ -2435,15 +2396,146 @@ ValueChangeListener,Serializable,WTableModelListener
 
 	/**
 	 * 替代料解析结果
+	 * 
 	 * @ClassName: SubstituteResult
 	 * @author ldh
 	 * @date 2026年6月2日
 	 */
+
+	/**
+	 * 获取产品在线边仓（线边库位）的库存数量
+	 * 
+	 * @param productId   产品ID
+	 * @param warehouseId 仓库ID
+	 * @return 线边仓库存数量
+	 */
+	/**
+	 * 从表格中获取指定行的线边仓申请数量（列13）
+	 * 
+	 * @param issue 表格
+	 * @param row   行号
+	 * @return 线边仓申请数量
+	 */
+	private BigDecimal getLineSideQty(IMiniTable issue, int row) {
+		Object obj = issue.getValueAt(row, 8);
+		if (obj instanceof BigDecimal) {
+			return (BigDecimal) obj;
+		}
+		if (obj instanceof Number) {
+			return new BigDecimal(obj.toString());
+		}
+		if (obj instanceof String) {
+			try {
+				return new BigDecimal((String) obj);
+			} catch (NumberFormatException e) {
+				return Env.ZERO;
+			}
+		}
+		return Env.ZERO;
+	}
+
+	/**
+	 * 线边仓扣减：只要线边仓有库存就全部扣减，不考虑是否超过剩余需求。
+	 * 用户编辑仓库申请数量（列7）后触发，只更新线边仓申请数量（列8），不修改列7。
+	 */
+	private void recalcLineSideRequestQty(int row) {
+		BigDecimal lineSideOnHand = convertToBigDecimal(issue.getValueAt(row, 14));
+
+		// 生产补领：不计算线边仓，线边仓默认为0
+		if (isProductionReplenishment()) {
+			isRestoringValue = true;
+			issue.setValueAt(Env.ZERO, row, 8);
+			isRestoringValue = false;
+			return;
+		}
+
+		KeyNamePair productKey = (KeyNamePair) issue.getValueAt(row, 2);
+
+		// 物料分组不启用线边仓时，线边仓为0
+		if (!isLineSideWarehouseProduct(productKey.getKey())) {
+			isRestoringValue = true;
+			issue.setValueAt(Env.ZERO, row, 8);
+			isRestoringValue = false;
+			return;
+		}
+
+		// 线边仓有库存就全部扣减，能扣多少就多少
+		BigDecimal lineSideQty = lineSideOnHand;
+
+		isRestoringValue = true;
+		issue.setValueAt(lineSideQty, row, 8); // 线边仓申请数量
+		isRestoringValue = false;
+
+	}
+
+	/**
+	 * 生产退料按最小包装拆分：整包装退仓库（列7）、零头入线边仓（列8）。 用户编辑列7后触发。例：输入1.5桶，最小包装=1 → 列7=1，列8=0.5
+	 */
+	private void recalcReturnLineSideQty(int row) {
+		BigDecimal returnQty = convertToBigDecimal(issue.getValueAt(row, 7));
+		if (returnQty.compareTo(Env.ZERO) <= 0) {
+			issue.setValueAt(Env.ZERO, row, 8);
+			return;
+		}
+
+		KeyNamePair productKey = (KeyNamePair) issue.getValueAt(row, 2);
+		if (productKey == null)
+			return;
+		// 物料分组不启用线边仓时，全部退仓库
+		if (!isLineSideWarehouseProduct(productKey.getKey())) {
+			isRestoringValue = true;
+			issue.setValueAt(returnQty, row, 7);
+			issue.setValueAt(Env.ZERO, row, 8);
+			isRestoringValue = false;
+			return;
+		}
+		BigDecimal minPack = getUnitsPerPack(productKey.getKey());
+
+		// 整包装退仓库
+		BigDecimal n = returnQty.divide(minPack, 0, RoundingMode.FLOOR);
+		BigDecimal warehouseQty = minPack.multiply(n);
+		// 零头退线边仓
+		BigDecimal lineSideQty = returnQty.subtract(warehouseQty);
+
+		isRestoringValue = true;
+		issue.setValueAt(warehouseQty, row, 7); // 修正：整包装留在仓库
+		issue.setValueAt(lineSideQty, row, 8); // 零头入线边仓
+		isRestoringValue = false;
+	}
+
+	/**
+	 * 根据领退类型更新列7标题：生产退料时显示"退料申请数量"，其他显示"仓库申请数量"
+	 */
+	private void updateColumn7Header(boolean isProductionReturn) {
+		try {
+			if (issue.getListhead() != null) {
+				java.util.List<?> headers = issue.getListhead().getChildren();
+				if (headers != null && headers.size() > 7) {
+					Listheader col7 = (Listheader) headers.get(7);
+					col7.setLabel(isProductionReturn ? "退料申请数量" : "仓库申请数量");
+				}
+			}
+		} catch (Exception e) {
+			// 静默失败
+		}
+	}
+
+	private BigDecimal getLineSideOnHand(int productId) {
+		String sql = "SELECT COALESCE(SUM(soh.QtyOnHand), 0) " + "FROM M_StorageOnHand soh "
+				+ "JOIN M_Locator loc ON soh.M_Locator_ID = loc.M_Locator_ID "
+				+ "JOIN M_LocatorType lt ON loc.M_LocatorType_ID = lt.M_LocatorType_ID "
+				+ "JOIN M_Product p ON soh.M_Product_ID = p.M_Product_ID "
+				+ "JOIN M_Product_Category pc ON p.M_Product_Category_ID_L2 = pc.M_Product_Category_ID "
+				+ "WHERE soh.M_Product_ID = ? " + "AND lt.Name = '生产线边仓' " + "AND loc.IsActive = 'Y' "
+				+ "AND pc.Is_Line_Side_Warehouse = 'Y'";
+		return DB.getSQLValueBD(null, sql, productId);
+	}
+
 	private static class SubstituteResult {
 		int substituteProductId;
-	    BigDecimal ratio = BigDecimal.ONE; // 替代比例，默认1:1
+		BigDecimal ratio = BigDecimal.ONE; // 替代比例，默认1:1
 	}
-	
+
 	// 判断当前工单是否为"生产工单"类型
 	private boolean isStandardProductionOrder() {
 		MPPOrder order = getPP_Order();
@@ -2488,7 +2580,7 @@ ValueChangeListener,Serializable,WTableModelListener
 		outerTable.setWidth("100%");
 		outerTable.setHeight("330px");
 		outerTable.setMultiSelection(true);
-		outerTable.setMultiple(true);   
+		outerTable.setMultiple(true);
 		// outerTable.setCheckmark(true);
 		refreshOuterTable(outerTable, selectedProducts);
 
@@ -2500,7 +2592,6 @@ ValueChangeListener,Serializable,WTableModelListener
 		Button confirmBtn = new Button("确定");
 		bottomBar.appendChild(confirmBtn);
 		bottomBar.appendChild(cancelBtn);
-
 
 		org.zkoss.zul.Vlayout vlayout = new org.zkoss.zul.Vlayout();
 		vlayout.setWidth("100%");
@@ -2871,25 +2962,15 @@ ValueChangeListener,Serializable,WTableModelListener
 						lineNo += 10;
 					}
 
-					// ── 触发工作流审批 ──
+					// ── 触发审批工作流（标准 DocAction 方式） ──
 					try {
-						MWorkflow wf = new Query(Env.getCtx(), MWorkflow.Table_Name, "Value=? AND IsActive='Y'",
-								trxName).setParameters("inventory").setClient_ID().first();
-						if (wf == null) {
-							log.warning("未找到工作流 Value='inventory'，跳过审批");
+						inventory.load(trxName);
+						ProcessInfo info = MWorkflow.runDocumentActionWorkflow(inventory, DocAction.ACTION_Complete);
+						if (info.isError()) {
+							log.warning("领用单工作流启动失败: " + info.getSummary());
 						} else {
-							ProcessInfo pi = new ProcessInfo(inventory.getDocumentNo(), 0, inventory.get_Table_ID(),
-									inventory.getM_Inventory_ID());
-							pi.setTransactionName(trxName);
-							pi.setPO(inventory);
-
-							MWFProcess wfProcess = ProcessUtil.startWorkFlow(Env.getCtx(), pi, wf.getAD_Workflow_ID());
-							if (wfProcess == null || pi.isError()) {
-								log.warning("领用单工作流启动失败: " + pi.getSummary());
-							} else {
-								inventory.load(trxName);
-								log.info("领用单[" + inventory.getDocumentNo() + "]工作流已启动，状态: " + wfProcess.getWFState());
-							}
+							inventory.load(trxName);
+							log.info("领用单[" + inventory.getDocumentNo() + "]已提交审批，状态: " + inventory.getDocStatus());
 						}
 					} catch (Exception wfEx) {
 						log.severe("领用单工作流异常: " + wfEx.getMessage());
@@ -2945,7 +3026,6 @@ ValueChangeListener,Serializable,WTableModelListener
 
 				org.adempiere.webui.apps.AEnv.showCenterScreen(successDialog);
 			}
-
 
 		} catch (Exception ex) {
 			log.severe("创建领用单失败: " + ex.getMessage());

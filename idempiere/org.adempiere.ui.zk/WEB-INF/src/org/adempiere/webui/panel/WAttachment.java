@@ -63,6 +63,7 @@ import org.compiere.util.Msg;
 import org.compiere.util.Util;
 import org.idempiere.ui.zk.media.IMediaView;
 import org.idempiere.ui.zk.media.Medias;
+import org.zkoss.image.AImage;
 import org.zkoss.io.RepeatableInputStream;
 import org.zkoss.util.media.AMedia;
 import org.zkoss.util.media.Media;
@@ -110,6 +111,9 @@ public class WAttachment extends Window implements EventListener<Event>
 	private boolean m_change = false;
 
 	private Iframe preview = new Iframe();
+
+	// 图片单独走 Image 组件预览，配合 CSS object-fit:contain 实现等比例完整显示，避免 Iframe 出现滚动条
+	private org.zkoss.zul.Image imgPreview = new org.zkoss.zul.Image();
 
 	protected AMedia media;
 	private int mediaVersion = 0;
@@ -162,6 +166,17 @@ public class WAttachment extends Window implements EventListener<Event>
 		autoPreviewList.add("text/xml");
 		autoPreviewList.add("application/json");
 		// autoPreviewList.add("text/html"); IDEMPIERE-3980
+	}
+
+	// 图片类型单独列出，用于区分"走 Image 组件"还是"走 Iframe"
+	private static List<String> imageMimeList;
+
+	// 新增静态块：图片 MIME 类型列表，autoPreviewList 里图片项保留不动
+	static {
+		imageMimeList = new ArrayList<String>();
+		imageMimeList.add("image/jpeg");
+		imageMimeList.add("image/png");
+		imageMimeList.add("image/gif");
 	}
 
 	/**
@@ -376,6 +391,14 @@ public class WAttachment extends Window implements EventListener<Event>
 		ZKUpdateUtil.setHeight(preview, "99%");
 		ZKUpdateUtil.setWidth(preview, "99%");
 		
+		// 图片预览组件，与 Iframe 共用同一个 previewPanel 容器，靠 setVisible() 互斥切换显示
+		previewPanel.appendChild(imgPreview);
+		ZKUpdateUtil.setHeight(imgPreview, "99%");
+		ZKUpdateUtil.setWidth(imgPreview, "99%");
+		// object-fit:contain：图片按原始宽高比等比缩放，完整显示在容器内，不裁切、不变形、无滚动条
+		imgPreview.setStyle("object-fit: contain;");
+		imgPreview.setVisible(false); // 默认隐藏，选中图片附件时才显示
+
 		Center centerPane = new Center();
 		centerPane.setSclass("dialog-content");
 		mainPanel.appendChild(centerPane);
@@ -453,6 +476,7 @@ public class WAttachment extends Window implements EventListener<Event>
 	public void dispose ()
 	{
 		preview = null;
+		imgPreview = null; // 与 preview 保持一致的释放处理
 		if (m_attachment != null) {
             m_attachment.close();
             m_attachment = null;
@@ -599,6 +623,11 @@ public class WAttachment extends Window implements EventListener<Event>
 		//	Reset UI
 		preview.setSrc(null);
 
+		// 同步重置图片预览组件，避免切换附件时残留上一张图片
+		AImage imgReset = null;
+		imgPreview.setContent(imgReset);
+		imgPreview.setVisible(false);
+
 		displayIndex = index;
 
 		if (immediate)
@@ -615,6 +644,12 @@ public class WAttachment extends Window implements EventListener<Event>
 	{
 		preview.setSrc(null);
 		preview.setVisible(false);
+
+		// 清除图片预览组件内容，避免切换/删除附件时残留上一张图片
+		AImage img = null;
+		imgPreview.setContent(img);
+		imgPreview.setVisible(false);
+
 		if (customPreviewComponent != null)
 		{
 			customPreviewComponent.detach();
@@ -635,6 +670,18 @@ public class WAttachment extends Window implements EventListener<Event>
 			try
 			{
 				String contentType = entry.getContentType();
+
+				// 新增分支：图片类型不再走 Iframe，避免出现滚动条，改用 Image 组件 + object-fit:contain
+				if (imageMimeList.contains(contentType)) {
+					// AImage 支持直接传 InputStream，内部会自动读取完整流并解析成图片，
+					AImage aImage = new AImage(entry.getName(),
+							RepeatableInputStream.getInstance(entry.getInputStream()));
+
+					preview.setVisible(false);
+					imgPreview.setContent(aImage);
+					imgPreview.setVisible(true);
+					imgPreview.invalidate();
+				} else {
 				media = new AMedia(entry.getName(), null, contentType, RepeatableInputStream.getInstance(entry.getInputStream()));
 				if (   MSysConfig.getBooleanValue(MSysConfig.ZK_USE_PDF_JS_VIEWER, false, Env.getAD_Client_ID(Env.getCtx())) 
 					&& Medias.PDF_MIME_TYPE.equals(contentType)) {
@@ -648,6 +695,7 @@ public class WAttachment extends Window implements EventListener<Event>
 				preview.setVisible(true);
 				preview.invalidate();
 			}
+		} 
 			catch (Exception e)
 			{
 				log.log(Level.SEVERE, "attachment", e);
@@ -683,6 +731,7 @@ public class WAttachment extends Window implements EventListener<Event>
 		//	Save and Close
 		if (e instanceof UploadEvent) {
 			preview.setVisible(false);
+			imgPreview.setVisible(false); // 上传新文件前，先隐藏旧的图片预览
 			UploadEvent ue = (UploadEvent) e;
 			for (Media media : ue.getMedias()) {
 				processUploadMedia(media);
@@ -770,8 +819,11 @@ public class WAttachment extends Window implements EventListener<Event>
 		}
 		else
 		{
-			preview.setVisible(true);
-			preview.invalidate();
+
+			// 上传失败：不要强行显示 Iframe，而是清空后重新按当前选中项渲染，
+			// 这样无论之前显示的是图片还是 Iframe，都会恢复成正确的内容
+			clearPreview();
+			autoPreview(cbContent.getSelectedIndex(), true);
 			return;
 		}
 
@@ -788,9 +840,9 @@ public class WAttachment extends Window implements EventListener<Event>
                     byte[] data = getMediaData(media);
                     if (data.length == 0)
                     {
-                        preview.setVisible(true);
-                        preview.invalidate();
-                        return;
+						clearPreview();
+						autoPreview(cbContent.getSelectedIndex(), true);
+						return;
                     }
                     m_attachment.updateEntry(i, data);
                 }
@@ -799,9 +851,9 @@ public class WAttachment extends Window implements EventListener<Event>
                     File file = toTempFile(media, fileName);
                     if (file.length() == 0)
                     {
-                        preview.setVisible(true);
-                        preview.invalidate();
-                        return;
+						clearPreview();
+						autoPreview(cbContent.getSelectedIndex(), true);
+						return;
                     }
                     m_attachment.updateEntry(i, file);
                 }
@@ -818,9 +870,9 @@ public class WAttachment extends Window implements EventListener<Event>
             byte[] data = getMediaData(media);
             if (data.length == 0)
             {
-                preview.setVisible(true);
-                preview.invalidate();
-                return;
+				clearPreview();
+				autoPreview(cbContent.getSelectedIndex(), true);
+				return;
             }
             added = m_attachment.addEntry(fileName, data);
         }
@@ -829,9 +881,9 @@ public class WAttachment extends Window implements EventListener<Event>
             File file = toTempFile(media, fileName);
             if (file.length() == 0)
             {
-                preview.setVisible(true);
-                preview.invalidate();
-                return;
+				clearPreview();
+				autoPreview(cbContent.getSelectedIndex(), true);
+				return;
             }
             added = m_attachment.addEntry(fileName, file);
         }

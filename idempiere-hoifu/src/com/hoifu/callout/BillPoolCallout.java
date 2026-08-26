@@ -48,18 +48,14 @@ public class BillPoolCallout implements IColumnCallout {
 		if ("IsSplittable".equals(columnName) || "BillAmt".equals(columnName)) {
 			if (splittable && billAmt != null) {
 				// 可拆分：设置默认子票号
-				String subBillStartNoStr = (String) mTab.getValue("SubBillStartNo");
-				if (subBillStartNoStr == null || subBillStartNoStr.trim().isEmpty()) {
-					subBillStartNoStr = "1";
-					mTab.setValue("SubBillStartNo", subBillStartNoStr);
+				BigDecimal subBillStartNo = (BigDecimal) mTab.getValue("SubBillStartNo");
+				if (subBillStartNo == null) {
+					subBillStartNo = BigDecimal.ONE;
+					mTab.setValue("SubBillStartNo", subBillStartNo);
 				}
-				try {
-					BigDecimal startNo = new BigDecimal(subBillStartNoStr.trim());
-					BigDecimal endNo = startNo.add(billAmt.multiply(BigDecimal.valueOf(100))).subtract(BigDecimal.ONE);
-					mTab.setValue("SubBillEndNo", endNo.setScale(0, RoundingMode.HALF_UP).toPlainString());
-				} catch (NumberFormatException e) {
-					// ignore
-				}
+				BigDecimal endNo = subBillStartNo.add(billAmt.multiply(BigDecimal.valueOf(100)))
+						.subtract(BigDecimal.ONE);
+				mTab.setValue("SubBillEndNo", endNo.setScale(0, RoundingMode.HALF_UP));
 			} else if (!splittable && "IsSplittable".equals(columnName)) {
 				// 不可拆分：清空子票序号
 				mTab.setValue("SubBillStartNo", null);
@@ -72,6 +68,7 @@ public class BillPoolCallout implements IColumnCallout {
 		if (subPackageAmt != null) {
 			subPackageAmt = subPackageAmt.setScale(2, RoundingMode.HALF_UP);
 			mTab.setValue("SubPackageAmt", subPackageAmt);
+			mTab.setValue("BillAmt", subPackageAmt);
 		}
 
 		// 计算到期金额 MaturityAmt = SubPackageAmt × (1 + (BillRate/100 × PaymentTermDays / 360))  
@@ -93,8 +90,7 @@ public class BillPoolCallout implements IColumnCallout {
 
 	/**
 	 * 计算分包金额 - 若不可拆分（IsSplittable = N），SubPackageAmt = BillAmt - 若可拆分（IsSplittable
-	 * = Y），SubPackageAmt = BillAmt * (SubBillEndNo - SubBillStartNo + 1) / 100
-	 * SubBillEndNo 和 SubBillStartNo 都是字符串类型，需要解析为数字
+	 * = Y），SubPackageAmt = (SubBillEndNo - SubBillStartNo + 1) / 100
 	 */
 	private BigDecimal calculateSubPackageAmt(GridTab mTab, BigDecimal billAmt) {
 		if (billAmt == null) {
@@ -108,33 +104,24 @@ public class BillPoolCallout implements IColumnCallout {
 			return billAmt;
 		}
 
-		// 可拆分：分包金额 = BillAmt * (SubBillEndNo - SubBillStartNo + 1) / 100
-		String subBillStartNoStr = (String) mTab.getValue("SubBillStartNo");
-		String subBillEndNoStr = (String) mTab.getValue("SubBillEndNo");
+		// 可拆分：分包金额 = (SubBillEndNo - SubBillStartNo + 1) / 100
+		BigDecimal startNo = (BigDecimal) mTab.getValue("SubBillStartNo");
+		BigDecimal endNo = (BigDecimal) mTab.getValue("SubBillEndNo");
 
-		if (subBillStartNoStr == null || subBillStartNoStr.trim().isEmpty() || subBillEndNoStr == null
-				|| subBillEndNoStr.trim().isEmpty()) {
+		if (startNo == null || endNo == null) {
 			return null; // 子票号不完整，无法计算
 		}
 
-		try {
-			BigDecimal startNo = new BigDecimal(subBillStartNoStr.trim());
-			BigDecimal endNo = new BigDecimal(subBillEndNoStr.trim());
-			// 子票数量 = EndNo - StartNo + 1
-			BigDecimal subBillCount = endNo.subtract(startNo).add(BigDecimal.ONE);
+		// 子票数量 = EndNo - StartNo + 1
+		BigDecimal subBillCount = endNo.subtract(startNo).add(BigDecimal.ONE);
 
-			if (subBillCount.compareTo(BigDecimal.ZERO) <= 0) {
-				return null; // 子票数量无效
-			}
-
-			// SubPackageAmt = BillAmt * subBillCount / 100
-			BigDecimal subPackageAmt = billAmt.multiply(subBillCount).divide(BigDecimal.valueOf(100), 12,
-					RoundingMode.HALF_UP);
-			return subPackageAmt;
-		} catch (NumberFormatException e) {
-			// SubBillStartNo 或 SubBillEndNo 无法解析为数字
-			return null;
+		if (subBillCount.compareTo(BigDecimal.ZERO) <= 0) {
+			return null; // 子票数量无效
 		}
+
+		// SubPackageAmt = subBillCount / 100
+		BigDecimal subPackageAmt = subBillCount.divide(BigDecimal.valueOf(100), 12, RoundingMode.HALF_UP);
+		return subPackageAmt;
 	}
 
 	/**

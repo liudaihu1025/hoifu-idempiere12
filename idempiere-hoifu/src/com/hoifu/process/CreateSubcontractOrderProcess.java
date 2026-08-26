@@ -31,6 +31,7 @@ public class CreateSubcontractOrderProcess extends SvrProcess {
 	private static final String COL_RELATED_ORDER_NO = "RelatedOrderNo";
 	/** C_OrderLine 上存储客户的自定义列名 */
 	private static final String COL_CUSTOMER_ID = "Customer_ID";
+	private static final String COL_Warning = "Warning";
 
 	// ── 进程参数 ──────────────────────────────────────────────────────────────
 	private int p_Vendor_ID = 0;
@@ -126,7 +127,7 @@ public class CreateSubcontractOrderProcess extends SvrProcess {
 		for (MOrderLine soLine : soLines) {
 			if (soLine.getM_Product_ID() == 0)
 				continue;
-
+			
 			MOrderLine subLine = new MOrderLine(subOrder);
 			subLine.setLine(lineNo);
 			subLine.setM_Product_ID(soLine.getM_Product_ID()); // 物料
@@ -139,7 +140,9 @@ public class CreateSubcontractOrderProcess extends SvrProcess {
 			subLine.set_ValueOfColumn(COL_RELATED_ORDER_NO, so.getDocumentNo());
 			// 客户：取销售订单表头客户，存入自定义列 Customer_ID
 			subLine.set_ValueOfColumn(COL_CUSTOMER_ID, so.getC_BPartner_ID());
-
+			String warning = soLine.get_ValueAsString(COL_Warning);  
+			if (warning != null && !warning.isEmpty())  
+			    subLine.set_ValueOfColumn(COL_Warning, warning);
 			subLine.saveEx();
 
 			// 回写委外明细行 ID 到销售订单明细行

@@ -894,7 +894,7 @@ public class MPPMRP extends X_PP_MRP implements DocAction
 		mrp.setM_Product_ID(ol.getM_Product_ID());
 		mrp.setQty(ol.getQtyOrdered().subtract(ol.getQtyDelivered()));
 		mrp.setDocStatus(DOCSTATUS_InProgress);
-		if (!ord.isSOTrx() && DOCSTATUS_Completed.equals(ord.getDocStatus())) {
+		if (!ord.isSOTrx() && (DOCSTATUS_Completed.equals(ord.getDocStatus()) || DOCSTATUS_InProgress.equals(ord.getDocStatus()))) {
 			mrp.setIsAvailable(true);
 		}
 		mrp.saveEx(ol.get_TrxName());

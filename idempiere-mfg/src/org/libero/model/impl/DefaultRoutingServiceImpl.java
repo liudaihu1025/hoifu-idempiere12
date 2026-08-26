@@ -41,6 +41,7 @@ import org.libero.model.reasoner.CRPReasoner;
 import org.libero.process.CRP;
 import org.libero.tables.I_PP_Cost_Collector;
 import org.libero.tables.I_PP_Order_Node;
+import org.libero.tables.I_PP_Order_Workflow;
 
 /**
  * Default Routing Service Implementation
@@ -110,77 +111,72 @@ public class DefaultRoutingServiceImpl implements RoutingService
 		return cycles.intValue();
 	}
 	
-	/**
-	 * Calculate node duration in DurationUnit UOM (see AD_Workflow.DurationUnit)
-	 * @param node
-	 * @param setupTime setup time (workflow duration unit)
-	 * @param durationTotal (workflow duration unit)
-	 * @reeturn duration
-	 */
-	protected BigDecimal calculateDuration(I_AD_WF_Node node, I_PP_Cost_Collector cc)
-	{
-		if (node == null)
-		{
-			node = cc.getPP_Order_Node().getAD_WF_Node();
-		}
-		//-->
-		if (node == null) {
-			throw new AdempiereException("calculateDuration not supported using Node null!!!");
-		}
-		//<--
-		final I_AD_Workflow workflow = node.getAD_Workflow();
-		final double batchSize = workflow.getQtyBatchSize().doubleValue();
-		double setupTime; //Ferry final double setupTime;
-		//-->Ferry
-		double totalDuration;
-		BigDecimal batchS = Env.ONE;
-		double queuingTime = 0;
-		double waitingTime = 0;
-		double movingTime = 0;
-		if ( node != null) {
-			queuingTime = node.getQueuingTime();
-			waitingTime += node.getWaitingTime();
-			movingTime += node.getMovingTime();
-		}
-		//<--Ferry
-		
-		final double duration; 
-		if (cc != null) //Ferry all duration for Cost Collector
-		{
-			setupTime = cc.getSetupTimeReal().doubleValue();
-			duration = cc.getDurationReal().doubleValue();
-			batchS = cc.getPP_Order().getQtyBatchs(); //Ferry
-			//Ferry setupTime duration is real on cost collector
-			if (batchSize > 1) 
-				totalDuration = (( queuingTime + waitingTime + movingTime ) * batchS.doubleValue()) + setupTime + duration;
-			else
-				totalDuration = (( queuingTime + waitingTime + movingTime )) + setupTime + duration;	
-		}
-		else //Ferry duration for 1 unit final
-		{
-			setupTime = node.getSetupTime();
-			// Estimate total duration for 1 unit of final product as duration / units cycles
-			duration = estimateWorkingTime(node).doubleValue(); 
-			//-->Ferry, not supported because can not count total duration based on object node
-			//throw new AdempiereException("calculateDuration not supported using Node !!!");
-			if (batchSize > 1) 
-				totalDuration = ((setupTime + queuingTime + waitingTime + movingTime) / batchSize) + duration;			
-			else
-				totalDuration = (setupTime + queuingTime + waitingTime + movingTime) + duration;
-			//<--Ferry
-		}
-		
-		/*double totalDuration;
-		if(batchSize > 0)
-			totalDuration = ((setupTime / batchSize) + 
-							 (queuingTime / batchSize) + 
-							 (waitingTime / batchSize) + 
-							 (movingTime / batchSize) +  
-							 duration); //Ferry totalDuration = ((setupTime / batchSize) + duration);
-		else
-			totalDuration = setupTime  + queuingTime + waitingTime + movingTime + duration; *///Ferry totalDuration = setupTime  + duration;
-		
-		return BigDecimal.valueOf(totalDuration);
+	/**  
+	 * Calculate node duration in DurationUnit UOM (see PP_Order_Workflow.DurationUnit)  
+	 * 优化后：优先使用 PP_Order_Node / PP_Order_Workflow 自身的数据，  
+	 * 只有在没有 PP_Cost_Collector（即基于模板节点做单件预估）时才需要真实的 I_AD_WF_Node。  
+	 * @param node  
+	 * @param cc  
+	 * @return duration  
+	 */  
+	protected BigDecimal calculateDuration(I_AD_WF_Node node, I_PP_Cost_Collector cc)  
+	{  
+		double batchSize;  
+		double setupTime;  
+		double totalDuration;  
+		BigDecimal batchS = Env.ONE;  
+		double queuingTime = 0;  
+		double waitingTime = 0;  
+		double movingTime = 0;  
+		final double duration;  
+	  
+		if (cc != null) //Ferry all duration for Cost Collector  
+		{  
+			// 直接从 PP_Order_Node / PP_Order_Workflow 取值，不再反查 AD_WF_Node / AD_Workflow  
+			final I_PP_Order_Node orderNode = cc.getPP_Order_Node();  
+			if (orderNode == null) {  
+				throw new AdempiereException("calculateDuration not supported using Node null!!!");  
+			}  
+			final I_PP_Order_Workflow orderWorkflow = orderNode.getPP_Order_Workflow();  
+			if (orderWorkflow == null) {  
+				throw new AdempiereException("calculateDuration not supported using PP_Order_Workflow null!!!");  
+			}  
+	  
+			batchSize = orderWorkflow.getQtyBatchSize().doubleValue();  
+			queuingTime = orderNode.getQueuingTime();  
+			waitingTime += orderNode.getWaitingTime();  
+			movingTime += orderNode.getMovingTime();  
+	  
+			setupTime = cc.getSetupTimeReal().doubleValue();  
+			duration = cc.getDurationReal().doubleValue();  
+			batchS = cc.getPP_Order().getQtyBatchs(); //Ferry  
+	  
+			if (batchSize > 1)  
+				totalDuration = (( queuingTime + waitingTime + movingTime ) * batchS.doubleValue()) + setupTime + duration;  
+			else  
+				totalDuration = (( queuingTime + waitingTime + movingTime )) + setupTime + duration;  
+		}  
+		else //Ferry duration for 1 unit final -- 无 cc 场景，只能基于模板 AD_WF_Node 做预估  
+		{  
+			if (node == null) {  
+				throw new AdempiereException("calculateDuration not supported using Node null!!!");  
+			}  
+			final I_AD_Workflow workflow = node.getAD_Workflow();  
+			batchSize = workflow.getQtyBatchSize().doubleValue();  
+			queuingTime = node.getQueuingTime();  
+			waitingTime += node.getWaitingTime();  
+			movingTime += node.getMovingTime();  
+	  
+			setupTime = node.getSetupTime();  
+			// Estimate total duration for 1 unit of final product as duration / units cycles  
+			duration = estimateWorkingTime(node).doubleValue();  
+			if (batchSize > 1)  
+				totalDuration = ((setupTime + queuingTime + waitingTime + movingTime) / batchSize) + duration;  
+			else  
+				totalDuration = (setupTime + queuingTime + waitingTime + movingTime) + duration;  
+		}  
+	  
+		return BigDecimal.valueOf(totalDuration);  
 	}
 	//Ferry below code not used
 	/*
@@ -670,32 +666,56 @@ public class DefaultRoutingServiceImpl implements RoutingService
 	{
 		return getResourceBaseValue(S_Resource_ID, node, null);
 	}
-	protected BigDecimal getResourceBaseValue(int S_Resource_ID, I_AD_WF_Node node, I_PP_Cost_Collector cc)
-	{
-		if (node == null)
-			node = cc.getPP_Order_Node().getAD_WF_Node();
-		final Properties ctx = (node instanceof PO ? ((PO)node).getCtx() : Env.getCtx());
-		final MResource resource = MResource.get(ctx, S_Resource_ID);
-
-		// 添加空值检查
-		if (resource == null) {
-			log.warning("Resource not found for ID: " + S_Resource_ID);
-			return Env.ZERO;
-		}
-		
-		final MUOM resourceUOM = MUOM.get(ctx, resource.getC_UOM_ID());
-		//
-		if (isTime(resourceUOM))
-		{
-			BigDecimal duration = calculateDuration(node, cc);
-			I_AD_Workflow wf = MWorkflow.get(ctx, node.getAD_Workflow_ID());
-			BigDecimal convertedDuration = convertDuration(duration, wf.getDurationUnit(), resourceUOM);
-			return convertedDuration;
-		}
-		else
-		{
-			throw new AdempiereException("@NotSupported@ @C_UOM_ID@ - "+resourceUOM);
-		}
+	protected BigDecimal getResourceBaseValue(int S_Resource_ID, I_AD_WF_Node node, I_PP_Cost_Collector cc)  
+	{  
+		final Properties ctx;  
+		final String durationUnit;  
+	  
+		if (cc != null)  
+		{  
+			// 优先走 PP_Order_Node / PP_Order_Workflow，不再依赖 AD_WF_Node / AD_Workflow  
+			final I_PP_Order_Node orderNode = cc.getPP_Order_Node();  
+			if (orderNode == null) {  
+				throw new AdempiereException("getResourceBaseValue not supported using PP_Order_Node null!!!");  
+			}  
+			final I_PP_Order_Workflow orderWorkflow = orderNode.getPP_Order_Workflow();  
+			if (orderWorkflow == null) {  
+				throw new AdempiereException("getResourceBaseValue not supported using PP_Order_Workflow null!!!");  
+			}  
+			ctx = (orderNode instanceof PO ? ((PO) orderNode).getCtx() : Env.getCtx());  
+			durationUnit = orderWorkflow.getDurationUnit();  
+		}  
+		else  
+		{  
+			// 无 cc 场景，保留原有基于模板节点的逻辑  
+			if (node == null) {  
+				throw new AdempiereException("getResourceBaseValue not supported using Node null!!!");  
+			}  
+			ctx = (node instanceof PO ? ((PO) node).getCtx() : Env.getCtx());  
+			I_AD_Workflow wf = MWorkflow.get(ctx, node.getAD_Workflow_ID());  
+			durationUnit = wf.getDurationUnit();  
+		}  
+	  
+		final MResource resource = MResource.get(ctx, S_Resource_ID);  
+	  
+		// 添加空值检查  
+		if (resource == null) {  
+			log.warning("Resource not found for ID: " + S_Resource_ID);  
+			return Env.ZERO;  
+		}  
+	  
+		final MUOM resourceUOM = MUOM.get(ctx, resource.getC_UOM_ID());  
+		//  
+		if (isTime(resourceUOM))  
+		{  
+			BigDecimal duration = calculateDuration(node, cc);  
+			BigDecimal convertedDuration = convertDuration(duration, durationUnit, resourceUOM);  
+			return convertedDuration;  
+		}  
+		else  
+		{  
+			throw new AdempiereException("@NotSupported@ @C_UOM_ID@ - "+resourceUOM);  
+		}  
 	}
 
 	protected I_AD_WF_Node getAD_WF_Node(I_PP_Cost_Collector cc)

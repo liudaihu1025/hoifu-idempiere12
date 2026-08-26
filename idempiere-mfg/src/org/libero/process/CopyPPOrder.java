@@ -76,9 +76,7 @@ public class CopyPPOrder extends SvrProcess {
 		if (docTypeId > 0) {
 			newDocNo = MSequence.getDocumentNo(docTypeId, trxName, false, newOrder);
 		}
-		if (newDocNo == null) {
-			newDocNo = fromOrder.getDocumentNo() + "-COPY";
-		}
+
 		newOrder.setDocumentNo(newDocNo);
 
 		// 重置状态为草稿

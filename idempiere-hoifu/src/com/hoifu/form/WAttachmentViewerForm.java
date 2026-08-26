@@ -14,6 +14,7 @@ import org.compiere.model.MAttachmentEntry;
 import org.compiere.util.CLogger;
 import org.compiere.util.Env;
 import org.idempiere.ui.zk.media.IMediaView;
+import org.zkoss.image.AImage;
 import org.zkoss.util.media.AMedia;
 import org.zkoss.zk.ui.Component;
 import org.zkoss.zk.ui.Executions;
@@ -42,15 +43,19 @@ public class WAttachmentViewerForm extends ADForm implements EventListener<Event
 	private static final long serialVersionUID = 1L;
 	private static final CLogger log = CLogger.getCLogger(WAttachmentViewerForm.class);
 
-	/** 可直接用 Iframe 预览的 MIME 类型 */
-	private static final List<String> PREVIEWABLE = Arrays.asList("image/jpeg", "image/png", "image/gif", "text/plain",
-			"application/pdf", "text/xml", "application/json");
+	/** 图片类型 MIME 列表：这类文件使用 Image 组件预览，可等比例缩放、无滚动条 */
+	private static final List<String> IMAGE_MIME = Arrays.asList("image/jpeg", "image/png", "image/gif");
 
+	/** 可直接用 Iframe 预览的 MIME 类型（图片已单独拆分到 IMAGE_MIME，此处不再包含图片） */
+	private static final List<String> PREVIEWABLE = Arrays.asList("text/plain", "application/pdf", "text/xml",
+			"application/json");
 	// ---- UI 组件 ----
 	private final Listbox fileList = new Listbox();
 	private final Iframe preview = new Iframe();
 	private final Label statusLabel = new Label();
 	private final Button btnDownload = new Button("下载");
+	/** 专门用于图片预览的组件，配合 CSS object-fit:contain 实现等比例完整显示 */
+	private final org.zkoss.zul.Image imgPreview = new org.zkoss.zul.Image();
 
 	/** 左侧顶部抬头，显示"附件（x个）" */
 	private final Label attachmentHeader = new Label("附件");
@@ -211,6 +216,15 @@ public class WAttachmentViewerForm extends ADForm implements EventListener<Event
 		ZKUpdateUtil.setVflex(preview, "1");
 		preview.setVisible(false);
 		previewContainer.appendChild(preview);
+
+		// 图片预览组件
+		// 让组件撑满 previewContainer 剩余空间,图片按原始宽高比等比缩放，
+		// 完整显示在容器内，不裁切、不变形、无滚动条
+		ZKUpdateUtil.setHflex(imgPreview, "1");
+		ZKUpdateUtil.setVflex(imgPreview, "1");
+		imgPreview.setStyle("object-fit: contain; width: 100%; height: 100%;");
+		imgPreview.setVisible(false); // 默认隐藏，选中图片类型附件时才显示
+		previewContainer.appendChild(imgPreview);
   
 		statusLabel.setVisible(false);
 		previewContainer.appendChild(statusLabel);
@@ -270,8 +284,19 @@ public class WAttachmentViewerForm extends ADForm implements EventListener<Event
 		String mimeType = entry.getContentType();
 		if (mimeType == null)
 			mimeType = "application/octet-stream";
-  
-		if (PREVIEWABLE.contains(mimeType)) {
+		if (IMAGE_MIME.contains(mimeType)) {
+			// 图片单独走 Image 组件，等比例完整显示
+			try {
+				byte[] data = entry.getData();
+				// Image.setContent() 需要 org.zkoss.image.Image 类型（用 AImage 实现），不能直接传 AMedia
+				AImage aImage = new org.zkoss.image.AImage(entry.getName(), data);
+				imgPreview.setContent(aImage);
+				imgPreview.setVisible(true);
+			} catch (Exception e) {
+				log.log(Level.WARNING, "Cannot preview: " + entry.getName(), e);
+				showStatus("预览失败：" + e.getMessage());
+			}
+		} else if (PREVIEWABLE.contains(mimeType)) {
 			// 直接用 Iframe 预览（图片、PDF、文本等）
 			try {
 				byte[] data = entry.getData();
@@ -309,6 +334,12 @@ public class WAttachmentViewerForm extends ADForm implements EventListener<Event
 	private void clearPreview() {
 		preview.setSrc(null);
 		preview.setVisible(false);
+
+		// 清除图片预览组件内容，避免切换附件时残留上一张图片
+		AImage img = null;
+		imgPreview.setContent(img);
+		imgPreview.setVisible(false);
+
 		statusLabel.setVisible(false);
 		if (customPreviewComponent != null) {
 			customPreviewComponent.detach();

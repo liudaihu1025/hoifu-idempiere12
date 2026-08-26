@@ -2,25 +2,29 @@ package com.hoifu.event.processor;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.Set;
+
 import org.adempiere.base.event.IEventTopics;
 import org.adempiere.exceptions.AdempiereException;
+import org.adempiere.model.GenericPO;
+import org.compiere.model.MOrg;
 import org.compiere.model.MProduct;
+import org.compiere.model.MRoleOrgAccess;
+import org.compiere.model.MSysConfig;
+import org.compiere.model.MUser;
 import org.compiere.model.PO;
 import org.compiere.util.DB;
+import org.compiere.util.Env;
 import org.compiere.util.TimeUtil;
 import org.eevolution.model.MPPProductBOM;
 import org.eevolution.model.MPPProductBOMLine;
-import org.adempiere.model.GenericPO;  
-import org.compiere.model.MOrg;  
-import org.compiere.model.MRoleOrgAccess;  
-import org.compiere.util.Env;
-import com.hoifu.model.MValueChangeLog;
 
-import java.sql.PreparedStatement;  
-import java.sql.ResultSet;  
-import java.sql.SQLException;
+import com.hoifu.enums.HoifuOrgEnum;
+import com.hoifu.model.MValueChangeLog;
 
 public class ProductEventProcessor implements IEventProcessor {
 
@@ -28,7 +32,6 @@ public class ProductEventProcessor implements IEventProcessor {
 	private static final String COLUMNNAME_CartonMaterial_ID = "CartonMaterial_ID";
 	private static final String COLUMNNAME_Lengbie = "Lengbie";
 	private static final String COLUMNNAME_KeyMat = "KeyMat";
-	private static final String COLUMNNAME_IsCSM = "IsCSM";
 	private static final String TABLE_M_Product_Org = "M_Product_Org";
 	private static final String COLUMNNAME_ActiveOrg = "ActiveOrg";
 	private static final String COLUMNNAME_Category_ID_L2 = "M_Product_Category_ID_L2";
@@ -47,6 +50,10 @@ public class ProductEventProcessor implements IEventProcessor {
 
 		//物料名称校验
 		ProductNameCheck(product, topic);
+
+		// 新增原材料组织限制校验
+		checkRawMaterialOrgRestriction(product, topic);
+
 
 		//自动创建或更新BOM数据
 		autoCreateBOM(product, topic);
@@ -183,7 +190,7 @@ public class ProductEventProcessor implements IEventProcessor {
 	    }  
 	  
 	    // 客供料在品类前缀前加 "C"  
-	    if (product.get_ValueAsBoolean(COLUMNNAME_IsCSM)) {  
+	    if (product.isCSM()) {  
 	        prefix = "C" + prefix;  
 	    }
 	    
@@ -365,4 +372,116 @@ public class ProductEventProcessor implements IEventProcessor {
 			throw new AdempiereException("名称 " + p.getName() + " 重复，纸板名称需唯一。");
 	}
 
+	/** 原材料组织限制下，编辑时允许修改的字段列表（逗号分隔），存于 AD_SysConfig */
+	private static final String SYSCONFIG_RAW_MATERIAL_EDITABLE_COLUMNS = "HOIFU_RAWMATERIAL_EDITABLE_COLUMNS";
+
+	/** 不受本条限制约束的用户名（逗号分隔），存于 AD_SysConfig */
+	private static final String SYSCONFIG_RAW_MATERIAL_BYPASS_USERS = "HOIFU_RAWMATERIAL_BYPASS_USERS";
+
+	private static final String SYSCONFIG_RAW_MATERIAL_L2_CATEGORIES = "HOIFU_RAWMATERIAL_L2_CATEGORIES";
+
+	/**
+	 * 从 AD_SysConfig 读取需要拦截的中类名称白名单（逗号分隔的 Category.Name）。 未配置时返回空集合（即不拦截任何中类）。
+	 */
+	private Set<String> getRestrictedRawMaterialL2Categories(MProduct p) {
+		String cfg = MSysConfig.getValue(SYSCONFIG_RAW_MATERIAL_L2_CATEGORIES, null, p.getAD_Client_ID());
+		return splitToSet(cfg);
+	}
+
+	/**
+	 * 原材料组织限制校验： - 新增（PO_BEFORE_NEW）：禁止保存，提示到一物一码创建。 - 编辑（PO_BEFORE_CHANGE）：只允许修改
+	 * AD_SysConfig 配置的白名单字段，其余字段改动即拦截。 - 若当前登录用户在 AD_SysConfig 配置的豁免用户名单中，直接跳过本条校验。
+	 */
+	void checkRawMaterialOrgRestriction(MProduct p, String topic) {
+
+		boolean isNew = IEventTopics.PO_BEFORE_NEW.equals(topic);
+
+		boolean isChange = IEventTopics.PO_BEFORE_CHANGE.equals(topic);
+		if (!isNew && !isChange) {
+			return;
+		}
+
+		// 0. 豁免用户名单：命中则直接放行，不再校验组织/大类/字段
+		if (isBypassUser(p)) {
+			return;
+		}
+
+		// 1. 校验组织：是否为“江苏海富烟包”(0211) 或 “烟包主数据”(0411)
+		String orgValue = DB.getSQLValueStringEx(p.get_TrxName(), "SELECT Value FROM AD_Org WHERE AD_Org_ID=?",
+				p.getAD_Org_ID());
+		if (!HoifuOrgEnum.isMemberValue(orgValue, HoifuOrgEnum.JIANGSU_HAIFU_YANBAO, HoifuOrgEnum.YANBAO_ZHUSHUJU)) {
+			return;
+		}
+
+		// 2. 校验大类：M_Product_Category_ID_L1 -> M_Product_Category.Name = "原材料"
+		String catName = DB.getSQLValueStringEx(p.get_TrxName(),
+				"SELECT Name FROM M_Product_Category WHERE M_Product_Category_ID=?",
+				p.get_Value(COLUMNNAME_Category_ID_L1));
+		if (!"原材料".equals(catName)) {
+			return;
+		}
+
+		String catNameL2 = DB.getSQLValueStringEx(p.get_TrxName(),
+				"SELECT Name FROM M_Product_Category WHERE M_Product_Category_ID=?",
+				p.get_Value(COLUMNNAME_Category_ID_L2));
+
+		Set<String> restrictedL2Categories = getRestrictedRawMaterialL2Categories(p);
+		if (restrictedL2Categories.isEmpty() || !restrictedL2Categories.contains(catNameL2)) {
+			return;
+		}
+
+
+		if (isNew) {
+			// 新增：直接禁止保存
+			throw new AdempiereException("原材料创建请到 一物一码中创建！！");
+		}
+
+		// 编辑：只允许改 AD_SysConfig 配置的白名单字段
+		Set<String> allowedColumns = getRawMaterialEditableColumns(p);
+		int size = p.get_ColumnCount();
+		for (int i = 0; i < size; i++) {
+			String colName = p.get_ColumnName(i);
+			if (p.is_ValueChanged(colName) && !allowedColumns.contains(colName)) {
+				throw new AdempiereException("该组织下原材料限制保存与新建");
+			}
+		}
+	}
+
+	/**
+	 * 从 AD_SysConfig 读取本次可编辑字段白名单（逗号分隔的列名，忽略首尾空格）。 未配置时返回空集合（即不允许改任何字段，等同于禁止编辑）。
+	 */
+	private Set<String> getRawMaterialEditableColumns(MProduct p) {
+		String cfg = MSysConfig.getValue(SYSCONFIG_RAW_MATERIAL_EDITABLE_COLUMNS, null, p.getAD_Client_ID());
+		return splitToSet(cfg);
+	}
+
+	/**
+	 * 判断当前登录用户是否在豁免名单内。 未配置时返回空集合，即没有任何豁免用户。
+	 */
+	private boolean isBypassUser(MProduct p) {
+		String cfg = MSysConfig.getValue(SYSCONFIG_RAW_MATERIAL_BYPASS_USERS, null, p.getAD_Client_ID());
+		Set<String> bypassUsers = splitToSet(cfg);
+		if (bypassUsers.isEmpty()) {
+			return false;
+		}
+		String currentUserName = MUser.get(Env.getCtx(), Env.getAD_User_ID(Env.getCtx())).getName();
+		return currentUserName != null && bypassUsers.contains(currentUserName.trim());
+	}
+
+	/**
+	 * 将逗号分隔字符串解析为去除首尾空格、去空项的字符串集合。
+	 */
+	private Set<String> splitToSet(String csv) {
+		if (csv == null || csv.trim().isEmpty()) {
+			return Set.of();
+		}
+		Set<String> result = new java.util.HashSet<>();
+		for (String s : csv.split(",")) {
+			String v = s.trim();
+			if (!v.isEmpty()) {
+				result.add(v);
+			}
+		}
+		return result;
+	}
 }

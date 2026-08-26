@@ -19,6 +19,7 @@ package org.libero.model;
 
 import java.io.File;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.ResultSet;
 import java.sql.Timestamp;
 import java.util.ArrayList;
@@ -47,6 +48,7 @@ import org.compiere.model.MPeriod;
 import org.compiere.model.MProduct;
 import org.compiere.model.MProductPO;
 import org.compiere.model.MResource;
+import org.compiere.model.MStorageOnHand;
 import org.compiere.model.MSysConfig;
 import org.compiere.model.MTransaction;
 import org.compiere.model.MUOM;
@@ -415,19 +417,19 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 		else if (isIssue())
 		{
 			MProduct product = getM_Product();
-			if (getM_AttributeSetInstance_ID() == 0 && product.isASIMandatory(false))
-			{
-				throw new AdempiereException("@M_AttributeSet_ID@ @IsMandatory@ @M_Product_ID@=" + product.getValue());
-			}
+//			if (getM_AttributeSetInstance_ID() == 0 && product.isASIMandatory(false))
+//			{
+//				throw new AdempiereException("@M_AttributeSet_ID@ @IsMandatory@ @M_Product_ID@=" + product.getValue());
+//			}
 		}
 		// Receipt
 		else if (isReceipt())
 		{
 			MProduct product = getM_Product();
-			if (getM_AttributeSetInstance_ID() == 0 && product.isASIMandatory(true))
-			{
-				throw new AdempiereException("@M_AttributeSet_ID@ @IsMandatory@ @M_Product_ID@=" + product.getValue());
-			}
+//			if (getM_AttributeSetInstance_ID() == 0 && product.isASIMandatory(true))
+//			{
+//				throw new AdempiereException("@M_AttributeSet_ID@ @IsMandatory@ @M_Product_ID@=" + product.getValue());
+//			}
 		}
 		
 		m_justPrepared = true;
@@ -471,7 +473,7 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 	}
 
 	
-//	@Override
+	@Override
 	public String completeIt()
 	{
 	    // 原有的校验逻辑
@@ -512,7 +514,7 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 			if (isIssue() || isSubcontractingIssue()) 
 	        {
 	        	
-	            String orderStatus = (String) get_Value("Orderstatus");
+	            String orderStatus = (String) getPP_Order().get_Value("Orderstatus");
 	            
 	            if ("InECNChange".equals(orderStatus) || "ChangeExecuted".equals(orderStatus)) {
 	            	throw new AdempiereException("处于【ECN变更中】或【已变更】状态下的工单无法领料，领料失败!");
@@ -568,7 +570,7 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 	        }
 			if (isProductionReplenishment() || isSubcontractingReplenishment())
 	        {
-	            String orderStatus = (String) get_Value("Orderstatus");
+	            String orderStatus = (String) getPP_Order().get_Value("Orderstatus");
 	            
 	            if ("InECNChange".equals(orderStatus) || "ChangeExecuted".equals(orderStatus)) {
 	            	throw new AdempiereException("处于【ECN变更中】或【已变更】状态下的工单无法领料，领料失败!");
@@ -694,12 +696,8 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 	    if (m_processMsg != null)
 	        return DocAction.STATUS_Invalid;
 
-	    
-		// 添加报工数量校验
-		//validateReportingQuantity();
-	 		 
-	 		
-
+		// 设置QtyOnHand快照字段
+	    setCurrentQtyOnHand();
 	    // 设置单据为已完成状态
 	    setProcessed(true);
 	    setDocAction(DOCACTION_Close);
@@ -721,6 +719,17 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 		return true;
 	}	//	closeIt
 
+	public void setCurrentQtyOnHand() {  
+	    if (getM_Product_ID() > 0 && getM_Locator_ID() > 0)  
+	    {  
+	        BigDecimal qtyOnHand = MStorageOnHand.getQtyOnHandForLocator(  
+	                getM_Product_ID(),  
+	                getM_Locator_ID(),  
+	                0,              // M_AttributeSetInstance_ID=0 表示不区分ASI，SUM全部  
+	                get_TrxName());  
+	        set_ValueOfColumn("QtyOnHand", qtyOnHand);  
+	    }  
+	}
 //	@Override
 //	public boolean reverseCorrectIt()
 //	{
@@ -806,9 +815,34 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 		return dt.getName() + " " + getDocumentNo();
 	}	//	getDocumentInfo
 
+	@Override  
+	protected boolean afterSave(boolean newRecord, boolean success)  
+	{  
+	    if (!success)  
+	        return success;  
+	  
+	    if (isNonProduction() && newRecord)  
+	    {  
+	        if (!processIt(DocAction.ACTION_Complete))  
+	        {  
+	            log.saveError("Error", "自动完成失败: " + getProcessMsg());  
+	            return false;  
+	        }  
+	        // processIt 只改内存状态，必须显式保存才能把 DocStatus/Processed 落库  
+	        if (!save())  
+	            return false;  
+	    }  
+	    return true;  
+	}
+	
 	@Override
 	protected boolean beforeSave(boolean newRecord)
 	{
+		BigDecimal  durationReal = getDurationReal();
+		if (isNonProduction() && BigDecimal.ZERO.compareTo(durationReal) == 0) {
+			throw new AdempiereException("报工工时不能为0，请检查开始时间和结束时间。");
+		}
+		
 		// 是否使用替代料
 		boolean isSubstitute = getIsSubstitute();
 		// Set default locator, if not set and we have the warehouse:
@@ -885,12 +919,19 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 		// 跳过条件5：生产报工草稿状态允许数量为0（创建报工单时默认值为0）
 		boolean isActivityControlDraft = isActivityControl() && DOCSTATUS_Drafted.equals(getDocStatus());
 
-		if (!isReversalDoc && !isVoidOp && !qtyUnchanged && !isVarianceType && !isActivityControlDraft) {
+		boolean skipQtyCheck = isActivityControl() && !isWorkReportTypeProduce();
 
-			BigDecimal qty = getMovementQty();
-			if (qty == null || qty.compareTo(BigDecimal.ZERO) <= 0) {
-				log.saveError("ValidationError", "移动数量必须大于0（当前值：" + (qty != null ? qty.toPlainString() : "null") + "）");
-				return false;
+		// 跳过条件6：成本归集单类型为以下类型：非生产报工
+		boolean skipCostCollectorType = isNonProduction();
+
+		if (!skipQtyCheck) {
+			if (!isReversalDoc && !isVoidOp && !qtyUnchanged && !isVarianceType && !isActivityControlDraft && !skipCostCollectorType) {
+
+				BigDecimal qty = getMovementQty();
+				if (qty == null || qty.compareTo(BigDecimal.ZERO) <= 0) {
+					log.saveError("ValidationError", "移动数量必须大于0（当前值：" + (qty != null ? qty.toPlainString() : "null") + "）");
+					return false;
+				}
 			}
 		}
 
@@ -1174,46 +1215,55 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 	{  
 	    return isCostCollectorType(COSTCOLLECTORTYPE_ProductionReplenishment);  
 	}
-	
-	/**  
-	 * 根据实际的开始时间和完成时间计算并更新DurationReal（单位：小时）  
-	 */  
-	public BigDecimal updateDurationRealFromDates(Timestamp actualStartDate, Timestamp actualFinishDate)  
-	{  
-	    if (actualStartDate == null || actualFinishDate == null)  
-	    {  
-	        return BigDecimal.ZERO;  
-	    }  
+
+	/**    
+	 * 生产报工（CostCollectorType=160）实际工时计算：    
+	 * 计算 [startDate, finishDate] 区间与当天午休时段 [12:00, 12:45] 的重叠时长，  
+	 * 并从总时长中扣除该重叠部分（重叠为0则不扣，即完全不涉及午休时正常计算时差）。  
+	 * （保留两位小数）    
+	 */    
+	public static BigDecimal updateDurationRealFromDates(Timestamp actualStartDate, Timestamp actualFinishDate) {
+	return calculateNonProductionDuration(actualStartDate, actualFinishDate);
+	}
+
+
+	// 午休起止（相对当天0点的毫秒偏移量）    
+	private static final long NOON_MILLIS      = 12L * 60 * 60 * 1000;         // 12:00    
+	private static final long LUNCH_END_MILLIS = 12L * 60 * 60 * 1000 + 45L * 60 * 1000; // 12:45    
 	  
-	    java.util.Calendar noon = java.util.Calendar.getInstance();  
-	    noon.setTime(actualFinishDate);  
-	    noon.set(java.util.Calendar.HOUR_OF_DAY, 12);  
-	    noon.set(java.util.Calendar.MINUTE, 0);  
-	    noon.set(java.util.Calendar.SECOND, 0);  
-	    noon.set(java.util.Calendar.MILLISECOND, 0);  
-	    Timestamp t1200 = new Timestamp(noon.getTimeInMillis());  
+	/**    
+	 * 非生产报工（CostCollectorType=161）实际工时计算：    
+	 * 计算 [startDate, finishDate] 区间与当天午休时段 [12:00, 12:45] 的重叠时长，  
+	 * 并从总时长中扣除该重叠部分（重叠为0则不扣，即完全不涉及午休时正常计算时差）。  
+	 * （保留两位小数）    
+	 */    
+	public static BigDecimal calculateNonProductionDuration(Timestamp startDate, Timestamp finishDate)    
+	{    
+	    if (startDate == null || finishDate == null)    
+	        return BigDecimal.ZERO;    
 	  
-	    java.util.Calendar noon45 = (java.util.Calendar) noon.clone();  
-	    noon45.set(java.util.Calendar.MINUTE, 45);  
-	    Timestamp t1245 = new Timestamp(noon45.getTimeInMillis());  
+	    long dayStartMillis = TimeUtil.getDay(finishDate).getTime();    
+	    long noonMillis = dayStartMillis + NOON_MILLIS;    
+	    long lunchEndMillis = dayStartMillis + LUNCH_END_MILLIS;    
 	  
-	    long durationMs;  
-	    if (actualFinishDate.after(t1245)) {  
-	        durationMs = actualFinishDate.getTime() - actualStartDate.getTime() - 45 * 60 * 1000L;  
-	    } else if (actualFinishDate.after(t1200)) {  
-	        durationMs = t1200.getTime() - actualStartDate.getTime();  
-	    } else {  
-	        durationMs = actualFinishDate.getTime() - actualStartDate.getTime();  
-	    }  
+	    long startMillis = startDate.getTime();    
+	    long finishMillis = finishDate.getTime();    
 	  
-	    if (durationMs < 0)  
-	        durationMs = 0;  
+	    // 计算报工区间与午休区间 [noonMillis, lunchEndMillis] 的重叠时长    
+	    long overlapStart = Math.max(startMillis, noonMillis);    
+	    long overlapEnd = Math.min(finishMillis, lunchEndMillis);    
+	    long overlapMillis = Math.max(0L, overlapEnd - overlapStart);    
 	  
-	    double hours = (double) durationMs / (3600.0 * 1000.0);  
-	    double roundedHours = Math.floor(hours * 2) / 2.0;  
+	    long durationMillis = (finishMillis - startMillis) - overlapMillis;    
 	  
-	    setDurationReal(BigDecimal.valueOf(roundedHours));  
-	    return BigDecimal.valueOf(roundedHours);  
+	    if (durationMillis < 0)    
+	        durationMillis = 0;    
+	  
+	    // 精确小时数，直接保留两位小数，不再按0.5小时步长向下取整    
+	    BigDecimal roundedHours = BigDecimal.valueOf(durationMillis)    
+	            .divide(BigDecimal.valueOf(3600000L), 2, RoundingMode.HALF_UP);    
+	  
+	    return roundedHours;    
 	}
 	
 	public boolean isIssue()
@@ -1239,6 +1289,14 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 	{
 		return isCostCollectorType(COSTCOLLECTORTYPE_NonProduction);
 	}
+
+	public boolean isWorkReportTypeProduce()
+	{
+		String hfWorkReportType = getHF_WorkReportType();
+		return HF_WORKREPORTTYPE_Produce.equals(hfWorkReportType);
+	}
+
+
 	public boolean isVariance()
 	{
 		return isCostCollectorType(COSTCOLLECTORTYPE_MethodChangeVariance

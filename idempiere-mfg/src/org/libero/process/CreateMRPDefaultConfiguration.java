@@ -92,13 +92,13 @@ public class CreateMRPDefaultConfiguration extends SvrProcess {
   
         // 预先获取默认供应商  
         defaultBPartnerID = getDefaultBPartner();  
-        if (defaultBPartnerID == 0) {  
+        if (defaultBPartnerID <= 0) {  
             throw new Exception("未找到名为'默认业务伙伴'的供应商，请先维护");  
         }  
   
         // 预先获取采购价格表版本  
         purchasePLV_ID = getPurchasePriceListVersionID();  
-        if (purchasePLV_ID == 0) {  
+        if (purchasePLV_ID <= 0) {  
             throw new Exception("未找到有效的采购价格表版本，请检查'采购价格表'是否存在且有有效版本");  
         }  
   
@@ -133,8 +133,15 @@ public class CreateMRPDefaultConfiguration extends SvrProcess {
      * 如果组件本身也有BOM（半成品），则继续递归处理其BOM明细  
      */  
     private void processBOMComponents(int M_Product_ID) throws Exception {  
+
         MProduct product = new MProduct(getCtx(), M_Product_ID, get_TrxName());  
-        MPPProductBOM bom = MPPProductBOM.getDefault(product, get_TrxName());  
+
+		// 用登录组织而非产品所属组织过滤
+//        MPPProductBOM bom = MPPProductBOM.getDefault(product, get_TrxName());  
+
+		// 先按登录组织查、查不到再按产品自身组织
+		MPPProductBOM bom = MPPProductBOM.getDefaultV2(product, get_TrxName());
+
         if (bom == null) {  
             log.info("产品 [" + product.getValue() + "] 没有默认BOM，跳过BOM明细处理");  
             return;  
@@ -197,7 +204,7 @@ public class CreateMRPDefaultConfiguration extends SvrProcess {
     private void createProductPlanning(int M_Product_ID, int AD_Org_ID, int AD_User_ID, boolean isMainProduct) throws Exception {  
         int PP_Product_BOM_ID = getDefaultBOM(M_Product_ID);  
   
-        if (isMainProduct && PP_Product_BOM_ID == 0) {  
+        if (isMainProduct && PP_Product_BOM_ID <= 0) {  
             throw new Exception("未找到主产品的默认BOM（BOMType='A', BOMUse='A'）");  
         }  
   
@@ -287,8 +294,8 @@ public class CreateMRPDefaultConfiguration extends SvrProcess {
      */  
     private boolean existsProductPO(int M_Product_ID, int AD_Org_ID) {  
         MProductPO existing = new Query(getCtx(), MProductPO.Table_Name,  
-                "M_Product_ID = ? AND AD_Org_ID = ?", get_TrxName())  
-            .setParameters(M_Product_ID, AD_Org_ID)  
+                "M_Product_ID = ? AND AD_Org_ID = ? AND C_BPartner_ID = ?", get_TrxName())  
+            .setParameters(M_Product_ID, AD_Org_ID, defaultBPartnerID)
             .first();  
         return existing != null;  
     }  
@@ -331,9 +338,9 @@ public class CreateMRPDefaultConfiguration extends SvrProcess {
                      "WHERE pl.IsSOPriceList = 'N' " +  
                      "AND pl.Name = '采购价格表' " +  
                      "AND pl.IsActive = 'Y' " +  
-                     "AND plv.IsActive = 'Y' " +  
-                     "AND TRUNC(plv.ValidFrom) <= TRUNC(getDate()) " +  
-                     "ORDER BY plv.ValidFrom DESC";  
+                     "AND plv.IsActive = 'Y' " +
+                     "AND TRUNC(plv.ValidFrom) <= TRUNC(getDate()) " +
+                     "ORDER BY plv.ValidFrom DESC";
         return DB.getSQLValue(get_TrxName(), sql);  
     }  
 }

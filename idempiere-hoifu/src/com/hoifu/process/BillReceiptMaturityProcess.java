@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.adempiere.exceptions.AdempiereException;
+import org.compiere.model.MBPartner;
 import org.compiere.model.MPayment;
 import org.compiere.model.MProcessPara;
 import org.compiere.process.DocAction;
@@ -22,16 +23,22 @@ import com.hoifu.model.MBillPool;
 import com.hoifu.model.MBillTransaction;
 import com.hoifu.model.MPaymentLine;
 
+/**
+ * 到期收款流程
+ */
 @org.adempiere.base.annotation.Process
 public class BillReceiptMaturityProcess extends SvrProcess {
 	// 参数
-	private int p_C_BPartner_ID = 0;
-	private int p_C_Charge_ID = 0;
-	private boolean p_IsDishonored = false;
-	private BigDecimal p_AccruedInterestAmt = null;
-	private boolean p_IsGenerateReceipt = false;
-	private int p_C_BankAccount_ID = 0;
-	private Timestamp p_BusinessDate = null;
+	private Timestamp p_BusinessDate = null;// 业务日期
+	private int p_C_BPartner_ID = 0; // 出票人/背书人
+	private int p_owner_bp_ID = 0;// 收款单位/被背书人
+	private int p_settle_bp_ID = 0;// 结算单位
+	private int p_C_Charge_ID = 0;// 费用项目
+	private boolean p_IsDishonored = false;// 是否拒付
+	private BigDecimal p_AccruedInterestAmt = null;// 已计提利息
+	private BigDecimal p_CollectionFee = null;// 收款费用
+	private boolean p_IsGenerateReceipt = false;// 是否生成收款单
+	private int p_C_BankAccount_ID = 0;// 银行账户
 
 	// 选择标记
 	private boolean p_Selection = false;
@@ -42,20 +49,26 @@ public class BillReceiptMaturityProcess extends SvrProcess {
 			String name = para[i].getParameterName();
 			if (para[i].getParameter() == null)
 				;
-			else if (name.equals("C_BPartner_ID"))
-				p_C_BPartner_ID = para[i].getParameterAsInt();
-			else if (name.equals("C_Charge_ID"))
-				p_C_Charge_ID = para[i].getParameterAsInt();
-			else if (name.equals("IsDishonored"))
-				p_IsDishonored = "Y".equals(para[i].getParameter());
-			else if (name.equals("C_Charge_ID"))
-				p_AccruedInterestAmt = (BigDecimal) para[i].getParameter();
-			else if (name.equals("IsGenerateReceipt"))
-				p_IsGenerateReceipt = "Y".equals(para[i].getParameter());
-			else if (name.equals("C_BankAccount_ID"))
-				p_C_BankAccount_ID = para[i].getParameterAsInt();
 			else if (name.equals("BusinessDate"))
-				p_BusinessDate = (Timestamp) para[i].getParameter();
+				p_BusinessDate = (Timestamp) para[i].getParameter();// 业务日期
+			else if (name.equals("C_BPartner_ID"))
+				p_C_BPartner_ID = para[i].getParameterAsInt();// 出票人/背书人
+			else if (name.equals("owner_bp_ID"))
+				p_owner_bp_ID = para[i].getParameterAsInt();// 收款单位/被背书人
+			else if (name.equals("settle_bp_ID"))
+				p_settle_bp_ID = para[i].getParameterAsInt();// 结算单位
+			else if (name.equals("C_Charge_ID"))
+				p_C_Charge_ID = para[i].getParameterAsInt();// 费用项目
+			else if (name.equals("IsDishonored"))
+				p_IsDishonored = "Y".equals(para[i].getParameter());// 是否拒付
+			else if (name.equals("AccruedInterestAmt"))
+				p_AccruedInterestAmt = (BigDecimal) para[i].getParameter();// 已计提利息
+			else if (name.equals("CollectionFee"))
+				p_CollectionFee = (BigDecimal) para[i].getParameter();// 收款费用
+			else if (name.equals("IsGenerateReceipt"))
+				p_IsGenerateReceipt = "Y".equals(para[i].getParameter());// 是否生成收款单
+			else if (name.equals("C_BankAccount_ID"))
+				p_C_BankAccount_ID = para[i].getParameterAsInt();// 银行账户
 			else
 				MProcessPara.validateUnknownParameter(getProcessInfo().getAD_Process_ID(), para[i]);
 		}
@@ -116,7 +129,30 @@ public class BillReceiptMaturityProcess extends SvrProcess {
 
 		billPool.setDocStatus("AP"); // 已审核
 		billPool.setDeliveryDate(new Timestamp(System.currentTimeMillis()));
+		billPool.set_ValueNoCheck("settle_bp_ID", p_settle_bp_ID); // 结算单位
 
+		billPool.set_ValueNoCheck("SettleDate", p_BusinessDate); // 结算日期
+		billPool.set_ValueNoCheck("SettleFeeAmt", p_CollectionFee); // 结算费用
+		if (p_CollectionFee != null) {
+			billPool.set_ValueNoCheck("SettleAmt", billPool.getBillAmt().add(p_CollectionFee)); // 结算金额
+		}
+
+		MBPartner drawer = MBPartner.get(Env.getCtx(), p_C_BPartner_ID, get_TrxName());
+		MBPartner payee = MBPartner.get(Env.getCtx(), p_owner_bp_ID, get_TrxName());
+
+		// 获取背书类型
+		String endorserType = billPool.getEndorserType();
+		// 根据背书类型设置相关字段
+		if ("N".equals(endorserType)) {
+			// 背书类型为无：设置出票人和收票人
+			billPool.setDrawer_Id(drawer.getName()); // 出票人名称
+			billPool.setPayee_Id(payee.getName());// 收票人名称
+		} else if ("T".equals(endorserType)) {
+			// 背书类型为转让：设置背书人和被背书人
+			billPool.setEndorser_Id(drawer.getName());// 背书人名称
+			billPool.setEndorsee_Id(payee.getName());// 被背书人名称
+		}
+		billPool.setProcessed(true);
 		// 保存
 		billPool.saveEx();
 
@@ -144,6 +180,7 @@ public class BillReceiptMaturityProcess extends SvrProcess {
 		}
 
 		// 设置票据相关信息
+		transaction.set_ValueOfColumn("IsRecourse", billPool.isRecourse() ? "Y" : "N");
 		transaction.setC_Bill_Pool_DocumentNo(billPool.getDocumentNo());
 		transaction.setC_Bill_Pool_ID(billPool.getC_Bill_Pool_ID());
 		transaction.setBillType(billPool.getBillType());
@@ -155,7 +192,9 @@ public class BillReceiptMaturityProcess extends SvrProcess {
 		transaction.setBusinessStatus(billPool.getBusinessStatus());
 
 		// 设置相关方信息
-		transaction.setC_BPartner_ID(p_C_BPartner_ID);
+		transaction.setC_BPartner_ID(p_C_BPartner_ID);// 往来单位
+		transaction.set_ValueNoCheck("owner_bp_ID", p_owner_bp_ID); // 收款单位
+		transaction.set_ValueNoCheck("settle_bp_ID", p_settle_bp_ID); // 结算单位
 		transaction.setC_Charge_ID(p_C_Charge_ID);
 		transaction.setDrawer_Id(billPool.getDrawer_Id());
 		transaction.setReceiver_Id(billPool.getPayee_Id());

@@ -179,7 +179,7 @@ public class CSMReceiptLineAutoFill extends ModelEventDelegate<MInOut> {
      *  
      * <ul>  
      *   <li>组件有子 BOM → 非叶子节点，继续向下递归。</li>  
-     *   <li>组件无子 BOM → 叶子节点，检查 IsCSM 是否为 'Y'。</li>  
+     *   <li>组件无子 BOM → 叶子节点，检查 IsCSM</li>
      * </ul>  
      *  
      * @param bom      当前层级的 BOM  
@@ -208,7 +208,7 @@ public class CSMReceiptLineAutoFill extends ModelEventDelegate<MInOut> {
                 traverseBOMForCSM(childBom, ctx, trxName, visited, result);  
             } else {  
                 // 叶子节点：若标记为客供料则加入结果集  
-                if (component.get_ValueAsBoolean("IsCSM"))  
+                if (component.isCSM())
                     result.add(componentId);  
             }  
         }  

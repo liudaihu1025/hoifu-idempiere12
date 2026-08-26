@@ -257,8 +257,8 @@ public class MCost extends X_M_Cost implements ICostInfo
 					if (cm != null)
 					{
 						// use the cost price from the cost history record
-//						if (historyCostPrice != null && historyCostPrice.compareTo(currentCostPrice) != 0)
-//							currentCostPrice = historyCostPrice;
+						if (historyCostPrice != null && historyCostPrice.compareTo(currentCostPrice) != 0)
+							currentCostPrice = historyCostPrice;
 						materialCostEach = materialCostEach.add(currentCostPrice);
 					}
 					else

@@ -23,6 +23,7 @@ import java.util.logging.Level;
 
 import org.compiere.model.MAcctSchema;
 import org.compiere.model.MCostDetail;
+import org.compiere.model.MLocator;
 import org.compiere.model.MMovement;
 import org.compiere.model.MMovementLine;
 import org.compiere.model.MMovementLineMA;
@@ -150,6 +151,11 @@ public class Doc_Movement extends Doc
 			{
 				MProduct product = (MProduct) line.getProduct();
 				String costingLevel = product.getCostingLevel(as);
+				
+				// 统一改为使用"移出库位"（From）真实所属组织去取成本，因为调拨本质是"按现有成本把库存从源组织转移到目标组织"，成本应该按物料在源组织的成本队列计算
+				MMovementLine mLineForOrg = (MMovementLine) line.getPO();
+				int fromOrgId = MLocator.get(getCtx(), mLineForOrg.getM_Locator_ID(), getTrxName()).getAD_Org_ID();
+
 				if (MAcctSchema.COSTINGLEVEL_BatchLot.equals(costingLevel) )
 				{
 					if (line.getM_AttributeSetInstance_ID() == 0 ) 
@@ -168,7 +174,7 @@ public class Doc_Movement extends Doc
 								ProductCost pc = line.getProductCost();
 								pc.setQty(QtyMA);
 								pc.setM_M_AttributeSetInstance_ID(ma.getM_AttributeSetInstance_ID());
-								BigDecimal maCosts = line.getProductCosts(as, line.getAD_Org_ID(), true, "M_MovementLine_ID=? AND IsSOTrx='N'");
+								BigDecimal maCosts = line.getProductCosts(as, fromOrgId, true, "M_MovementLine_ID=? AND IsSOTrx='N'");
 							
 								costs = costs.add(maCosts);
 							}						
@@ -176,14 +182,14 @@ public class Doc_Movement extends Doc
 					} 
 					else 
 					{
-						costs = line.getProductCosts(as, line.getAD_Org_ID(), true, "M_MovementLine_ID=? AND IsSOTrx='N'");
+						costs = line.getProductCosts(as, fromOrgId, true, "M_MovementLine_ID=? AND IsSOTrx='N'");
 					}
 				}
 				else
 				{
 					// MZ Goodwill
 					// if Inventory Move CostDetail exist then get Cost from Cost Detail
-					costs = line.getProductCosts(as, line.getAD_Org_ID(), true, "M_MovementLine_ID=? AND IsSOTrx='N'");
+					costs = line.getProductCosts(as, fromOrgId, true, "M_MovementLine_ID=? AND IsSOTrx='N'");
 					// end MZ
 				}
 			}

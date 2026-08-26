@@ -1,5 +1,6 @@
 package com.hoifu.event.processor;  
   
+import java.math.BigDecimal;
 import java.sql.Timestamp;
 
 import org.adempiere.base.event.IEventTopics;
@@ -8,9 +9,13 @@ import org.compiere.model.MAttachmentEntry;
 import org.compiere.model.MDocType;
 import org.compiere.model.MOrder;
 import org.compiere.model.MOrderLine;
+import org.compiere.model.MProduct;
+import org.compiere.model.MProductPO;
+import org.compiere.model.MProductPrice;
 import org.compiere.model.MSequence;
 import org.compiere.model.MTable;
 import org.compiere.model.PO;
+import org.compiere.model.Query;
 import org.compiere.util.CLogger;
 import org.compiere.util.DB;
   
@@ -33,6 +38,8 @@ public class COrderEventProcessor implements IEventProcessor {
         syncTaxToLines(order, topic);
         inheritDocumentNoFromSubcontractSource(order, topic);
 		createSamplingDemandOnComplete(order, topic);
+		syncProductPriceOnComplete(order, topic);
+		createProductPOOnComplete(order, topic);
     }  
   
     /**  
@@ -151,8 +158,9 @@ public class COrderEventProcessor implements IEventProcessor {
 		demand.set_ValueNoCheck("RequestSource", "SO"); // 需求来源：打样销售订单  
 		demand.set_ValueNoCheck("C_Order_ID", order.getC_Order_ID()); // 关联单号=销售订单  
 		demand.set_ValueNoCheck("RequestType", samplingType); // 需求类型=销售订单.打样类型  
-		demand.set_ValueNoCheck("QtySampling", firstLine.getQtyOrdered()); // 打样数量=销售订单.订单明细.数量（多行，取第一行）  
-		demand.set_ValueNoCheck("AD_User_ID", order.getCreatedBy()); // 发起人=销售订单的创建人  
+		demand.set_ValueNoCheck("QtySampling", firstLine.getQtyOrdered()); // 打样数量=销售订单.订单明细.数量（多行，取第一行）
+		demand.set_ValueNoCheck("Amt", firstLine.getLineNetAmt());// 打样金额=销售订单.订单明细.LineNetAmt（取第一行）
+		demand.set_ValueNoCheck("AD_User_ID", order.getCreatedBy()); // 发起人=销售订单的创建人
 		demand.set_ValueNoCheck("RequestStatus", requestStatus); // 需求状态  
 		demand.set_ValueNoCheck("IsNeedGraphicDesign", needGraphicDesign); // 是否需要平面设计  
 		demand.set_ValueNoCheck("IsNeedProcessDesign", "Y"); // 是否需要工艺设计  
@@ -176,6 +184,135 @@ public class COrderEventProcessor implements IEventProcessor {
 				log.warning("复制销售订单附件到打样需求单失败，C_Order_ID=" + order.getC_Order_ID() + "，原因：" + e.getMessage());  
 			}  
 		}  
-	}  
-  
+	}
+
+	/**
+	 * 采购订单完成后，自动维护物料在"采购价格表"最新版本下的标准价（PriceStd）。
+	 * 规则：无价格记录 → 新建（PriceStd=订单行单价）；已有记录且 PriceStd=0 → 更新为订单行单价；
+	 *      已有记录且 PriceStd≠0 → 不修改。
+	 */
+	void syncProductPriceOnComplete(MOrder order, String topic) {
+		// 1. 仅在 DOC_AFTER_COMPLETE 触发
+		if (!IEventTopics.DOC_AFTER_COMPLETE.equals(topic))
+			return;
+
+		// 2. 仅处理采购订单
+		if (order.isSOTrx())
+			return;
+
+		String trxName = order.get_TrxName();
+
+		// 3. 遍历订单明细，跳过没有物料的行（如费用行）
+		MOrderLine[] lines = order.getLines();
+		if (lines == null || lines.length == 0)
+			return;
+
+		// 4. 查询"采购价格表"下 IsActive='Y' 且 Created 最新的价格表版本
+		String sql = "SELECT plv.M_PriceList_Version_ID " + "FROM M_PriceList_Version plv "
+				+ "INNER JOIN M_PriceList pl ON (plv.M_PriceList_ID=pl.M_PriceList_ID) "
+				+ "WHERE pl.IsSOPriceList='N' AND pl.Name='采购价格表' AND pl.IsActive='Y' "
+				+ "AND plv.IsActive='Y' AND pl.AD_Client_ID=? ORDER BY plv.Created DESC";
+
+		int priceListVersionId = DB.getSQLValue(trxName, sql, order.getAD_Client_ID());
+
+		for (MOrderLine line : lines) {
+			if (line.getM_Product_ID() <= 0)
+				continue;
+
+			if (priceListVersionId <= 0) {
+				log.warning("未找到有效的采购价格表版本，跳过，M_Product_ID=" + line.getM_Product_ID()
+						+ "，C_OrderLine_ID=" + line.getC_OrderLine_ID());
+				continue;
+			}
+
+			// 5. 查询该物料在该价格表版本下是否已有价格记录
+			MProductPrice pp = MProductPrice.get(order.getCtx(), priceListVersionId,
+					line.getM_Product_ID(), trxName);
+
+			// 6. 按规则维护 PriceStd
+			if (pp == null) {
+				// 无价格记录 → 新建，PriceStd=订单行单价（PriceList/PriceLimit 先按 0 处理）
+				pp = new MProductPrice(order.getCtx(), priceListVersionId, line.getM_Product_ID(), trxName);
+				pp.setAD_Org_ID(order.getAD_Org_ID());
+
+				pp.setPrices(BigDecimal.ZERO, line.getPriceEntered(), BigDecimal.ZERO);
+
+//				pp.setPriceList(BigDecimal.ZERO);
+//				pp.setPriceStd(line.getPriceEntered());
+//				pp.setPriceLimit(BigDecimal.ZERO);
+				pp.saveEx();
+
+				log.info("创建 M_ProductPrice，M_Product_ID=" + line.getM_Product_ID()
+						+ "，M_PriceList_Version_ID=" + priceListVersionId
+						+ "，PriceStd=" + line.getPriceEntered());
+			} else if (BigDecimal.ZERO.compareTo(pp.getPriceStd()) == 0) {
+				// 已有记录且 PriceStd=0 → 更新为订单行单价
+
+				pp.setPrices(pp.getPriceList(), line.getPriceEntered(), pp.getPriceLimit());
+
+//				pp.setPriceStd(line.getPriceEntered());
+
+				pp.saveEx();
+				log.info("更新 M_ProductPrice，M_Product_ID=" + line.getM_Product_ID()
+						+ "，M_PriceList_Version_ID=" + priceListVersionId
+						+ "，PriceStd=" + line.getPriceEntered());
+			}
+			// 已有记录且 PriceStd≠0 → 不修改
+		}
+	}
+
+	/**
+	 * 采购订单完成后，若物料在 M_Product_PO（《物料管理》→《采购》页签）中没有任何采购数据，
+	 * 则自动创建一条：供应商=采购订单供应商，采购价格(PricePO)=订单行单价。
+	 */
+	void createProductPOOnComplete(MOrder order, String topic) {
+		// 1. 仅在 DOC_AFTER_COMPLETE 触发
+		if (!IEventTopics.DOC_AFTER_COMPLETE.equals(topic))
+			return;
+
+		// 2. 仅处理采购订单
+		if (order.isSOTrx())
+			return;
+
+		String trxName = order.get_TrxName();
+
+		// 3. 遍历订单明细，跳过没有物料的行（如费用行）
+		MOrderLine[] lines = order.getLines();
+		if (lines == null || lines.length == 0)
+			return;
+		for (MOrderLine line : lines) {
+			int productId = line.getM_Product_ID();
+			if (productId <= 0)
+				continue;
+
+			// 4. 该物料已有任何 M_Product_PO 记录则跳过（不限组织、不限供应商）
+			MProductPO existing = new Query(order.getCtx(), MProductPO.Table_Name,
+					MProductPO.COLUMNNAME_M_Product_ID + " = ?", trxName)
+					.setParameters(productId)
+					.first();
+			if (existing != null) {
+				log.info("物料已存在 M_Product_PO 采购数据，跳过，M_Product_ID=" + productId);
+				continue;
+			}
+
+			// 5. 创建 M_Product_PO：供应商=采购订单供应商，采购价格=订单行单价
+			MProductPO po = new MProductPO(order.getCtx(), 0, trxName);
+			po.setAD_Org_ID(order.getAD_Org_ID());
+			po.setM_Product_ID(productId);
+			po.setC_BPartner_ID(order.getC_BPartner_ID());
+			po.setIsCurrentVendor(true); // 该物料第一条采购记录，作为当前供应商
+
+			// 补充：VendorProductNo 不能为空，默认取物料自身编号（M_Product.Value）
+			MProduct product = MProduct.get(order.getCtx(), productId);
+			po.setVendorProductNo(product != null ? product.getValue() : String.valueOf(productId));
+
+			po.setPricePO(line.getPriceEntered()); // 采购价格（《采购》页签【采购价格】字段）
+			po.saveEx();
+
+			log.info("创建 M_Product_PO，M_Product_ID=" + productId
+					+ "，C_BPartner_ID=" + order.getC_BPartner_ID()
+					+ "，PricePO=" + line.getPriceEntered());
+		}
+	}
+
 }

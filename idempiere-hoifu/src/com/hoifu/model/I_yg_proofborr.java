@@ -216,7 +216,6 @@ public interface I_yg_proofborr
 	/** Get processstep	  */
 	public int getprocessstep();
 
-
     /** Column name qtyborrowed */
     public static final String COLUMNNAME_qtyborrowed = "qtyborrowed";
 
@@ -257,10 +256,10 @@ public interface I_yg_proofborr
     public static final String COLUMNNAME_workorder = "workorder";
 
 	/** Set workorder	  */
-	public void setworkorder (String workorder);
+	public void setworkorder (int workorder);
 
 	/** Get workorder	  */
-	public String getworkorder();
+	public int getworkorder();
 
     /** Column name yg_proofborr_ID */
     public static final String COLUMNNAME_yg_proofborr_ID = "yg_proofborr_ID";

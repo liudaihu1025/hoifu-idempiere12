@@ -20,9 +20,14 @@ import java.io.File;
 import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.Timestamp;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Properties;
+import java.util.Set;
 import java.util.logging.Level;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.adempiere.exceptions.BackDateTrxNotAllowedException;
 import org.adempiere.exceptions.NegativeInventoryDisallowedException;
@@ -513,22 +518,26 @@ public class MMovement extends X_M_Movement implements DocAction
 								return DocAction.STATUS_Invalid;
 							}
 	
-							//
-							trxFrom = new MTransaction (getCtx(), line.getAD_Org_ID(), 
-									MTransaction.MOVEMENTTYPE_MovementFrom,
+							// 按库位反查真实组织
+							int fromOrgId = MLocator.get(getCtx(), line.getM_Locator_ID(), get_TrxName())
+									.getAD_Org_ID();
+							int toOrgId = MLocator.get(getCtx(), line.getM_LocatorTo_ID(), get_TrxName())
+									.getAD_Org_ID();
+
+							trxFrom = new MTransaction(getCtx(), fromOrgId, MTransaction.MOVEMENTTYPE_MovementFrom,
 									line.getM_Locator_ID(), line.getM_Product_ID(), ma.getM_AttributeSetInstance_ID(),
 									ma.getMovementQty().negate(), getMovementDate(), get_TrxName());
-							trxFrom.setM_MovementLine_ID(line.getM_MovementLine_ID());
+							trxFrom.setM_MovementLine_ID(line.getM_MovementLine_ID());  
 							if (!trxFrom.save())
 							{
 								m_processMsg = "Transaction From not inserted (MA) [" + product.getValue() + "] - ";
 								return DocAction.STATUS_Invalid;
 							}
 							//
-							MTransaction trxTo = new MTransaction (getCtx(), line.getAD_Org_ID(), 
-									MTransaction.MOVEMENTTYPE_MovementTo,
-									line.getM_LocatorTo_ID(), line.getM_Product_ID(), M_AttributeSetInstanceTo_ID,
-									ma.getMovementQty(), getMovementDate(), get_TrxName());
+							MTransaction trxTo = new MTransaction(getCtx(), toOrgId,
+									MTransaction.MOVEMENTTYPE_MovementTo, line.getM_LocatorTo_ID(),
+									line.getM_Product_ID(), M_AttributeSetInstanceTo_ID, ma.getMovementQty(),
+									getMovementDate(), get_TrxName());
 							trxTo.setM_MovementLine_ID(line.getM_MovementLine_ID());
 							if (!trxTo.save())
 							{
@@ -595,9 +604,11 @@ public class MMovement extends X_M_Movement implements DocAction
 							return DocAction.STATUS_Invalid;
 						}
 	
-						//
-						trxFrom = new MTransaction (getCtx(), line.getAD_Org_ID(), 
-								MTransaction.MOVEMENTTYPE_MovementFrom,
+						// 分别按源库位、目标库位反查真实组织
+						int fromOrgId = MLocator.get(getCtx(), line.getM_Locator_ID(), get_TrxName()).getAD_Org_ID();
+						int toOrgId = MLocator.get(getCtx(), line.getM_LocatorTo_ID(), get_TrxName()).getAD_Org_ID();
+						
+						trxFrom = new MTransaction(getCtx(), fromOrgId, MTransaction.MOVEMENTTYPE_MovementFrom,
 								line.getM_Locator_ID(), line.getM_Product_ID(), line.getM_AttributeSetInstance_ID(),
 								line.getMovementQty().negate(), getMovementDate(), get_TrxName());
 						trxFrom.setM_MovementLine_ID(line.getM_MovementLine_ID());
@@ -607,8 +618,7 @@ public class MMovement extends X_M_Movement implements DocAction
 							return DocAction.STATUS_Invalid;
 						}
 						//
-						MTransaction trxTo = new MTransaction (getCtx(), line.getAD_Org_ID(), 
-								MTransaction.MOVEMENTTYPE_MovementTo,
+						MTransaction trxTo = new MTransaction(getCtx(), toOrgId, MTransaction.MOVEMENTTYPE_MovementTo,
 								line.getM_LocatorTo_ID(), line.getM_Product_ID(), line.getM_AttributeSetInstanceTo_ID(),
 								line.getMovementQty(), getMovementDate(), get_TrxName());
 						trxTo.setM_MovementLine_ID(line.getM_MovementLine_ID());
@@ -886,10 +896,22 @@ public class MMovement extends X_M_Movement implements DocAction
 		if (reversalDate == null) {
 			reversalDate = new Timestamp(System.currentTimeMillis());
 		}
-		
+
 		MDocType dt = MDocType.get(getCtx(), getC_DocType_ID());
-		if (!MPeriod.isOpen(getCtx(), reversalDate, dt.getDocBaseType(), getAD_Org_ID()))
-		{
+
+		// 收集所有受影响的组织：单据表头组织 + 每条行源/目标库位真实所属组织，用 Stream 去重
+		final Timestamp finalReversalDate = reversalDate;
+		Set<Integer> orgIdsToCheck = Stream
+				.concat(Stream.of(getAD_Org_ID()),
+						Arrays.stream(getLines(false)).flatMap(line -> Stream.of(
+								MLocator.get(getCtx(), line.getM_Locator_ID(), get_TrxName()).getAD_Org_ID(),
+								MLocator.get(getCtx(), line.getM_LocatorTo_ID(), get_TrxName()).getAD_Org_ID())))
+				.collect(Collectors.toCollection(LinkedHashSet::new));
+
+		boolean anyPeriodClosed = orgIdsToCheck.stream()
+				.anyMatch(orgId -> !MPeriod.isOpen(getCtx(), finalReversalDate, dt.getDocBaseType(), orgId));
+
+		if (anyPeriodClosed) {
 			m_processMsg = "@PeriodClosed@";
 			return null;
 		}
@@ -1149,30 +1171,35 @@ public class MMovement extends X_M_Movement implements DocAction
 			if (!MAcctSchema.COSTINGLEVEL_Organization.equals(costingLevel))
 				continue;
 			
-			int AD_Org_ID = mLine.getAD_Org_ID();
+			// 分别对调拨单的源库位组织和目标库位组织各做一次校验
+			int fromOrgId = MLocator.get(getCtx(), mLine.getM_Locator_ID(), get_TrxName()).getAD_Org_ID();
+			int toOrgId = MLocator.get(getCtx(), mLine.getM_LocatorTo_ID(), get_TrxName()).getAD_Org_ID();
 			int M_AttributeSetInstance_ID = mLine.getM_AttributeSetInstance_ID();
-			
-			MCostElement ce = MCostElement.getMaterialCostElement(getCtx(), as.getCostingMethod(), AD_Org_ID);
-			
-			int M_CostDetail_ID = 0;
-			int M_MovementLine_ID = mLine.getM_MovementLine_ID();
-			if (mLine.getReversalLine_ID() > 0 && mLine.get_ID() > mLine.getReversalLine_ID())
-				M_MovementLine_ID = mLine.getReversalLine_ID();
-			MCostDetail cd = MCostDetail.getMovement(as, mLine.getM_Product_ID(), M_AttributeSetInstance_ID, 
-					M_MovementLine_ID, 0, false, get_TrxName());
-			if (cd != null)
-				M_CostDetail_ID = cd.getM_CostDetail_ID();
-			else {
-				MCostHistory history = MCostHistory.get(getCtx(), getAD_Client_ID(), AD_Org_ID, mLine.getM_Product_ID(), 
-						as.getM_CostType_ID(), as.getC_AcctSchema_ID(), ce.getCostingMethod(), ce.getM_CostElement_ID(),
-						M_AttributeSetInstance_ID, dateAcct, get_TrxName());
-				if (history != null)
-					M_CostDetail_ID = history.getM_CostDetail_ID();
-			} 
-			
-			if (M_CostDetail_ID > 0) {
-				MCostDetail.periodClosedCheckForDocsAfterBackDateTrx(getAD_Client_ID(), as.getC_AcctSchema_ID(), 
-						mLine.getM_Product_ID(), M_CostDetail_ID, dateAcct, get_TrxName());
+
+			for (int AD_Org_ID : new int[] { fromOrgId, toOrgId }) {
+				MCostElement ce = MCostElement.getMaterialCostElement(getCtx(), as.getCostingMethod(), AD_Org_ID);
+
+				int M_CostDetail_ID = 0;
+				int M_MovementLine_ID = mLine.getM_MovementLine_ID();
+				if (mLine.getReversalLine_ID() > 0 && mLine.get_ID() > mLine.getReversalLine_ID())
+					M_MovementLine_ID = mLine.getReversalLine_ID();
+				MCostDetail cd = MCostDetail.getMovement(as, mLine.getM_Product_ID(), M_AttributeSetInstance_ID,
+						M_MovementLine_ID, 0, false, get_TrxName());
+				if (cd != null)
+					M_CostDetail_ID = cd.getM_CostDetail_ID();
+				else {
+					MCostHistory history = MCostHistory.get(getCtx(), getAD_Client_ID(), AD_Org_ID,
+							mLine.getM_Product_ID(), as.getM_CostType_ID(), as.getC_AcctSchema_ID(),
+							ce.getCostingMethod(), ce.getM_CostElement_ID(), M_AttributeSetInstance_ID, dateAcct,
+							get_TrxName());
+					if (history != null)
+						M_CostDetail_ID = history.getM_CostDetail_ID();
+				}
+
+				if (M_CostDetail_ID > 0) {
+					MCostDetail.periodClosedCheckForDocsAfterBackDateTrx(getAD_Client_ID(), as.getC_AcctSchema_ID(),
+							mLine.getM_Product_ID(), M_CostDetail_ID, dateAcct, get_TrxName());
+				}
 			}
 		}
 		return true;

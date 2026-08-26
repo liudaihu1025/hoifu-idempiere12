@@ -24,6 +24,8 @@ import org.libero.model.MPPOrderBOM;
 import org.libero.model.MPPOrderBOMLine;
 import org.libero.model.MPPOrderNode;
 import org.libero.model.MPPOrderWorkflow;
+import org.libero.model.PPOrderRepairInfoHelper;
+import org.libero.model.PPOrderRepairInfoHelper.RepairAllocation;
 
 public class PPOrderService {
 
@@ -55,13 +57,16 @@ public class PPOrderService {
 	 * @param bomLines      BOM物料列表
 	 * @param routingNodes  工序列表
 	 * @param createdByName 创建人姓名（用于描述字段）
+	 * @param printingBiteEdge 印刷咬口
+	 * @param paperCutting 纸张开料
+	 * @param refPPOrderId 翻单单号
 	 * @return 已发布的工单
 	 */
 	public MPPOrder submitNewOrder(Properties ctx, int orgId, int productId, int docTypeId, Timestamp dateStart,
 			Timestamp datePromised, BigDecimal qtyOrdered, int uomId, int resourceId, int warehouseId,
 			String priorityRule, int orderLineId, BigDecimal qtyBatchSize, BigDecimal nRate, String description,
 			int existingBOMId, int existingWFId, List<BOMLineVO> bomLines, List<RoutingNodeVO> routingNodes,
-			String createdByName) {
+			String createdByName, String printingBiteEdge, String paperCutting, int refPPOrderId) {
 
 		// ── 阶段一：创建/更新 BOM 模板和工艺路线模板，独立事务提交 ──────────────
 		// MPPProductBOM.get() 使用 ImmutableIntPOCache，不读未提交记录，
@@ -118,8 +123,18 @@ public class PPOrderService {
 				order.setM_Warehouse_ID(warehouseId);
 			if (priorityRule != null && !priorityRule.isEmpty())
 				order.setPriorityRule(priorityRule);
-			if (orderLineId > 0)
+			if (orderLineId > 0) {
 				order.setC_OrderLine_ID(orderLineId);
+				// ECN 创建工单时，自动查询随销单补数申请单并分摊补数数量
+				BigDecimal orderQty = (qtyOrdered != null) ? qtyOrdered : Env.ZERO;
+				RepairAllocation repair = PPOrderRepairInfoHelper.allocateRepairQty(
+						ctx, orderLineId, orderQty, 0, phase2Trx);
+				if (repair.allocated) {
+					order.set_ValueOfColumn("RepairQty", repair.repairQty);
+					order.set_ValueOfColumn("RepairMethod", repair.repairMethod);
+					order.set_ValueOfColumn("Shortage_PP_Order_ID", repair.shortageOrderId);
+				}
+			}
 			if (description != null && !description.isEmpty())
 				order.setDescription(description);
 			order.setYield(Env.ZERO);
@@ -136,6 +151,15 @@ public class PPOrderService {
 					: BigDecimal.ONE;
 			order.setQtyBatchSize(batchSize);
 			order.set_ValueOfColumn("Orderstatus", "Released");
+
+			// 新增：印刷咬口 / 纸张开料
+			order.setPrintingBiteEdge(printingBiteEdge);
+			order.setPaperCutting(paperCutting);
+			// 新增：翻单来源工单ID（0=非翻单场景，不写入，保持为空）
+			if (refPPOrderId > 0) {
+				order.setRef_PP_Order_ID(refPPOrderId);
+			}
+
 			order.saveEx(phase2Trx);
 
 			// 发布工单（改 DocStatus DR → IP）

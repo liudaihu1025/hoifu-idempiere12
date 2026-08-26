@@ -1492,7 +1492,8 @@ public class FinReport extends SvrProcess
 		int no = DB.executeUpdateEx(sql.toString(), get_TrxName());
 		if (log.isLoggable(Level.FINE)) log.fine("SeqNo #=" + no);
 
-		if (!m_report.isListTrx())
+//		if (!m_report.isListTrx())
+		if (!m_report.isListSources())
 			return;
 
 		//	Set Name,Description
@@ -2284,6 +2285,10 @@ public class FinReport extends SvrProcess
 	    } else {
 	        updateNonFactAcctNameAndDescription(line, config, isGrouped);
 	    }
+	    
+	    if (isGrouped) {
+		    updateGroupNameFromLevel3(line);
+	    }
 	}
 
 	/**
@@ -2296,13 +2301,16 @@ public class FinReport extends SvrProcess
 	 */
 	private void updateFactAcctNameAndDescription(int line, SecondaryDimConfig config, boolean isGrouped) {
 		String idExtract = isGrouped ? "SUBSTR(r.Secondary_Record_ID::text, 4)::INTEGER" : "r.Secondary_Record_ID";
-		String sql = "UPDATE T_Report r SET (Name,Description) = ("
-				+ " SELECT CONCAT(rl.Name, '-', r.Secondary_Record_ID), "
-				+ "        CASE WHEN r.LevelNo = 3 THEN fa.Description ELSE r.Description END " + " FROM Fact_Acct fa"
-				+ " INNER JOIN AD_Table t ON (fa.AD_Table_ID = t.AD_Table_ID)"
-				+ " INNER JOIN AD_Element e ON (t.TableName||'_ID' = e.ColumnName)"
-				+ " INNER JOIN PA_ReportLine rl ON rl.PA_ReportLine_ID = r.PA_ReportLine_ID"
-				+ " WHERE fa.Fact_Acct_ID = (" + idExtract + ")::integer" + ") WHERE r.LevelNo IN (2,3) AND r.Secondary_Record_ID <> 0"
+		String sql = "UPDATE T_Report r SET (Name,Description) = (" 
+				+ " SELECT CONCAT("
+				+ "   (SELECT lv1.Name FROM T_Report lv1 " 
+				+ "      WHERE lv1.AD_PInstance_ID = r.AD_PInstance_ID "
+				+ "        AND lv1.PA_ReportLine_ID = r.PA_ReportLine_ID " 
+				+ "        AND lv1.Record_ID = r.Record_ID "
+				+ "        AND ABS(lv1.LevelNo) = 1), " 
+				+ "   '-', r.Secondary_Record_ID),  fa.Description "
+				+ " FROM Fact_Acct fa WHERE fa.Fact_Acct_ID = (" + idExtract + ")::integer"
+				+ ") WHERE r.LevelNo = 3 AND r.Secondary_Record_ID <> 0"
 				+ " AND r.AD_PInstance_ID = ? AND r.PA_ReportLine_ID = ?";
 		DB.executeUpdateEx(sql, new Object[] { getAD_PInstance_ID(), m_lines[line].getPA_ReportLine_ID() },
 				get_TrxName());
@@ -2319,13 +2327,18 @@ public class FinReport extends SvrProcess
 	private void updateNonFactAcctNameAndDescription(int line, SecondaryDimConfig config, boolean isGrouped) {
 		String idExtract = isGrouped ? "SUBSTR(r.Secondary_Record_ID::text, 4)::INTEGER" : "r.Secondary_Record_ID";
 		// 更新非空记录
-		String nonNullSql = "UPDATE T_Report r SET (Name,Description) = ("
-				+ " SELECT CONCAT(rl.Name, '-', r.Secondary_Record_ID), "
-				+ "        CASE WHEN r.LevelNo = 3 THEN COALESCE(t.Name, '') ELSE r.Description END " + " FROM "
-				+ config.secondaryTable + " t"
-				+ " INNER JOIN PA_ReportLine rl ON rl.PA_ReportLine_ID = r.PA_ReportLine_ID" + " WHERE t."  
+		String nonNullSql = "UPDATE T_Report r SET (Name,Description) = (" 
+				+ " SELECT CONCAT("
+				+ "   (SELECT lv1.Name FROM T_Report lv1 " 
+				+ "      WHERE lv1.AD_PInstance_ID = r.AD_PInstance_ID "
+				+ "        AND lv1.PA_ReportLine_ID = r.PA_ReportLine_ID " 
+				+ "        AND lv1.Record_ID = r.Record_ID "
+				+ "        AND ABS(lv1.LevelNo) = 1), " 
+				+ "   '-', r.Secondary_Record_ID), "
+				+ "        COALESCE(t.Name, '') FROM " 
+				+ config.secondaryTable + " t" + " WHERE t."
 				+ config.secondaryTableId + "::text = (" + idExtract + ")::text"
-				+ ") WHERE r.LevelNo IN (2,3) AND r.Secondary_Record_ID IS NOT NULL"
+				+ ") WHERE r.LevelNo = 3 AND r.Secondary_Record_ID IS NOT NULL"
 				+ " AND r.AD_PInstance_ID = ? AND r.PA_ReportLine_ID = ?";
 		DB.executeUpdateEx(nonNullSql, new Object[] { getAD_PInstance_ID(), m_lines[line].getPA_ReportLine_ID() },
 				get_TrxName());
@@ -2339,6 +2352,26 @@ public class FinReport extends SvrProcess
 				get_TrxName());
 	}
 
+	/**
+	 * 更新levelNo=2的名称，根据levelNo=3的数据
+	 * 
+	 * @Title: updateGroupNameFromLevel3Anchor
+	 * @param line
+	 * @return void
+	 */
+	private void updateGroupNameFromLevel3(int line) {
+		String sql = "UPDATE T_Report r2 SET Name = COALESCE((" 
+				+ "  SELECT r3.Name FROM T_Report r3"
+				+ "  WHERE r3.AD_PInstance_ID = r2.AD_PInstance_ID"
+				+ "    AND r3.PA_ReportLine_ID = r2.PA_ReportLine_ID" 
+				+ "    AND r3.LevelNo = 3"
+				+ "    AND r3.Secondary_Record_ID = r2.Secondary_Record_ID" 
+				+ "  LIMIT 1), r2.Name) WHERE r2.LevelNo = 2" 
+				+ "  AND r2.AD_PInstance_ID = ? AND r2.PA_ReportLine_ID = ?";
+		DB.executeUpdateEx(sql, new Object[] { getAD_PInstance_ID(), m_lines[line].getPA_ReportLine_ID() },
+				get_TrxName());
+	}
+	
 	/**
 	 * 删除金额全为零的明细记录
 	 * 

@@ -37,6 +37,7 @@ Import-Package: org.json,
  org.zkoss.zk.ui.event;version="[10.0,11.0)",
  org.zkoss.zul;version="[10.0,11.0)",
  org.zkoss.util.media;version="[10.0,11.0)",
+ org.zkoss.image,  
  org.osgi.service.component;version="[1.3.0,2.0.0)",
  org.osgi.service.component.annotations;version="[1.3.0,2.0.0)",
  org.compiere.minigrid

@@ -2,23 +2,43 @@ package com.hoifu.info;
 
 import java.io.Serializable;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 
+import org.adempiere.webui.apps.AEnv;
+import org.adempiere.webui.component.Button;
 import org.adempiere.webui.component.ListModelTable;
 import org.adempiere.webui.info.InfoWindow;
+import org.compiere.minigrid.IDColumn;
+import org.compiere.minigrid.UUIDColumn;
 import org.compiere.model.GridField;
 import org.compiere.model.MProcess;
 import org.compiere.util.DB;
 import org.compiere.util.Env;
 import org.compiere.util.NamePair;
+import org.zkoss.zk.ui.event.Event;
+import org.zkoss.zk.ui.event.Events;
+import org.zkoss.zk.ui.event.SelectEvent;
+import org.zkoss.zul.Listitem;
 import org.zkoss.zul.Messagebox;
+
+import com.hoifu.window.ProcessTrackEditDialog;
 
 public class PPOrderNodeInfoWindow extends InfoWindow {
 
 	private static final long serialVersionUID = 1L;
+
+	/** 自定义按钮 ID，避免和 ConfirmPanel 内置按钮（Ok/Cancel/Zoom...）ID 冲突 */
+	private static final String BTN_PROCESS_TRACK = "ProcessTrack";
+
+	/** "打样追踪"按钮引用，renderWindow() 执行后才会被赋值 */
+	private Button btnProcessTrack;
+
+	// 防递归标志字段
+	private boolean enforcingSingleSelection = false;
 
 	// 对应 create(Lookup lookup, ...) 的调用
 	public PPOrderNodeInfoWindow(int WindowNo, String tableName, String keyColumn,
@@ -137,5 +157,129 @@ public class PPOrderNodeInfoWindow extends InfoWindow {
 			}
 		}
 		super.preRunProcess(processId);
+	}
+
+	/**
+	 * 新增打样追踪按钮，弹出编辑窗口
+	 */
+	@Override
+	protected void renderWindow() {
+		super.renderWindow();
+
+		btnProcessTrack = confirmPanel.createButton(BTN_PROCESS_TRACK);
+		btnProcessTrack.setLabel("打样追踪");
+		btnProcessTrack.setTooltiptext("录入/编辑当前选中工序的打样追踪参数");
+		btnProcessTrack.setDisabled(true); // 初始未选中任何行，置灰
+		btnProcessTrack.addEventListener(Events.ON_CLICK, this);
+		confirmPanel.addComponentsLeft(btnProcessTrack);
+	}
+
+	/**
+	 * 处理"打样追踪"按钮点击；其余事件交回父类处理
+	 */
+	@Override
+	public void onEvent(Event event) {
+		// 防止 clearSelection()/setSelection() 触发递归
+		if (enforcingSingleSelection) {
+			super.onEvent(event);
+			return;
+		}
+
+		// 拦截 listbox 的选中事件，强制单选，确保 recordSelectedData 只保留当前行
+		if (event.getTarget() == contentPanel && Events.ON_SELECT.equals(event.getName())) {
+			SelectEvent<?, ?> selectEvent = (SelectEvent<?, ?>) event;
+			int selectedIndex = -1;
+			if (selectEvent.getReference() instanceof Listitem) {
+				Listitem li = (Listitem) selectEvent.getReference();
+				selectedIndex = li.getIndex();
+			}
+
+			if (selectedIndex >= 0) {
+				enforcingSingleSelection = true;
+				try {
+					final int idx = selectedIndex;
+
+					int keyColIdx = contentPanel.getKeyColumnIndex();
+					if (keyColIdx >= 0) {
+						for (int i = 0; i < contentPanel.getModel().getRowCount(); i++) {
+							Object data = contentPanel.getModel().getValueAt(i, keyColIdx);
+							if (data instanceof IDColumn) {
+								((IDColumn) data).setSelected(i == idx);
+							} else if (data instanceof UUIDColumn) {
+								((UUIDColumn) data).setSelected(i == idx);
+							}
+						}
+					}
+
+					// 清除 recordSelectedData，确保里面只有当前行的数据
+					recordSelectedData.clear();
+
+					ListModelTable lmt = (ListModelTable) contentPanel.getModel();
+					lmt.clearSelection();
+					List<Object> single = new ArrayList<>();
+					single.add(lmt.getElementAt(idx));
+					lmt.setSelection(single);
+
+				} finally {
+					enforcingSingleSelection = false;
+				}
+			}
+		}
+
+		// 按钮点击处理逻辑
+		if (btnProcessTrack != null && event.getTarget() == btnProcessTrack) {
+			openProcessTrackDialog();
+			return;
+		}
+		super.onEvent(event);
+	}
+
+	/**
+	 * 控制"打样追踪"按钮的可用状态：工单类型=打样工单或研发工单
+	 */
+	@Override
+	protected void enableButtons() {
+		super.enableButtons();
+
+		int selectedCount = contentPanel.getSelectedCount();
+		boolean canTrack = false;
+
+		if (selectedCount > 0 && btnProcessTrack != null) {
+			List<Serializable> keys = getSelectedRowKeys();
+			if (keys != null && !keys.isEmpty()) {
+				int ppOrderNodeId = (Integer) keys.get(0);
+				canTrack = DB.getSQLValueEx(null,
+						"SELECT COUNT(*) FROM PP_Order o " + "JOIN PP_Order_Node n ON n.PP_Order_ID = o.PP_Order_ID "
+								+ "WHERE n.PP_Order_Node_ID = ? " + "AND o.C_DocTypeTarget_ID IN (?, ?)",
+						ppOrderNodeId, 1000755, 1000758) > 0;
+			}
+		}
+
+		if (btnProcessTrack != null) {
+			btnProcessTrack.setEnabled(canTrack);
+		}
+	}
+
+	/**
+	 * 打开打样追踪编辑弹窗：取当前选中的 PP_Order_Node_ID（该窗口已强制单选， 只会有一条），再查出对应的 PP_Order_ID，交给
+	 * ProcessTrackEditDialog。
+	 */
+	private void openProcessTrackDialog() {
+		List<Serializable> keys = getSelectedRowKeys();
+		if (keys == null || keys.isEmpty()) {
+			Messagebox.show("请先勾选工序信息！");
+			return;
+		}
+
+		int ppOrderNodeId = (Integer) keys.get(0);
+		int ppOrderId = DB.getSQLValue(null, "SELECT PP_Order_ID FROM PP_Order_Node WHERE PP_Order_Node_ID=?",
+				ppOrderNodeId);
+		if (ppOrderId <= 0) {
+			Messagebox.show("未能查询到该工序对应的工单，请重新选择！");
+			return;
+		}
+
+		ProcessTrackEditDialog dialog = new ProcessTrackEditDialog(ppOrderId, ppOrderNodeId);
+		AEnv.showCenterScreen(dialog);
 	}
 }

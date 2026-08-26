@@ -38,7 +38,7 @@ public class X_yg_proofborr extends PO implements I_yg_proofborr, I_Persistent
 	/**
 	 *
 	 */
-	private static final long serialVersionUID = 20260707L;
+	private static final long serialVersionUID = 20260807L;
 
     /** Standard Constructor */
     public X_yg_proofborr (Properties ctx, int yg_proofborr_ID, String trxName)
@@ -422,16 +422,19 @@ public class X_yg_proofborr extends PO implements I_yg_proofborr, I_Persistent
 	/** Set workorder.
 		@param workorder workorder
 	*/
-	public void setworkorder (String workorder)
+	public void setworkorder (int workorder)
 	{
-		set_Value (COLUMNNAME_workorder, workorder);
+		set_Value (COLUMNNAME_workorder, Integer.valueOf(workorder));
 	}
 
 	/** Get workorder.
 		@return workorder	  */
-	public String getworkorder()
+	public int getworkorder()
 	{
-		return (String)get_Value(COLUMNNAME_workorder);
+		Integer ii = (Integer)get_Value(COLUMNNAME_workorder);
+		if (ii == null)
+			 return 0;
+		return ii.intValue();
 	}
 
 	/** Set yg_proofborr.

@@ -8,8 +8,10 @@ import org.adempiere.base.IColumnCallout;
 import org.adempiere.base.annotation.Callout;
 import org.compiere.model.GridField;
 import org.compiere.model.GridTab;
+import org.compiere.model.GridTable;
 import org.compiere.model.MDocType;
-import org.compiere.model.MProduct;
+import org.compiere.model.MInventory;
+import org.compiere.model.MStorageOnHand;
 import org.compiere.model.MUOM;
 import org.compiere.model.MUOMConversion;
 import org.compiere.util.DB;
@@ -63,22 +65,34 @@ public class MyInventoryLineCallout implements IColumnCallout {
 			return "";
   
 		// 推荐库位逻辑（原有）
-        int warehouseId = Env.getContextAsInt(ctx, WindowNo, "M_Warehouse_ID");  
+		int warehouseId = Env.getContextAsInt(ctx, WindowNo, "M_Warehouse_ID");
 		if (warehouseId > 0) {
 			int locatorId = DB.getSQLValue(null, "SELECT get_recommended_locator(?, ?, ?)", productId, warehouseId,
 					"N");
-			if (locatorId > 0)
+			if (locatorId > 0) {
 				mTab.setValue("M_Locator_ID", locatorId);
-		}
 
-		// 切换产品时重置单位和数量
-		String targetQtyField = getTargetQtyField(docTypeName);
-		if (targetQtyField != null) {
-			MProduct product = MProduct.get(ctx, productId);
-			if (product != null) {
-				mTab.setValue("C_UOM_ID", product.getC_UOM_ID());
-				mTab.setValue("QtyEntered", Env.ZERO);
-				mTab.setValue(targetQtyField, Env.ZERO);
+				Integer ASI = (Integer) mTab.getValue("M_AttributeSetInstance_ID");
+				int M_AttributeSetInstance_ID = ASI != null ? ASI : 0;
+				if (MDocType.DOCSUBTYPEINV_PhysicalInventory.equals(docType.getDocSubTypeInv())) {
+					try {
+						String trxName = null;
+						if (mTab != null && mTab.getTableModel() != null) {
+							GridTable gt = mTab.getTableModel();
+							if (gt.isImporting()) {
+								trxName = gt.get_TrxName();
+							}
+						}
+						if (mTab.getValue("M_Inventory_ID") == null)
+							return null;
+						MInventory inventory = new MInventory(ctx, (Integer) mTab.getValue("M_Inventory_ID"), trxName);
+						BigDecimal bd = MStorageOnHand.getQtyOnHandForLocatorWithASIMovementDate(productId, locatorId,
+								M_AttributeSetInstance_ID, inventory.getMovementDate(), trxName);
+						mTab.setValue("QtyBook", bd);
+					} catch (Exception e) {
+						return e.getLocalizedMessage();
+					}
+				}
 			}
 		}
 
