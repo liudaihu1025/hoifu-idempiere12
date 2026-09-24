@@ -1256,6 +1256,7 @@ public class ReconciliationGenerateService {
             
             // 设置对账开始日期（上个月的cutoffday）
             previousMonthCal.set(Calendar.DAY_OF_MONTH, previousMonthActualCutoffDay);
+			previousMonthCal.add(Calendar.DAY_OF_MONTH, 1); // 开始日期为cutoffday的次日
             java.sql.Date reconciliationDay = new java.sql.Date(previousMonthCal.getTimeInMillis());
             
             dates.put("reconciliationDay", reconciliationDay);

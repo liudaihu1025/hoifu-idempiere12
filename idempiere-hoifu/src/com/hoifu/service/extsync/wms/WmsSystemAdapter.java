@@ -1,25 +1,34 @@
 package com.hoifu.service.extsync.wms;
 
 import java.math.BigDecimal;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.compiere.model.MBPartner;
+import org.compiere.model.MBPartnerLocation;
 import org.compiere.model.MInOut;
+import org.compiere.model.MLocation;
 import org.compiere.model.MProduct;
 import org.compiere.model.MUOM;
+import org.compiere.model.MUser;
 import org.compiere.model.PO;
 import org.compiere.model.X_S_Resource;
 import org.compiere.util.Env;
 import org.eevolution.model.I_PP_Order;
 import org.json.JSONArray;
 import org.json.JSONObject;
-
 import com.hoifu.enums.HFSysConfigEnum;
+import com.hoifu.model.MInOutRequisition;
 import com.hoifu.service.extsync.ExtSyncResult;
 import com.hoifu.service.extsync.IExternalSystemAdapter;
 import com.hoifu.utils.HttpClientUtils;
+
+import org.compiere.model.MWarehouse;  
+import org.compiere.model.MLocator;
 
 /**
  * WMS系统同步数据适配器实现
@@ -29,24 +38,60 @@ import com.hoifu.utils.HttpClientUtils;
  */
 public class WmsSystemAdapter implements IExternalSystemAdapter {
 
+	// 类成员变量区域新增  
+	private final WmsInOutRequisitionService orderService = new WmsInOutRequisitionService();
+	
 	public static final String SYSTEM_TYPE = "WMS";
 
 	public static final String BT_PRODUCT = "PRODUCT";
 	public static final String BT_BPARTNER = "BPARTNER";
+	public static final String BT_BPARTNER_LOCATION = "BPARTNER_LOCATION";
 	public static final String BT_RESOURCE = "RESOURCE";
 	public static final String BT_INOUT = "INOUT";
 	public static final String BT_PPORDER = "PPORDER";
+	public static final String BT_WAREHOUSE = "WAREHOUSE"; // M_Warehouse  
+	public static final String BT_LOCATOR = "LOCATOR";     // M_Locator
+	public static final String BT_STOCK_IN = "STOCK_IN";   // 入库单，对应 MInOut.isSOTrx()==false（采购收货）  
+	public static final String BT_STOCK_OUT = "STOCK_OUT"; // 出库单，对应 MInOut.isSOTrx()==true（销售发货）
 
-	private static final Map<String, String> API_PATH_MAP = new HashMap<>();
-	static {
-		// TODO 按实际同步的数据类型和接口名进行配置改动
-		API_PATH_MAP.put(BT_PRODUCT, "/erp/material/add");
-//		API_PATH_MAP.put(BT_BPARTNER, "/api/wms/bpartner/sync");
-//		API_PATH_MAP.put(BT_RESOURCE, "/api/wms/resource/sync");
-//		API_PATH_MAP.put(BT_INOUT, "/api/wms/inout/sync");
-//		API_PATH_MAP.put(BT_PPORDER, "/api/wms/pporder/sync");
-	}
+	
+	// 支持的业务类型集合，独立维护
+	private static final Set<String> SUPPORTED_BUSINESS_TYPES = new HashSet<>(Arrays.asList(  
+	    BT_PRODUCT,
+	    BT_BPARTNER,
+	    BT_BPARTNER_LOCATION,
+	    BT_WAREHOUSE, 
+	    BT_LOCATOR, 
+	    BT_STOCK_IN, 
+	    BT_STOCK_OUT
+	));
+	
+	private static final String EVENT_ANY = "ANY"; // 未单独配置eventType时的兜底路径  
+	  
+	private static final Map<String, String> API_PATH_MAP = new HashMap<>();  
+	static {  
+	    API_PATH_MAP.put(key(BT_PRODUCT, EVENT_ANY), "/erp/material/add");  
+	    API_PATH_MAP.put(key(BT_PRODUCT, EVENT_DELETE), "/erp/material/delete");  
+	  
+	    API_PATH_MAP.put(key(BT_BPARTNER, EVENT_ANY), "/erp/partner/add");  
+	    API_PATH_MAP.put(key(BT_BPARTNER, EVENT_DELETE), "/erp/partner/delete");  
+	  
+	    API_PATH_MAP.put(key(BT_BPARTNER_LOCATION, EVENT_ANY), "/erp/partner/add");  
+	    API_PATH_MAP.put(key(BT_BPARTNER_LOCATION, EVENT_DELETE), "/erp/partner/add");  
+	    
+	    API_PATH_MAP.put(key(BT_WAREHOUSE, EVENT_ANY), "/erp/warehouse/add");  
+	    API_PATH_MAP.put(key(BT_WAREHOUSE, EVENT_DELETE), "/erp/warehouse/delete");  
+	    API_PATH_MAP.put(key(BT_LOCATOR, EVENT_ANY), "/erp/warehouse/add");  
+	    API_PATH_MAP.put(key(BT_LOCATOR, EVENT_DELETE), "/erp/warehouse/delete");  
+	  
+	    API_PATH_MAP.put(key(BT_STOCK_IN, EVENT_COMPLETE), "/erp/stockIn/receive");
+	    API_PATH_MAP.put(key(BT_STOCK_IN, EVENT_VOID), "/erp/stockIn/cancel");
+	  
+	    API_PATH_MAP.put(key(BT_STOCK_OUT, EVENT_COMPLETE), "/erp/stockOut/deliveryAdd");
+	    API_PATH_MAP.put(key(BT_STOCK_OUT, EVENT_VOID), "/erp/stockOut/cancel");
 
+	}  
+	
 	/**
 	 * 本系统物料分类(MaterialType参照值) -> WMS materialType 整数枚举 的映射表。
 	 * 设计为独立的静态Map而不是switch-case，新增/调整映射关系只需改这一处配置
@@ -60,40 +105,79 @@ public class WmsSystemAdapter implements IExternalSystemAdapter {
 		// TODO: MT04(行政物资) 在WMS枚举中无直接对应值，需与WMS对接方确认后再补充映射，
 		// 在确认前不加入此Map，未匹配时按下方 resolveWmsMaterialType() 的兜底策略处理
 	}
-
+	
 	@Override
 	public String getSystemType() {
 		return SYSTEM_TYPE;
 	}
 
 	@Override
-	public boolean supports(String businessType) {
-		return API_PATH_MAP.containsKey(businessType);
-	}
-
-	@Override
-	public String buildRequest(PO po, String businessType, String eventType) {
-		JSONObject body = new JSONObject();
-		body.put("eventType", eventType);
-
+	public boolean supports(PO po, String businessType, String eventType) {
+		if (!supports(businessType)) // 复用原有 API_PATH_MAP 判断
+			return false;
+		if (!EVENT_UPDATE.equals(eventType)) // INSERT/DELETE不做字段级过滤，直接放行
+			return true;
 		switch (businessType) {
-		case BT_PRODUCT:
-			return buildProductPayload(body, (MProduct) po);
-		case BT_BPARTNER:
-			return buildBPartnerPayload(body, (MBPartner) po);
-		case BT_RESOURCE:
-			return buildResourcePayload(body, (X_S_Resource) po);
-		case BT_INOUT:
-			return buildInOutPayload(body, (MInOut) po);
-		case BT_PPORDER:
-			return buildPPOrderPayload(body, (I_PP_Order) po);
-		default:
-			throw new IllegalArgumentException("WmsSystemAdapter不支持的业务类型: " + businessType);
+			case BT_BPARTNER:
+				return hasRelevantBPartnerChange((MBPartner) po);
+			case BT_BPARTNER_LOCATION:
+				return hasRelevantBPartnerLocationChange((MBPartnerLocation) po);
+			case BT_PRODUCT:
+				return hasRelevantProductChange((MProduct) po);
+			case BT_WAREHOUSE:
+				return hasRelevantWarehouseChange((MWarehouse) po);
+			case BT_LOCATOR:
+				return hasRelevantLocatorChange((MLocator) po);
+			default:
+				return true;
 		}
 	}
 
-	// ============ 以下 buildXxxPayload 方法留空，由业务实现填充具体字段 ============
-	private String buildProductPayload(JSONObject body, MProduct product) {
+	@Override
+	public String buildRequest(PO po, String businessType, String eventType, Map<String, Object> syncContext) {
+		switch (businessType) {
+			case BT_PRODUCT:
+				return buildProductPayload(eventType, (MProduct) po, syncContext);
+			case BT_BPARTNER:
+				return buildBPartnerPayload(eventType, (MBPartner) po, syncContext);
+			case BT_BPARTNER_LOCATION:
+				return buildBPartnerLocationPayload(eventType, (MBPartnerLocation) po, syncContext);
+			case BT_RESOURCE:
+				return buildResourcePayload(eventType, (X_S_Resource) po, syncContext);
+			case BT_INOUT:
+				return buildInOutPayload(eventType, (MInOut) po, syncContext);
+			case BT_PPORDER:
+				return buildPPOrderPayload(eventType, (I_PP_Order) po, syncContext);
+			case BT_WAREHOUSE:
+				return buildWarehousePayload(eventType, (MWarehouse) po, syncContext);
+			case BT_LOCATOR:
+				return buildLocatorPayload(eventType, (MLocator) po, syncContext);
+			case BT_STOCK_IN:
+				return WmsInOutRequisitionService.buildInOutRequisitionPayload(eventType, (MInOutRequisition) po, syncContext);
+			case BT_STOCK_OUT:
+				return WmsInOutRequisitionService.buildInOutRequisitionPayload(eventType, (MInOutRequisition) po, syncContext);
+			default:
+				throw new IllegalArgumentException("WmsSystemAdapter不支持的业务类型: " + businessType);
+		}
+	}
+
+	private String buildBPartnerLocationPayload(String eventType, MBPartnerLocation po, Map<String, Object> syncContext) {
+		int bpId = (int)syncContext.get(MBPartner.COLUMNNAME_C_BPartner_ID);
+	    if (bpId <= 0)  
+	        return null; 
+	    MBPartner parentBp = MBPartner.get(Env.getCtx(), bpId);  
+	    if (parentBp == null || parentBp.get_ID() <= 0)  
+	        return null;  
+	    return buildBPartnerPayload(EVENT_UPDATE, parentBp, null);  
+	}
+
+	private String buildProductPayload(String eventType, MProduct product, Map<String, Object> syncContext) {
+	    // ---- DELETE场景：记录已物理删除
+	    if (EVENT_DELETE.equals(eventType)) {  
+	        return buildDeletePayload(syncContext);  
+	    }  
+	  
+	    
 		JSONObject item = new JSONObject();
 
 		// ---- 必填字段：标准 M_Product 列，可直接取值 ----
@@ -169,39 +253,274 @@ public class WmsSystemAdapter implements IExternalSystemAdapter {
 		arr.put(item);
 		return arr.toString();
 	}
+	  
+	private String buildBPartnerPayload(String eventType, MBPartner bp, Map<String, Object> syncContext) {  
+	    if (EVENT_DELETE.equals(eventType)) {  
+	        return buildDeletePayload(syncContext);  
+	    }
+	    
+	    JSONObject item = new JSONObject();  
+	  
+	    // ---- 标准 C_BPartner 字段 ----  
+	    item.put("partnerCode", bp.getValue());          // C_BPartner.Value  
+	    item.put("partnerName", bp.getName());            // C_BPartner.Name  
+	    item.put("partnerType", 1);
+	    item.put("partnerShortname", bp.getName2());       // C_BPartner.Name2  
+	    item.put("partnersState", bp.isActive() ? 1 : 0);   // C_BPartner.IsActive -> 0停用/1启用  
+	    String remark = bp.getDescription();  
+	    if (remark != null)  
+	        item.put("remark", remark);                    // C_BPartner.Description  
+	  
+	    // TODO: partnerType / partnerLevel 未提供明确的字段映射关系，需与业务/WMS对接方确认后再补充  
+	  
+	    // ---- 主联系人：取该 BPartner 下第一个 AD_User；若一条AD_User都没有，退回用 C_BPartner.Name ----  
+	    MUser[] users = bp.getContacts(true);  
+	    String primaryContact;  
+	    String primaryPhone = null;  
+	    if (users != null && users.length > 0) {  
+	        primaryContact = users[0].getName();   // AD_User.Name  
+	        primaryPhone = users[0].getPhone();     // AD_User.Phone  
+	    } else {  
+	        primaryContact = bp.getName();          // 兜底：C_BPartner.Name  
+	    }  
+	    item.put("contact", primaryContact);  
+	    if (primaryPhone != null)  
+	        item.put("phone", primaryPhone);  
+	  
+	    // ---- 地址列表：遍历 C_BPartner_Location，contact统一取上面算好的 primaryContact ----  
+	    JSONArray addrArr = new JSONArray();  
+	    MBPartnerLocation[] locations = bp.getLocations(true);  
+	    if (locations != null) {  
+	        for (MBPartnerLocation bpl : locations) {  
+	            JSONObject addr = new JSONObject();  
+	            addr.put("contact", primaryContact);      // 统一取主数据上的contact，而不是 C_BPartner_Location.Name  
+	            addr.put("phone", bpl.getPhone());          // C_BPartner_Location.Phone  
+	  
+	            MLocation loc = bpl.getLocation(false);  
+	            if (loc != null) {  
+	                StringBuilder sb = new StringBuilder();  
+	                appendIfNotEmpty(sb, loc.getRegionName(true));  
+	                appendIfNotEmpty(sb, loc.getCity());  
+	                appendIfNotEmpty(sb, loc.getAddress4());  
+	                appendIfNotEmpty(sb, loc.getAddress3());  
+	                appendIfNotEmpty(sb, loc.getAddress2());  
+	                appendIfNotEmpty(sb, loc.getAddress1());  
+	                addr.put("address", sb.toString());  
+	            }  
+	  
 
-	private String buildBPartnerPayload(JSONObject body, MBPartner bp) {
-		// TODO: 业务伙伴固定字段
-		return body.toString();
+	            addr.put("defaultFlag", 0);  
+	  
+	            addrArr.put(addr);  
+	        }  
+	    }  
+	    item.put("partnerAddrList", addrArr);  
+	  
+	    JSONArray arr = new JSONArray();  
+	    arr.put(item);  
+	    return arr.toString();  
+	}  
+	  
+	
+	private String buildWarehousePayload(String eventType, MWarehouse wh, Map<String, Object> syncContext) {  
+	    // ---- DELETE场景：记录已物理删除
+	    if (EVENT_DELETE.equals(eventType)) {  
+	        return buildDeletePayload(syncContext);  
+	    }  
+		JSONObject item = new JSONObject();  
+		item.put("warehouseCode", wh.getValue());          // M_Warehouse.Value  
+		item.put("warehouseName", wh.getName());            // M_Warehouse.Name  
+		item.put("warehouseModel", 1);                       // 1=仓库  
+		String remark = wh.getDescription();  
+		if (remark != null)  
+			item.put("remark", remark);                     // M_Warehouse.Description  
+		item.put("parentWarehouseCode", JSONObject.NULL);    // 仓库无父级，固定null  
+		// 按需求：M_Warehouse 层不传 warehouseSort 字段  
+	  
+		JSONArray arr = new JSONArray();  
+		arr.put(item);  
+		return arr.toString();  
+	}  
+	  
+	private String buildLocatorPayload(String eventType, MLocator loc, Map<String, Object> syncContext) {  
+	    // ---- DELETE场景：记录已物理删除
+	    if (EVENT_DELETE.equals(eventType)) {  
+	        return buildDeletePayload(syncContext);  
+	    }  
+		JSONObject item = new JSONObject();  
+		item.put("warehouseCode", loc.getValue());          // M_Locator.Value  
+		item.put("warehouseName", loc.getValue());           // M_Locator无Name列，同样取Value  
+		item.put("warehouseModel", 2);                       // 2=库位  
+		item.put("warehouseSort", loc.getPriorityNo());      // M_Locator.PriorityNo  
+	  
+		int whId = loc.getM_Warehouse_ID();  
+		if (whId > 0) {  
+			MWarehouse parentWh = MWarehouse.get(loc.getCtx(), whId);  
+			item.put("parentWarehouseCode", parentWh != null ? parentWh.getValue() : JSONObject.NULL);  
+		} else {  
+			item.put("parentWarehouseCode", JSONObject.NULL);  
+		}  
+		// warehouseType/floorDescr/materialCategoryList 暂不实现，按需求先不传  
+	  
+		JSONArray arr = new JSONArray();  
+		arr.put(item);  
+		return arr.toString();  
 	}
+	
+	private void appendIfNotEmpty(StringBuilder sb, String s) {  
+	    if (s != null && !s.trim().isEmpty())  
+	        sb.append(s);  
+	}
+	  
 
-	private String buildResourcePayload(JSONObject body, X_S_Resource resource) {
+	private String buildResourcePayload(String eventType, X_S_Resource resource, Map<String, Object> syncContext) {
 		// TODO: 机台/设备固定字段
-		return body.toString();
+		return eventType.toString();
 	}
 
-	private String buildInOutPayload(JSONObject body, MInOut inout) {
+	private String buildInOutPayload(String eventType, MInOut inout, Map<String, Object> syncContext) {
 		// TODO: 出入库单头+明细固定字段
-		return body.toString();
+		return eventType.toString();
 	}
 
-	private String buildPPOrderPayload(JSONObject body, I_PP_Order order) {
+	private String buildPPOrderPayload(String eventType, I_PP_Order order, Map<String, Object> syncContext) {
 		// TODO: 工单固定字段
-		return body.toString();
+		return eventType.toString();
 	}
 
-	@Override
-	public String resolveApiUrl(String businessType, String eventType) {
-		String prefix = HFSysConfigEnum.WMS_API_URL_PREFIX.getValue(Env.getAD_Client_ID(Env.getCtx()));
-		String path = API_PATH_MAP.get(businessType);
-		if (prefix == null || prefix.trim().isEmpty()) {
-			throw new IllegalStateException("WMS_API_URL_PREFIX 未在 AD_SysConfig 中配置");
-		}
-		if (path == null) {
-			throw new IllegalStateException("WmsSystemAdapter不支持的businessType: " + businessType);
-		}
-		return prefix + path;
+
+	/**  
+	 * @return 构造好的删除请求JSON字符串；若recordCode缺失，返回null，交由调用方按跳过/失败处理  
+	 */  
+	private String buildDeletePayload(Map<String, Object> syncContext) {  
+	    Object recordCode = syncContext != null ? syncContext.get("recordCode") : null;  
+	    if (recordCode == null || recordCode.toString().trim().isEmpty()) {  
+	        // 没有可用的编码，无法构造删除请求，交给调用方按跳过/失败处理  
+	        return null;  
+	    }  
+	    JSONArray arr = new JSONArray();  
+	    arr.put(recordCode.toString()); // WMS要求DELETE直接传编码(Value/DocumentNo)数组，如 ["MAT20260817001"]  
+	    return arr.toString();  
 	}
+	
+
+	/** 只同步 buildProductPayload 中实际用到的字段发生变化的记录（或新增记录） */  
+	private boolean hasRelevantProductChange(MProduct product) {  
+	    if (product.is_new())  
+	        return true;  
+	    return product.is_ValueChanged(MProduct.COLUMNNAME_Value)  
+	        || product.is_ValueChanged(MProduct.COLUMNNAME_Name)  
+	        || product.is_ValueChanged(MProduct.COLUMNNAME_C_UOM_ID)  
+	        || product.is_ValueChanged("MaterialType")  
+	        || product.is_ValueChanged("Specification")  
+	        || product.is_ValueChanged("Length")  
+	        || product.is_ValueChanged("Width")  
+	        || product.is_ValueChanged("Height")  
+	        || product.is_ValueChanged("Thickness")  
+	        || product.is_ValueChanged("WeightGross")  
+	        || product.is_ValueChanged("WeightNet")  
+	        || product.is_ValueChanged("GuaranteeDays")  
+	        || product.is_ValueChanged(MProduct.COLUMNNAME_Description)  
+	        || product.is_ValueChanged(MProduct.COLUMNNAME_UnitsPerPallet)  
+	        || product.is_ValueChanged(MProduct.COLUMNNAME_M_Product_Category_ID);  
+	}  
+	  
+	/** 只同步 buildWarehousePayload 中实际用到的字段发生变化的记录（或新增记录） */  
+	private boolean hasRelevantWarehouseChange(MWarehouse wh) {  
+	    if (wh.is_new())  
+	        return true;  
+	    return wh.is_ValueChanged(MWarehouse.COLUMNNAME_Value)  
+	        || wh.is_ValueChanged(MWarehouse.COLUMNNAME_Name)  
+	        || wh.is_ValueChanged(MWarehouse.COLUMNNAME_Description);  
+	}  
+	  
+	/** 只同步 buildLocatorPayload 中实际用到的字段发生变化的记录（或新增记录） */  
+	private boolean hasRelevantLocatorChange(MLocator loc) {  
+	    if (loc.is_new())  
+	        return true;  
+	    return loc.is_ValueChanged(MLocator.COLUMNNAME_Value)  
+	        || loc.is_ValueChanged(MLocator.COLUMNNAME_PriorityNo)  
+	        || loc.is_ValueChanged(MLocator.COLUMNNAME_M_Warehouse_ID);  
+	}
+	
+	/**  
+	 * 只同步 C_BPartner 上被引用字段发生变化的记录（或新增记录），  
+	 * 避免无关字段变更也触发一次WMS同步。
+	 */  
+	private boolean hasRelevantBPartnerChange(MBPartner bp) {  
+	    if (bp.is_new()) {  
+	        return true;  
+	    }  
+	    return bp.is_ValueChanged(MBPartner.COLUMNNAME_Value)  
+	        || bp.is_ValueChanged(MBPartner.COLUMNNAME_Name)  
+	        || bp.is_ValueChanged(MBPartner.COLUMNNAME_Name2)  
+	        || bp.is_ValueChanged(MBPartner.COLUMNNAME_IsActive)  
+	        || bp.is_ValueChanged(MBPartner.COLUMNNAME_Description);  
+	}  
+	
+	/**  
+	 * 只同步 buildBPartnerLocationPayload 间接用到的字段发生变化的记录（或新增记录）。  
+	 * 由于最终会重建父BPartner的整条地址列表，这里覆盖会影响地址内容/联系方式/归属关系的关键列。  
+	 */  
+	private boolean hasRelevantBPartnerLocationChange(MBPartnerLocation bpl) {  
+	    if (bpl.is_new())  
+	        return true;  
+	    return bpl.is_ValueChanged(MBPartnerLocation.COLUMNNAME_C_BPartner_ID)  
+	        || bpl.is_ValueChanged(MBPartnerLocation.COLUMNNAME_C_Location_ID)  
+	        || bpl.is_ValueChanged(MBPartnerLocation.COLUMNNAME_Phone)  
+	        || bpl.is_ValueChanged(MBPartnerLocation.COLUMNNAME_IsActive);  
+	}
+	
+	@Override  
+	public Map<String, Object> captureSyncContext(PO po, String businessType, String eventType) {  
+	    if (po == null)  
+	        return null;  
+	  
+	    Map<String, Object> context = new HashMap<>();  
+	  
+	    // buildBPartnerLocationPayload需要这里预先缓存的父C_BPartner_ID重新加载父对象整体重建payload  
+	    if (BT_BPARTNER_LOCATION.equals(businessType) && po instanceof MBPartnerLocation) {  
+	        int bpId = ((MBPartnerLocation) po).getC_BPartner_ID();  
+	        if (bpId > 0)  
+	            context.put(MBPartner.COLUMNNAME_C_BPartner_ID, bpId);  
+	        return context.isEmpty() ? null : context;  
+	    }  
+	  
+	    // 优先取 DocumentNo（有单据编号语义的表，如 MInOut/PP_Order），  
+	    // 该表没有 DocumentNo 列时 get_ValueAsString 会返回 null，再退回取 Value（如 MProduct/MBPartner）  
+	    String recordCode = po.get_ValueAsString("DocumentNo");  
+	    if (recordCode == null || recordCode.trim().isEmpty()) {  
+	        recordCode = po.get_ValueAsString("Value");  
+	    }  
+	    if (recordCode != null && !recordCode.trim().isEmpty()) {  
+	        context.put("recordCode", recordCode);  
+	    }  
+	  
+	    return context.isEmpty() ? null : context;  
+	}
+	
+	@Override  
+	public String resolveApiUrl(String businessType, String eventType) {  
+	    String prefix = HFSysConfigEnum.WMS_API_URL_PREFIX.getValue(Env.getAD_Client_ID(Env.getCtx()));  
+	    if (prefix == null || prefix.trim().isEmpty()) {  
+	        throw new IllegalStateException("WMS_API_URL_PREFIX 未在 AD_SysConfig 中配置");  
+	    }  
+	    String path = API_PATH_MAP.get(key(businessType, eventType));  
+	    if (path == null) {  
+	        path = API_PATH_MAP.get(key(businessType, EVENT_ANY)); // 没有单独配置该eventType，退回兜底  
+	    }  
+	    if (path == null) {  
+	        throw new IllegalStateException("WmsSystemAdapter不支持的businessType/eventType组合: "  
+	                + businessType + "/" + eventType);  
+	    }  
+	    return prefix + path;  
+	}
+	
+	  
+	private static String key(String businessType, String eventType) {  
+	    return businessType + "_" + eventType;  
+	}
+
 
 	@Override
 	public ExtSyncResult send(String apiUrl, String request) throws Exception {
@@ -209,7 +528,8 @@ public class WmsSystemAdapter implements IExternalSystemAdapter {
 		// TODO: 若WMS要求鉴权(Token/签名等)，在此处补充：
 		// headers.put("Authorization", "Bearer " + WmsTokenUtils.getValidToken());
 
-		String rawResponse = HttpClientUtils.post(apiUrl, request, headers);
+		String rawResponse = HttpClientUtils.postIgnoreSSL(apiUrl, request, headers);
+		//String rawResponse =null;
 		return parseWmsResult(rawResponse);
 	}
 
@@ -234,6 +554,11 @@ public class WmsSystemAdapter implements IExternalSystemAdapter {
 			// 响应体不是预期的JSON格式，视为业务失败并记录原始内容，方便排查WMS接口是否变更
 			return ExtSyncResult.failure("-1", "WMS响应解析失败: " + e.getMessage(), rawResponse);
 		}
+	}
+
+	@Override
+	public boolean supports(String businessType) {
+		return SUPPORTED_BUSINESS_TYPES.contains(businessType);
 	}
 
 	private BigDecimal getBD(MProduct product, String columnName) {

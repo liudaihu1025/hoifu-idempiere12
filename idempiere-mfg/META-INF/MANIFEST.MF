@@ -27,7 +27,10 @@ Import-Package: junit.extensions,
  org.krysalis.barcode4j.impl.upcean;version="2.1.0",
  org.krysalis.barcode4j.output.bitmap;version="2.1.0",
  org.zkoss.image,
- org.zkoss.util
+ org.zkoss.util,
+ com.hoifu.utils,
+ com.hoifu.enums,
+ com.hoifu.model
 Export-Package: 
  junit.extensions,
  junit.framework,

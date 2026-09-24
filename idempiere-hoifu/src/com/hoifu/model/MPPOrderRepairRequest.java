@@ -153,20 +153,13 @@ public class MPPOrderRepairRequest extends X_PP_Order_Repair_Request implements 
         // 回写补数信息到关联的销售订单明细
         syncToOrderLine();
 
-        // 触发点②：申请单完成后，回写原工单的补数信息
+        // 触发点②：申请单完成后，将原工单补数状态更新为"处理中"(IP)
         int originalOrderId = get_ValueAsInt("PP_Order_ID");
         if (originalOrderId > 0) {
-
-            Object qtyShortageVal = get_Value("QtyShortage");
-            BigDecimal qtyShortage = (qtyShortageVal instanceof BigDecimal) ? (BigDecimal) qtyShortageVal : BigDecimal.ZERO;
-
-			Object repairQtyVal = get_Value("RepairQty");
-			BigDecimal repairQty = (repairQtyVal instanceof BigDecimal) ? (BigDecimal) repairQtyVal : BigDecimal.ZERO;
-
             DB.executeUpdateEx(
-                    "UPDATE PP_Order SET RepairStatus='IP', QtyShortage=?, RepairQty=?, "
-                            + "Updated=now(), UpdatedBy=? WHERE PP_Order_ID=?",
-                    new Object[] { qtyShortage, repairQty, getUpdatedBy(), originalOrderId }, get_TrxName());
+                    "UPDATE PP_Order SET RepairStatus='IP', Updated=now(), UpdatedBy=? "
+                            + "WHERE PP_Order_ID=?",
+                    new Object[] { getUpdatedBy(), originalOrderId }, get_TrxName());
         }
 
         // 标记已处理

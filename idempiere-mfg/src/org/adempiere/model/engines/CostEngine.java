@@ -26,7 +26,6 @@ import java.util.Objects;
 import java.util.Properties;
 
 import org.adempiere.exceptions.AdempiereException;
-import org.compiere.model.I_AD_WF_Node;
 import org.compiere.model.I_M_CostElement;
 import org.compiere.model.MAcctSchema;
 import org.compiere.model.MCost;
@@ -34,7 +33,9 @@ import org.compiere.model.MCostDetail;
 import org.compiere.model.MCostElement;
 import org.compiere.model.MProduct;
 import org.compiere.model.MProductCategoryAcct;
+import org.compiere.model.MSysConfig;
 import org.compiere.model.MTransaction;
+import org.compiere.model.MUser;
 import org.compiere.model.PO;
 import org.compiere.model.Query;
 import org.compiere.util.CLogger;
@@ -48,6 +49,8 @@ import org.libero.model.MPPOrderCost;
 import org.libero.model.RoutingService;
 import org.libero.model.RoutingServiceFactory;
 import org.libero.tables.I_PP_Order_BOMLine;
+
+import com.hoifu.enums.HFSysConfigEnum;
 
 /**
  * Cost Engine
@@ -689,6 +692,139 @@ public class CostEngine
 				processCostDetail(cd);
 			}
 		}
+		// ===== 班组直接人工分录 =====
+		createDirectLaborCostDetails(cc);
+	}
+
+	/**
+	 * 直接人工成本模块：为本次报工单班组下"直接人工=Y"的每个成员， 各生成一条 M_CostDetail（后续过账走现有
+	 * Doc_PPCostCollector.createFacts() 逻辑，
+	 * 借：P_WIP_Acct，贷：P_Labor_Acct，与设备资源分录复用同一套记账映射）。
+	 *
+	 * 前提：只处理生产报工(CostCollectorType=160)，不处理非生产报工(161)、领料、入库等其它类型。
+	 */
+	private void createDirectLaborCostDetails(MPPCostCollector cc) {
+		if (!cc.isCostCollectorType(MPPCostCollector.COSTCOLLECTORTYPE_ActivityControl))
+			return;
+
+		int workTeamId = cc.get_ValueAsInt("C_WorkTeam_ID");
+		if (workTeamId <= 0)
+			return; // 没有班组信息，不生成直接人工分录
+
+		// 只取"直接人工=Y"的班组成员
+		List<org.libero.tables.X_C_WorkTeamMember> members = new Query(cc.getCtx(),
+				org.libero.tables.X_C_WorkTeamMember.Table_Name,
+				"C_WorkTeam_ID=? AND IsDirectLabor='Y' AND IsActive='Y'", cc.get_TrxName()).setParameters(workTeamId)
+				.setOrderBy("AD_User_ID") // 固定顺序，保证所有并发事务按同一顺序加锁，消除死锁
+				.list();
+		if (members.isEmpty())
+			return;
+
+		for (org.libero.tables.X_C_WorkTeamMember member : members) {
+			int userId = member.getAD_User_ID();
+			if (userId <= 0)
+				continue;
+
+			// 人员 -> 资源（S_Resource.AD_User_ID=userId 且 S_ResourceType为人力资源）
+			int resourceId = getResourceIdByUser(cc.getAD_Client_ID(), userId);
+			if (resourceId <= 0) {
+				log.warning("未找到用户 AD_User_ID=" + userId + " 对应的人力资源(S_Resource)，跳过直接人工分录生成");
+				continue;
+			}
+
+			// 同一员工同时只能有一个报工操作在处理：对该员工的人力资源行加行级锁，
+			// 保证并发报工时，"当月已报工工时"的读取+截断计算不会被并发写入干扰。
+			lockResourceForUpdate(resourceId, cc.get_TrxName());
+
+			// 资源 -> 产品
+			final MProduct product = MProduct.forS_Resource_ID(cc.getCtx(), resourceId, null);
+			if (product == null) {
+				log.warning("未找到 S_Resource_ID=" + resourceId + " 对应的产品，跳过直接人工分录生成");
+				continue;
+			}
+
+			// 本次可计入工时：按月工时上限截断，仅在内存计算，不落库、不阻断单据完成
+			BigDecimal qty = calcCreditableHoursForUser(cc, userId);
+			if (qty.signum() <= 0)
+				continue; // 本月已无可计入工时
+
+			for (MAcctSchema as : getAcctSchema(cc)) {
+				for (MCostElement element : getCostElements(cc.getCtx(), product, as)) {
+					if (!isActivityControlElement(element))
+						continue;
+
+					final CostDimension d = new CostDimension(product, as, as.getM_CostType_ID(), cc.getAD_Org_ID(),
+							product.getM_AttributeSetInstance_ID(), element.getM_CostElement_ID());
+					// 人员 -> 资源 -> 产品 -> 产品成本（M_Cost.CurrentCostPrice）
+					final BigDecimal price = getResourceActualCostRate(cc, resourceId, d, cc.get_TrxName());
+					BigDecimal costs = price.multiply(qty);
+					if (costs.scale() > as.getCostingPrecision())
+						costs = costs.setScale(as.getCostingPrecision(), RoundingMode.HALF_UP);
+
+					MCostDetail cd = new MCostDetail(as, cc.getAD_Org_ID(), d.getM_Product_ID(),
+							product.getM_AttributeSetInstance_ID(), element.getM_CostElement_ID(), costs.negate(),
+							qty.negate(), "直接人工-" + org.compiere.model.MUser.getNameOfUser(userId),
+							new Timestamp(System.currentTimeMillis()), 0, cc.get_TrxName());
+					cd.setPP_Cost_Collector_ID(cc.getPP_Cost_Collector_ID());
+					cd.saveEx();
+					processCostDetail(cd);
+				}
+			}
+		}
+	}
+
+	/**
+	 * 按 AD_User_ID 查该员工绑定的人力资源(S_Resource)。 匹配条件：S_Resource.AD_User_ID=userId 且 关联的
+	 * S_ResourceType.Value=系统配置 HF_HR_RESOURCE_TYPE_VALUE（默认"1000000"） 。 找不到返回 -1。
+	 */
+	private int getResourceIdByUser(int AD_Client_ID, int AD_User_ID) {
+		String hrResourceTypeValue = MSysConfig.getValue("HF_HR_RESOURCE_TYPE_VALUE", "1000000", AD_Client_ID);
+		String sql = "SELECT r.S_Resource_ID FROM S_Resource r "
+				+ "JOIN S_ResourceType rt ON rt.S_ResourceType_ID = r.S_ResourceType_ID "
+				+ "WHERE r.AD_Client_ID=? AND r.AD_User_ID=? AND rt.Value=? AND r.IsActive='Y'";
+		return DB.getSQLValueEx(null, sql, AD_Client_ID, AD_User_ID, hrResourceTypeValue);
+	}
+
+	/**
+	 * 对某个人力资源行加行级锁，防止同一员工的多个报工单并发处理时， "读取当月已报工工时 -> 计算可计入工时 -> 生成分录"这一段出现并发脏读。
+	 */
+	private void lockResourceForUpdate(int S_Resource_ID, String trxName) {
+		String sql = "SELECT S_Resource_ID FROM S_Resource WHERE S_Resource_ID=? FOR UPDATE";
+		DB.getSQLValueEx(trxName, sql, S_Resource_ID);
+	}
+
+	/**
+	 * 计算某员工本次报工单可计入直接人工成本的有效工时。 举例：已报工258h，本次报工3h，monthlyLimit=260 →
+	 * 剩余=2，min(3,2)=2。
+	 */
+	private BigDecimal calcCreditableHoursForUser(MPPCostCollector cc, int userId) {
+		BigDecimal currentDuration = cc.getDurationReal();
+		BigDecimal monthlyLimit = HFSysConfigEnum.HF_MONTHLY_WORK_HOURS.getBigDecimalValue(cc.getAD_Client_ID());
+
+		String sql = "SELECT COALESCE(SUM(cc.DurationReal), 0) " + "FROM PP_Cost_Collector cc "
+				+ "JOIN C_WorkTeamMember wtm ON wtm.C_WorkTeam_ID = cc.C_WorkTeam_ID " + "WHERE wtm.AD_User_ID = ? "
+				+ "  AND wtm.IsActive = 'Y' " + "  AND cc.DocStatus = ? " + "  AND cc.PP_Cost_Collector_ID <> ? "
+				+ "  AND cc.MovementDate >= date_trunc('month', ?::timestamp) "
+				+ "  AND cc.MovementDate < date_trunc('month', ?::timestamp) + interval '1 month'";
+
+		BigDecimal reportedHours = DB.getSQLValueBD(cc.get_TrxName(), sql, userId, MPPCostCollector.DOCSTATUS_Completed,
+				cc.get_ID(), cc.getMovementDate(), cc.getMovementDate());
+		if (reportedHours == null)
+			reportedHours = BigDecimal.ZERO;
+
+		BigDecimal remaining = monthlyLimit.subtract(reportedHours);
+		if (remaining.compareTo(BigDecimal.ZERO) < 0)
+			remaining = BigDecimal.ZERO;
+
+		// 可计入时长 = min(本次报工时长, 剩余可报工时长)
+		BigDecimal creditable = currentDuration.compareTo(remaining) > 0 ? remaining : currentDuration;
+
+		if (creditable.compareTo(currentDuration) < 0) {
+			log.warning("@" + MUser.getNameOfUser(userId) + "(AD_User_ID=" + userId + ")（已报工" + reportedHours
+					+ "小时，当前报工" + currentDuration + "小时），员工当月累计报工时间不可超过" + monthlyLimit + "小时，多余"
+					+ currentDuration.subtract(creditable) + "小时不生成分录");
+		}
+		return creditable;
 	}
 	
 	public void createUsageVariances(MPPCostCollector ccuv)

@@ -35,6 +35,8 @@ import org.compiere.util.Env;
  */
 public class RequisitionLinePOCreateService {
 
+	private static final String COLUMN_SUBCONTRACTLINE_IDS = "SubcontractLine_IDs";
+
 	/**
 	 * 从 T_Selection 读取当前 PInstance 下用户勾选的申购单明细 ID
 	 */
@@ -222,22 +224,29 @@ public class RequisitionLinePOCreateService {
 	}
 
 	/**
-	 * 根据单条申购明细的 IsSubcontracting 标志，解析出对应表（C_Order/PP_Order）的  
-	 * DocumentNo 集合（已去重，保留查询顺序）。  
-	 * IsSubcontracting=Y -> 查 C_Order，用 Subcontract_IDs  
-	 * IsSubcontracting=N -> 查 PP_Order，用 PP_Order_IDs  
+	 * 根据单条申购明细的 IsSubcontracting 标志，解析出对应表（C_Order/PP_Order）的
+	 * DocumentNo 集合（已去重，保留查询顺序）。
+	 * IsSubcontracting=Y -> 查 PP_Order/C_Order，用 SubcontractLine_IDs
+	 * IsSubcontracting=N -> 查 PP_Order，用 PP_Order_IDs
 	 */
 	public static Set<String> resolveDocumentNos(MRequisitionLine reqLine, String trxName) {
 		boolean isSubcontracting = reqLine.get_ValueAsBoolean("IsSubcontracting");
-		String idsColumnName = isSubcontracting ? "Subcontract_IDs" : "PP_Order_IDs";
-		String tableName = isSubcontracting ? "C_Order" : "PP_Order";
 
-		String idsStr = (String) reqLine.get_Value(idsColumnName);
-		Set<Integer> idSet = parseIdList(idsStr);
-		if (idSet.isEmpty())
-			return Collections.emptySet();
-
-		return queryDocumentNos(tableName, idSet, trxName);
+		if (isSubcontracting) {
+			// 委外：改用 SubcontractLine_IDs（委外采购订单行 C_OrderLine_ID 集合），
+			// 优先取对应生产工单 PP_Order.DocumentNo，找不到则兜底取委外订单 C_Order.DocumentNo
+			String idsStr = (String) reqLine.get_Value(COLUMN_SUBCONTRACTLINE_IDS);
+			Set<Integer> idSet = parseIdList(idsStr);
+			if (idSet.isEmpty())
+				return Collections.emptySet();
+			return resolveSubcontractDocumentNos(idSet, trxName);
+		} else {
+			String idsStr = (String) reqLine.get_Value("PP_Order_IDs");
+			Set<Integer> idSet = parseIdList(idsStr);
+			if (idSet.isEmpty())
+				return Collections.emptySet();
+			return queryDocumentNos("PP_Order", idSet, trxName);
+		}
 	}
 
 
@@ -308,6 +317,114 @@ public class RequisitionLinePOCreateService {
 			DB.close(rs, pstmt);
 		}
 		return docNoSet;
+	}
+
+	/**
+	 * 根据委外采购订单行 ID 集合（C_OrderLine_ID），解析出对应的 DocumentNo 集合：
+	 * 1. 先查每个 C_OrderLine 对应的 Ref_OrderLine_ID（反向/对等的销售订单行）；
+	 * 2. 若 Ref_OrderLine_ID > 0，且其下存在已完成（DocStatus='CO'）的 PP_Order，
+	 *    取 PP_Order.DocumentNo（优先）；
+	 * 3. 否则（无 Ref_OrderLine_ID 或无已完成工单），回退取该 C_OrderLine 所属
+	 *    C_Order（委外采购订单表头）的 DocumentNo 作为兜底。
+	 */
+	public static Set<String> resolveSubcontractDocumentNos(Set<Integer> orderLineIds, String trxName) {
+		Set<String> docNoSet = new LinkedHashSet<>();
+		if (orderLineIds == null || orderLineIds.isEmpty())
+			return docNoSet;
+
+		// 1. 批量查 C_OrderLine -> Ref_OrderLine_ID / C_Order_ID
+		Map<Integer, Integer> refOrderLineMap = new HashMap<>();   // C_OrderLine_ID -> Ref_OrderLine_ID
+		Map<Integer, Integer> orderIdMap = new HashMap<>();        // C_OrderLine_ID -> C_Order_ID
+		{
+			StringBuilder sql = new StringBuilder(
+					"SELECT C_OrderLine_ID, Ref_OrderLine_ID, C_Order_ID FROM C_OrderLine WHERE C_OrderLine_ID IN (");
+			appendPlaceholders(sql, orderLineIds.size());
+			sql.append(")");
+			PreparedStatement pstmt = null;
+			ResultSet rs = null;
+			try {
+				pstmt = DB.prepareStatement(sql.toString(), trxName);
+				bindParams(pstmt, orderLineIds);
+				rs = pstmt.executeQuery();
+				while (rs.next()) {
+					int lineId = rs.getInt(1);
+					int refLineId = rs.getInt(2);
+					int orderId = rs.getInt(3);
+					if (refLineId > 0)
+						refOrderLineMap.put(lineId, refLineId);
+					orderIdMap.put(lineId, orderId);
+				}
+			} catch (SQLException e) {
+				throw new IllegalArgumentException("查询 C_OrderLine 关联信息失败", e);
+			} finally {
+				DB.close(rs, pstmt);
+			}
+		}
+
+		// 2. 用 Ref_OrderLine_ID 批量查已完成的 PP_Order（取 DocumentNo）
+		Map<Integer, String> ppOrderDocNoMap = new HashMap<>(); // Ref_OrderLine_ID -> DocumentNo
+		Set<Integer> refLineIds = new HashSet<>(refOrderLineMap.values());
+		if (!refLineIds.isEmpty()) {
+			StringBuilder sql = new StringBuilder(
+					"SELECT C_OrderLine_ID, DocumentNo FROM PP_Order WHERE IsActive='Y' AND C_OrderLine_ID IN (");
+			appendPlaceholders(sql, refLineIds.size());
+			sql.append(")");
+			PreparedStatement pstmt = null;
+			ResultSet rs = null;
+			try {
+				pstmt = DB.prepareStatement(sql.toString(), trxName);
+				bindParams(pstmt, refLineIds);
+				rs = pstmt.executeQuery();
+				while (rs.next()) {
+					int refLineId = rs.getInt(1);
+					String docNo = rs.getString(2);
+					if (docNo != null && !docNo.trim().isEmpty())
+						ppOrderDocNoMap.put(refLineId, docNo.trim());
+				}
+			} catch (SQLException e) {
+				throw new IllegalArgumentException("查询 PP_Order 单号失败", e);
+			} finally {
+				DB.close(rs, pstmt);
+			}
+		}
+
+		// 3. 逐个原始 C_OrderLine_ID 决定取值：优先工单号，否则兜底委外订单号
+		Set<Integer> fallbackOrderIds = new LinkedHashSet<>();
+		Map<Integer, Integer> fallbackLineToOrder = new HashMap<>(); // 记录哪些行需要兜底
+		for (Integer lineId : orderLineIds) {
+			Integer refLineId = refOrderLineMap.get(lineId);
+			String ppDocNo = refLineId != null ? ppOrderDocNoMap.get(refLineId) : null;
+			if (ppDocNo != null) {
+				docNoSet.add(ppDocNo);
+			} else {
+				Integer orderId = orderIdMap.get(lineId);
+				if (orderId != null && orderId > 0) {
+					fallbackOrderIds.add(orderId);
+				}
+			}
+		}
+
+		// 4. 批量查兜底的委外采购订单表头 DocumentNo
+		if (!fallbackOrderIds.isEmpty()) {
+			docNoSet.addAll(queryDocumentNos("C_Order", fallbackOrderIds, trxName));
+		}
+
+		return docNoSet;
+	}
+
+	private static void appendPlaceholders(StringBuilder sql, int count) {
+		for (int i = 0; i < count; i++) {
+			if (i > 0)
+				sql.append(",");
+			sql.append("?");
+		}
+	}
+
+	private static void bindParams(PreparedStatement pstmt, Set<Integer> ids) throws SQLException {
+		int i = 1;
+		for (Integer id : ids) {
+			pstmt.setInt(i++, id);
+		}
 	}
 
 	public static class CreatedOrderResult {

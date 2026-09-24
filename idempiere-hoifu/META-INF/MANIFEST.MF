@@ -43,7 +43,11 @@ Import-Package: org.json,
  org.compiere.minigrid
 Export-Package: com.hoifu.form,
  com.hoifu.process,
- com.hoifu.validator
+ com.hoifu.validator,
+ com.hoifu.model,
+ com.hoifu.utils,
+ com.hoifu.enums
+ 
 Service-Component: OSGI-INF/*.xml
 Bundle-ActivationPolicy: lazy
 Bundle-Vendor: HoifuProject

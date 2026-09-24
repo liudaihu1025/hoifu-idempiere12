@@ -76,7 +76,7 @@ public class ExtSyncRetryProcess extends SvrProcess {
 						}
 					}
 
-					String request = adapter.buildRequest(po, record.getBusiness_Type(), record.getEvent_Type());
+					String request = adapter.buildRequest(po, record.getBusiness_Type(), record.getEvent_Type(), null);
 					if (request == null) {
 						// 按业务规则不需要同步，直接跳过，不记录FAILED，也不进入重试
 						log.info("跳过同步: systemType=" + adapter.getSystemType() + ", businessType=" + record.getBusiness_Type()

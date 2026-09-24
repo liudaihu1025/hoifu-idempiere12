@@ -133,22 +133,11 @@ public class PPOrderRepairCreateOrderProcess extends SvrProcess {
         // 保存，触发 explosion() 自动展开 BOM/工艺路线
         newOrder.saveEx();
 
-		// 8. 更新原工单（DB 层）
+		// 8. 更新原工单：补数工单号、有无生产补数、补数方式、补数状态=处理中
 		DB.executeUpdateEx(
 				"UPDATE PP_Order SET Repair_PP_Order_ID=?, IsRepair='Y', RepairMethod=?, "
-						+ "Updated=now(), UpdatedBy=? WHERE PP_Order_ID=?",
+						+ "RepairStatus='IP', Updated=now(), UpdatedBy=? WHERE PP_Order_ID=?",
 				new Object[] { newOrder.get_ID(), repairMethod, getAD_User_ID(), srcOrder.get_ID() }, get_TrxName());
-
-		// 同步内存对象，确保 calculateRepairStatus 读到的是最新值
-		srcOrder.set_ValueOfColumn("Repair_PP_Order_ID", newOrder.get_ID());
-		srcOrder.set_ValueOfColumn("IsRepair", true);
-		srcOrder.set_ValueOfColumn("RepairMethod", repairMethod);
-
-		// 计算原工单补数状态
-		String newRepairStatus = MPPOrder.calculateRepairStatus(srcOrder);
-		DB.executeUpdateEx("UPDATE PP_Order SET RepairStatus=?, Updated=now(), UpdatedBy=? WHERE PP_Order_ID=?",
-				new Object[] { newRepairStatus, getAD_User_ID(), srcOrder.get_ID() }, 
-                get_TrxName());
 
         // 9. 更新申请单：记录新工单ID
         DB.executeUpdateEx(
@@ -157,9 +146,9 @@ public class PPOrderRepairCreateOrderProcess extends SvrProcess {
                 new Object[] { newOrder.get_ID(), getAD_User_ID(), request.get_ID() },
                 get_TrxName());
 
-		addLog(0, null, null, "已创建工单 " + newOrder.getDocumentNo(), MPPOrder.Table_ID, newOrder.get_ID());
+		addLog(0, null, null, "补数工单：" + newOrder.getDocumentNo(), MPPOrder.Table_ID, newOrder.get_ID());
 
-		return "已创建工单 " + newOrder.getDocumentNo();
+		return "补数工单：" + newOrder.getDocumentNo();
     }
 
     /**

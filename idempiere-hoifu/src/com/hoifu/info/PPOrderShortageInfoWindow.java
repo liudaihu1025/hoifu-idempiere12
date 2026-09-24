@@ -1,6 +1,8 @@
 package com.hoifu.info;
 
 import java.io.Serializable;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.util.List;
 
 import org.adempiere.webui.apps.AEnv;
@@ -37,6 +39,53 @@ public class PPOrderShortageInfoWindow extends InfoWindow {
         super(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,
                 AD_InfoWindow_ID, lookup, field, predefinedContextVariables);
     }
+
+	@Override
+	protected void preRunProcess(Integer processId) {
+		if (processId != null) {
+			MProcess process = MProcess.get(Env.getCtx(), processId);
+			if (process != null && "org.libero.process.PPOrderShortageApplyProcess".equals(process.getClassname())) {
+				List<Serializable> keys = getSelectedRowKeys();
+				if (keys != null && keys.size() == 1) {
+					Integer orderId = getIntSelectedRowKey(MTable.getTable_ID("PP_Order"));
+					int[] values = getOrderProductAndLineId(orderId);
+					Env.setContext(Env.getCtx(), p_WindowNo, "M_Product_ID",
+							values[0] > 0 ? String.valueOf(values[0]) : "");
+					Env.setContext(Env.getCtx(), p_WindowNo, "C_OrderLine_ID",
+							values[1] > 0 ? String.valueOf(values[1]) : "");
+				} else {
+					// 非单选时清空，避免读到旧值
+					Env.setContext(Env.getCtx(), p_WindowNo, "M_Product_ID", "");
+					Env.setContext(Env.getCtx(), p_WindowNo, "C_OrderLine_ID", "");
+				}
+			}
+		}
+		super.preRunProcess(processId);
+	}
+
+	private int[] getOrderProductAndLineId(Integer orderId) {
+		if (orderId == null || orderId <= 0)
+			return new int[] { 0, 0 };
+
+		int[] result = new int[] { 0, 0 };
+		String sql = "SELECT M_Product_ID, C_OrderLine_ID FROM PP_Order WHERE PP_Order_ID=?";
+		PreparedStatement pstmt = null;
+		ResultSet rs = null;
+		try {
+			pstmt = DB.prepareStatement(sql, null);
+			pstmt.setInt(1, orderId);
+			rs = pstmt.executeQuery();
+			if (rs.next()) {
+				result[0] = rs.getInt(1);
+				result[1] = rs.getInt(2);
+			}
+		} catch (Exception e) {
+			// log
+		} finally {
+			DB.close(rs, pstmt);
+		}
+		return result;
+	}
 
     // ==================== 按钮启用/禁用控制 ====================
 
@@ -107,7 +156,7 @@ public class PPOrderShortageInfoWindow extends InfoWindow {
 	public void zoom() {
 		Integer orderId = getIntSelectedRowKey(MTable.getTable_ID("PP_Order"));
 		if (orderId == null || orderId <= 0) {
-			Dialog.error(getWindowNo(), "PleaseSelectRecord");
+			Dialog.error(getWindowNo(), "请选择记录");
 			return;
 		}
 

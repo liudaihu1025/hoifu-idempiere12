@@ -2,7 +2,6 @@ package com.hoifu.utils;
 
 import java.util.logging.Level;
 
-import org.compiere.model.MSysConfig;
 import org.compiere.model.MUser;
 import org.compiere.util.CLogger;
 import org.compiere.util.Env;

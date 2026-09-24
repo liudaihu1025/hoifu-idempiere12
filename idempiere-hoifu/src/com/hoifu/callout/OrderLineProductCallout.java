@@ -10,6 +10,7 @@ import org.adempiere.base.annotation.Callout;
 import org.compiere.model.GridField;
 import org.compiere.model.GridTab;
 import org.compiere.model.MProduct;
+import org.compiere.model.MStorageOnHand;
 import org.compiere.util.DB;
 import org.compiere.util.Env;
 
@@ -21,11 +22,17 @@ import org.compiere.util.Env;
  * - PriceStd：取自价格表（M_ProductPrice.PriceStd），无价格表记录时为 0
  * - LineNetAmt = QtyEntered × PriceEntered
  */
-@Callout(tableName = "C_OrderLine", columnName = { "M_Product_ID" })
+@Callout(tableName = "C_OrderLine", columnName = { "M_Product_ID", "QtyEntered" })
 public class OrderLineProductCallout implements IColumnCallout {
 
 	@Override
 	public String start(Properties ctx, int WindowNo, GridTab mTab, GridField mField, Object value, Object oldValue) {
+
+		String columnName = mField.getColumnName();
+
+		if ("QtyEntered".equals(columnName)) {
+			return updateQtyDeliverAllTotal(mTab, value);
+		}
 
 		Integer pId = (Integer) mTab.getValue("M_Product_ID");
 
@@ -41,6 +48,30 @@ public class OrderLineProductCallout implements IColumnCallout {
 			String customerProductNo = product.get_ValueAsString("ProductNoCust");
 			mTab.setValue("ProductNoCust", customerProductNo);
 
+		}
+
+		int warehouseId = Env.getContextAsInt(ctx, WindowNo, "M_Warehouse_ID");
+		if (warehouseId <= 0) {
+			// 兜底：如果订单头上下文没有仓库，尝试从行上取（如果 C_OrderLine 有 M_Warehouse_ID 字段）
+			Integer whFromLine = (Integer) mTab.getValue("M_Warehouse_ID");
+			if (whFromLine != null) {
+				warehouseId = whFromLine.intValue();
+			}
+		}
+
+		if (warehouseId > 0) {
+			Integer asiId = (Integer) mTab.getValue("M_AttributeSetInstance_ID");
+			int M_AttributeSetInstance_ID = (asiId == null) ? 0 : asiId.intValue();
+
+			// getQtyOnHand: 汇总仓库下所有货位的 QtyOnHand，不扣减 QtyReserved
+			BigDecimal qtyOnHand = MStorageOnHand.getQtyOnHand(pId.intValue(), warehouseId, M_AttributeSetInstance_ID,
+					null);
+			if (qtyOnHand == null) {
+				qtyOnHand = Env.ZERO;
+			}
+			mTab.setValue("QtyOnHandInfo", qtyOnHand);
+		} else {
+			mTab.setValue("QtyOnHandInfo", Env.ZERO);
 		}
 
 		// 查询申购明细里该物料的单价，回显到 PriceEntered
@@ -86,6 +117,21 @@ public class OrderLineProductCallout implements IColumnCallout {
 			mTab.setValue("PriceStd", Env.ZERO);
 		}
 
+		return "";
+	}
+
+	/**
+	 * QtyEntered 变化时，重新计算/更新 QtyDeliverAllTotal
+	 */
+	private String updateQtyDeliverAllTotal(GridTab mTab, Object value) {
+		BigDecimal qtyEntered = value instanceof BigDecimal ? (BigDecimal) value : Env.ZERO;
+		if (qtyEntered == null) {
+			qtyEntered = Env.ZERO;
+		}
+
+		BigDecimal qtyDeliverAllTotal = qtyEntered;
+
+		mTab.setValue("QtyDeliverAllTotal", qtyDeliverAllTotal);
 		return "";
 	}
 

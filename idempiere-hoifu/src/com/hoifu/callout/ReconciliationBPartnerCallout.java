@@ -57,7 +57,8 @@ public class ReconciliationBPartnerCallout implements IColumnCallout {
         LocalDate currentMonthEnd = currentDate.withDayOfMonth(Math.min(reconciliationDay, currentDate.lengthOfMonth()));  
         // 计算上个月的对账开始日期  
         LocalDate lastMonth = currentDate.minusMonths(1);  
-        LocalDate lastMonthReconciliation = lastMonth.withDayOfMonth(Math.min(reconciliationDay, lastMonth.lengthOfMonth()));  
+		LocalDate lastMonthReconciliation = lastMonth
+				.withDayOfMonth(Math.min(reconciliationDay, lastMonth.lengthOfMonth())).plusDays(1);
         // 计算对账月份  
         String reconPeriod = currentMonthEnd.format(DateTimeFormatter.ofPattern("yyyyMM"));  
   
@@ -139,7 +140,8 @@ public class ReconciliationBPartnerCallout implements IColumnCallout {
     private static void setReconciliationDates(GridTab mTab, Integer reconciliationDay, LocalDate targetMonth) {  
         LocalDate currentMonthEnd = targetMonth.withDayOfMonth(Math.min(reconciliationDay, targetMonth.lengthOfMonth()));  
         LocalDate lastMonth = targetMonth.minusMonths(1);  
-        LocalDate lastMonthReconciliation = lastMonth.withDayOfMonth(Math.min(reconciliationDay, lastMonth.lengthOfMonth()));  
+		LocalDate lastMonthReconciliation = lastMonth
+				.withDayOfMonth(Math.min(reconciliationDay, lastMonth.lengthOfMonth())).plusDays(1);
   
         mTab.setValue("ReconciliationDay", Timestamp.valueOf(lastMonthReconciliation.atStartOfDay()));  
         mTab.setValue("Reconciliationcutoff", Timestamp.valueOf(currentMonthEnd.atStartOfDay()));  

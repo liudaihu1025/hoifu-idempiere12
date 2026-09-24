@@ -1,7 +1,8 @@
 package com.hoifu.window;
 
 import java.math.BigDecimal;
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.adempiere.exceptions.AdempiereException;
 import org.adempiere.util.Callback;
@@ -14,6 +15,7 @@ import org.adempiere.webui.window.FDialog;
 import org.compiere.model.GridTab;
 import org.compiere.model.MOrder;
 import org.compiere.model.MOrderLine;
+import org.compiere.model.MProduct;
 import org.compiere.model.MTable;
 import org.compiere.process.DocAction;
 import org.compiere.util.DB;
@@ -33,15 +35,16 @@ public class NotifyShipmentAction implements IAction {
 	 */
 	final String OUT_NOTICE_UUID = "69cefa28-a09d-4d5c-b37e-ef0928c67400";
 
-	@Override  
-	public String getIconSclass() {  
-	    return "z-icon-Request";  // 或其他图标名  
+	@Override
+	public String getIconSclass() {
+		return "z-icon-Request";
 	}
-	@Override  
-	public void decorate(Toolbarbutton toolbarButton) {  
-	    toolbarButton.setLabel("通知发货");  
+
+	@Override
+	public void decorate(Toolbarbutton toolbarButton) {
+		toolbarButton.setLabel("通知发货");
 	}
-	
+
 	@Override
 	public void execute(Object context) {
 		if (!(context instanceof ADWindow))
@@ -66,22 +69,72 @@ public class NotifyShipmentAction implements IAction {
 		// 采购订单不处理
 		if (!order.isSOTrx())
 			return;
-		
-		// 检查是否有超发
-		boolean hasOverDelivery = checkOverDelivery(order);
+
+		// 第一步：按行校验"已通知发货数量"，过滤超限行
+		List<String> overLimitProducts = new ArrayList<>();
+		List<MOrderLine> notifiableLines = filterNotifiableLines(order, overLimitProducts);
+
+		if (notifiableLines.isEmpty()) {
+			// 全部行超限，中断整体操作
+			Dialog.warn(gridTab.getWindowNo(), null,
+					"产品发货通知数量已大于订单数量！(" + String.join("、", overLimitProducts) + ")");
+			return;
+		}
+
+		if (!overLimitProducts.isEmpty()) {
+			// 部分行超限：汇总提示，但不中断，继续处理剩余行
+			Dialog.warn(gridTab.getWindowNo(), null,
+					"以下产品发货通知数量已大于订单数量，已跳过：" + String.join("、", overLimitProducts));
+		}
+
+		// 第二步：仅对未超限的行做超发判断
+		boolean hasOverDelivery = checkOverDelivery(notifiableLines);
 
 		if (hasOverDelivery) {
-			handleOverDelivery(gridTab, order);
+			handleOverDelivery(gridTab, order, notifiableLines);
 		} else {
-			handleNormalDelivery(gridTab, order);
+			handleNormalDelivery(gridTab, order, notifiableLines);
 		}
 	}
 
-	/** 检查是否存在超发（QtyDelivered > QtyOrdered）的订单行 */
-	private boolean checkOverDelivery(MOrder order) {
+	/**
+	 * 统计某订单行已通知发货数量：IP/CO 状态的 M_InOutNotice 关联的 M_InOutNoticeLine.QtyEntered 之和
+	 */
+	private BigDecimal getNotifiedQty(int orderLineId) {
+		BigDecimal sum = DB.getSQLValueBD(null,
+				"SELECT COALESCE(SUM(l.QtyEntered),0) "
+						+ "FROM M_InOutNoticeLine l "
+						+ "JOIN M_InOutNotice n ON n.M_InOutNotice_ID = l.M_InOutNotice_ID "
+						+ "WHERE l.C_OrderLine_ID = ? "
+						+ "AND n.DocStatus IN ('IP','CO')",
+				orderLineId);
+		return sum == null ? BigDecimal.ZERO : sum;
+	}
+
+	/**
+	 * 按行校验：过滤出未超限的可通知行，同时收集超限行的产品名用于汇总提示
+	 */
+	private List<MOrderLine> filterNotifiableLines(MOrder order, List<String> overLimitProductNames) {
+		List<MOrderLine> notifiable = new ArrayList<>();
+
 		for (MOrderLine ol : order.getLines(true, null)) {
 			if (ol.getM_Product_ID() == 0)
 				continue;
+			BigDecimal notifiedQty = getNotifiedQty(ol.getC_OrderLine_ID());
+			if (notifiedQty.compareTo(ol.getQtyOrdered()) >= 0) {
+				MProduct product = MProduct.get(ol.getCtx(), ol.getM_Product_ID());
+				overLimitProductNames.add(product != null ? product.getName() : String.valueOf(ol.getM_Product_ID()));
+			} else {
+				notifiable.add(ol);
+			}
+		}
+
+		return notifiable;
+	}
+
+	/** 检查过滤后的行集合中是否存在超发（QtyDelivered > QtyOrdered）的订单行 */
+	private boolean checkOverDelivery(List<MOrderLine> lines) {
+		for (MOrderLine ol : lines) {
 			if (ol.getQtyDelivered().compareTo(ol.getQtyOrdered()) >= 0)
 				return true;
 		}
@@ -89,30 +142,29 @@ public class NotifyShipmentAction implements IAction {
 	}
 
 	/** 无超发：弹出简单确认，确认后直接生成 */
-	private void handleNormalDelivery(GridTab gridTab, MOrder order) {
+	private void handleNormalDelivery(GridTab gridTab, MOrder order, List<MOrderLine> lines) {
 		FDialog.ask(gridTab.getWindowNo(), null, "确认通知发货？", null, new Callback<Boolean>() {
 			@Override
 			public void onCallback(Boolean confirmed) {
 				if (Boolean.TRUE.equals(confirmed)) {
-					createNoticeAndZoom(order, null);
+					createNoticeAndZoom(order, lines, null);
 				}
 			}
 		});
 	}
 
 	/** 有超发：弹出带输入框的确认，要求填写超发原因 */
-	private void handleOverDelivery(GridTab gridTab, MOrder order) {  
-	    OverDeliveryReasonDialog dialog = new OverDeliveryReasonDialog(reason -> {  
-	        if (reason != null) {  
-	            createNoticeAndZoom(order, reason);  
-	        }  
-	        // reason == null 表示用户点了取消，什么都不做  
-	    });  
-	    AEnv.showCenterScreen(dialog);  
+	private void handleOverDelivery(GridTab gridTab, MOrder order, List<MOrderLine> lines) {
+		OverDeliveryReasonDialog dialog = new OverDeliveryReasonDialog(reason -> {
+			if (reason != null) {
+				createNoticeAndZoom(order, lines, reason);
+			}
+		});
+		AEnv.showCenterScreen(dialog);
 	}
 
 	/** 创建 MInOutNotice 并跳转 */
-	private void createNoticeAndZoom(MOrder order, String overDeliveryReason) {
+	private void createNoticeAndZoom(MOrder order, List<MOrderLine> lines, String overDeliveryReason) {
 		Trx trx = Trx.get(Trx.createTrxName("NotifyShipment"), true);
 		try {
 			MInOutNotice notice = new MInOutNotice(Env.getCtx(), 0, trx.getTrxName());
@@ -129,13 +181,13 @@ public class NotifyShipmentAction implements IAction {
 			if (docTypeId <= 0)
 				throw new AdempiereException("未找到对应的单据类型");
 			notice.setC_DocType_ID(docTypeId);
+
+			// 始终抑制 afterSave 自动生成明细，统一由本方法根据过滤后的行集合生成
+			notice.setSuppressAutoLines(true);
 			notice.saveEx();
 
-			// afterSave 会在非超发时自动生成明细
-			// 只有超发情况才由 Action 自己生成（通知数量=0，带超发原因）
-			if (overDeliveryReason != null) {
-				createNoticeLines(notice, order, true, overDeliveryReason, trx.getTrxName());
-			}
+			// 根据过滤后的行集合生成明细
+			createNoticeLines(notice, lines, overDeliveryReason, trx.getTrxName());
 
 			trx.commit();
 
@@ -151,19 +203,26 @@ public class NotifyShipmentAction implements IAction {
 		}
 	}
 
-	private void createNoticeLines(MInOutNotice notice, MOrder order, boolean isOverDelivery, String overDeliveryReason,
+	/**
+	 * 根据过滤后的行集合创建通知单明细。
+	 * 超发情况：通知数量默认为 0，用户手动编辑，超发原因写入备注。
+	 * 非超发情况：通知数量 = QtyOrdered - QtyDelivered。
+	 */
+	private void createNoticeLines(MInOutNotice notice, List<MOrderLine> lines, String overDeliveryReason,
 			String trxName) {
-		if (!isOverDelivery) {
-			return;
-		}
 		int lineNo = 10;
-		for (MOrderLine ol : order.getLines(true, null)) {
-			if (ol.getM_Product_ID() == 0)
-				continue;
-
+		for (MOrderLine ol : lines) {
 			BigDecimal qtyToNotice;
-			// 超发情况：通知数量默认为 0，用户手动编辑
-			qtyToNotice = BigDecimal.ZERO;
+			if (overDeliveryReason != null) {
+				// 超发情况：通知数量默认为 0，用户手动编辑
+				qtyToNotice = BigDecimal.ZERO;
+			} else {
+				// 非超发情况：可通知数量 = 订购数量 - 已发货数量
+				qtyToNotice = ol.getQtyOrdered().subtract(ol.getQtyDelivered());
+				if (qtyToNotice.compareTo(BigDecimal.ZERO) <= 0)
+					continue;
+			}
+
 			MInOutNoticeLine line = new MInOutNoticeLine(Env.getCtx(), 0, trxName);
 			line.setAD_Org_ID(notice.getAD_Org_ID());
 			line.setM_InOutNotice_ID(notice.getM_InOutNotice_ID());
@@ -173,7 +232,9 @@ public class NotifyShipmentAction implements IAction {
 			line.setC_UOM_ID(ol.getC_UOM_ID());
 			line.setQtyEntered(qtyToNotice);
 			line.setQtyDelivered(BigDecimal.ZERO);
-			line.setDescription(overDeliveryReason); // 超发原因写入备注
+			if (overDeliveryReason != null) {
+				line.setDescription(overDeliveryReason);
+			}
 			line.saveEx();
 			lineNo += 10;
 		}

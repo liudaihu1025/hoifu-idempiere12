@@ -10,10 +10,14 @@ import org.compiere.model.MBPartner;
 import org.compiere.model.MInOut;
 import org.compiere.model.MInOutLine;
 import org.compiere.model.MInventoryLine;
+import org.compiere.model.MLocator;
 import org.compiere.model.MOrder;
 import org.compiere.model.MOrderLine;
 import org.compiere.model.MProduct;
+import org.compiere.model.MProductPrice;
 import org.compiere.model.MRMA;
+import org.compiere.model.MResource;
+import org.compiere.model.MWarehouse;
 import org.compiere.model.PO;
 import org.compiere.wf.MWorkflow;
 import org.eevolution.model.I_PP_Order;
@@ -31,27 +35,34 @@ import com.hoifu.event.processor.DefectSummaryEventProcessor;
 import com.hoifu.event.processor.ExtSyncTriggerEventProcessor;
 import com.hoifu.event.processor.IEventProcessor;
 import com.hoifu.event.processor.IPQCEventProcessor;
+import com.hoifu.event.processor.IQCInspectGenerateProcessor;
 import com.hoifu.event.processor.InOutEventProcessor;
 import com.hoifu.event.processor.InOutLineEventProcessor;
 import com.hoifu.event.processor.InventoryLineEventProcessor;
 import com.hoifu.event.processor.ProductBOMLineEventProcessor;
 import com.hoifu.event.processor.ProductEventProcessor;
+import com.hoifu.event.processor.ProductPriceEventProcessor;
 import com.hoifu.event.processor.RMAProcessor;
+import com.hoifu.event.processor.ResourceEventProcessor;
 import com.hoifu.event.processor.VoucherEventProcessor;
 import com.hoifu.event.processor.WorkflowEventProcessor;
+import com.hoifu.model.MInOutRequisition;
 import com.hoifu.model.qc.X_QC_DefectRecord;
 import com.hoifu.service.IGlVoucherService;
 import com.hoifu.service.impl.GlVoucherServiceImpl;
 import com.hoifu.service.qc.IDefectSummaryService;
 import com.hoifu.service.qc.IIPQCService;
+import com.hoifu.service.qc.IIQCInspectService;
 import com.hoifu.service.qc.IIQCService;
 import com.hoifu.service.qc.IOQCService;
 import com.hoifu.service.qc.IRQCService;
 import com.hoifu.service.qc.impl.DefectSummaryServiceImpl;
 import com.hoifu.service.qc.impl.IPQCServiceImpl;
+import com.hoifu.service.qc.impl.IQCInspectServiceImpl;
 import com.hoifu.service.qc.impl.IQCServiceImpl;
 import com.hoifu.service.qc.impl.OQCServiceImpl;
 import com.hoifu.service.qc.impl.RQCServiceImpl;
+import org.compiere.model.MBPartnerLocation;
 
 /**
  * 通用的事件监听器，后续新的监听事件新增Processor即可
@@ -69,6 +80,7 @@ public class BaseEnventHandler extends AbstractEventHandler {
 	private final IRQCService rqcService = new RQCServiceImpl();
 	private final IGlVoucherService voucherService = new GlVoucherServiceImpl();
 	private final IDefectSummaryService defectService = new DefectSummaryServiceImpl();
+	private final IIQCInspectService iqcInspectService = new IQCInspectServiceImpl();
 
 	private List<IEventProcessor> processors;
 
@@ -94,7 +106,8 @@ public class BaseEnventHandler extends AbstractEventHandler {
 		registerTableEvent(IEventTopics.PO_BEFORE_CHANGE, MProduct.Table_Name);
 		registerTableEvent(IEventTopics.PO_AFTER_NEW, MProduct.Table_Name);  
 		registerTableEvent(IEventTopics.PO_AFTER_CHANGE, MProduct.Table_Name);
-		
+		registerTableEvent(IEventTopics.PO_AFTER_DELETE, MProduct.Table_Name);
+
 		// ===== 库存退库明细 =====
 		registerTableEvent(IEventTopics.PO_BEFORE_NEW, MInventoryLine.Table_Name);
 		registerTableEvent(IEventTopics.PO_BEFORE_CHANGE, MInventoryLine.Table_Name);
@@ -116,6 +129,10 @@ public class BaseEnventHandler extends AbstractEventHandler {
 		registerTableEvent(IEventTopics.PO_BEFORE_CHANGE, MOrderLine.Table_Name);
 		registerTableEvent(IEventTopics.DOC_AFTER_COMPLETE, MOrder.Table_Name);
 
+		//出入库申请单
+		registerTableEvent(IEventTopics.DOC_AFTER_COMPLETE, MInOutRequisition.Table_Name);
+		registerTableEvent(IEventTopics.DOC_AFTER_VOID, MInOutRequisition.Table_Name);
+
 		// ===== 退货授权单 =====
 		registerTableEvent(IEventTopics.PO_AFTER_CHANGE, MRMA.Table_Name);
 		
@@ -123,14 +140,36 @@ public class BaseEnventHandler extends AbstractEventHandler {
 		registerTableEvent(IEventTopics.PO_BEFORE_NEW, MPPProductBOMLine.Table_Name);
 		registerTableEvent(IEventTopics.PO_BEFORE_CHANGE, MPPProductBOMLine.Table_Name);
 		 
-		//业务伙伴表
+		// 业务伙伴表
 		registerTableEvent(IEventTopics.PO_AFTER_NEW, MBPartner.Table_Name);
 		registerTableEvent(IEventTopics.PO_AFTER_CHANGE, MBPartner.Table_Name);
 		
-		//工艺路线
+		// 业务伙伴地址子表
+		registerTableEvent(IEventTopics.PO_AFTER_NEW, MBPartnerLocation.Table_Name);
+		registerTableEvent(IEventTopics.PO_AFTER_CHANGE, MBPartnerLocation.Table_Name);
+
+		//仓库
+		registerTableEvent(IEventTopics.PO_AFTER_NEW, MWarehouse.Table_Name);
+		registerTableEvent(IEventTopics.PO_AFTER_CHANGE, MWarehouse.Table_Name);
+
+		//库位
+		registerTableEvent(IEventTopics.PO_AFTER_NEW, MLocator.Table_Name);
+		registerTableEvent(IEventTopics.PO_AFTER_CHANGE, MLocator.Table_Name);
+
+
+		// 工艺路线
 		registerTableEvent(IEventTopics.PO_AFTER_NEW, MWorkflow.Table_Name);
 		registerTableEvent(IEventTopics.PO_AFTER_CHANGE, MWorkflow.Table_Name);
 		
+		// ===== 直接人工成本模块 =====
+		registerTableEvent(IEventTopics.PO_BEFORE_NEW, MResource.Table_Name);
+		registerTableEvent(IEventTopics.PO_BEFORE_CHANGE, MResource.Table_Name);
+		registerTableEvent(IEventTopics.PO_AFTER_NEW, MResource.Table_Name);
+
+		// ===== 产品价格 -> 产品成本同步（直接人工成本核算） =====
+		registerTableEvent(IEventTopics.PO_AFTER_NEW, MProductPrice.Table_Name);
+		registerTableEvent(IEventTopics.PO_AFTER_CHANGE, MProductPrice.Table_Name);
+
 		// ===== 初始化处理器链 =====
 		processors = List.of(
 				new VoucherEventProcessor(voucherService),
@@ -146,6 +185,9 @@ public class BaseEnventHandler extends AbstractEventHandler {
 				new BPartnerEventProcessor(),
 				new WorkflowEventProcessor(),
 				new COrderLineEventProcessor(),
+				new ResourceEventProcessor(),
+				new ProductPriceEventProcessor(),
+				new IQCInspectGenerateProcessor(iqcInspectService),
 				new ExtSyncTriggerEventProcessor()
 				);
 	}

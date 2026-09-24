@@ -1,9 +1,7 @@
 package com.hoifu.validator;
 
-import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.Objects;
 import java.util.Optional;
 
 import org.compiere.model.MInOut;
@@ -35,10 +33,18 @@ public class InOutDetailValidator implements ModelValidator {
 
 	@Override
 	public String modelChange(PO po, int type) throws Exception {
-		if (po instanceof MInOutLine && type == ModelValidator.TYPE_NEW) {
-			MInOutLine line = (MInOutLine) po;
-			return initializeReconciliationMonth(line);
+		if (!(po instanceof MInOutLine))
+			return null;
+
+		MInOutLine line = (MInOutLine) po;
+
+		// 新建记录：初始化对账月份
+		if (type == ModelValidator.TYPE_NEW) {
+			String err = initializeReconciliationMonth(line);
+			if (err != null)
+				return err;
 		}
+
 		return null;
 	}
 
@@ -163,6 +169,7 @@ public class InOutDetailValidator implements ModelValidator {
 		return dayOfMonth > cutoffday ? createdDate.plusMonths(1).format(MONTH_FORMATTER)
 				: createdDate.format(MONTH_FORMATTER);
 	}
+
 
 	@Override
 	public int getAD_Client_ID() {

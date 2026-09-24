@@ -11,7 +11,9 @@ import org.compiere.util.DB;
 import org.compiere.util.Env;
 import org.zkoss.zk.ui.event.Event;
 
-public class MInOutLineInfoWindow extends InfoWindow {
+public class MInOutLineInfoWindow extends AbstractAllNumericTotalsInfoWindow {
+
+	private static final long serialVersionUID = -4222063031976498824L;
 
 	// 完整构造函数 - 10个参数
 	public MInOutLineInfoWindow(int WindowNo, String tableName, String keyColumn, String queryValue,
@@ -53,10 +55,7 @@ public class MInOutLineInfoWindow extends InfoWindow {
 			if (classname != null && classname.equals(InOutLineBatchSetIntendedLocator_process_classname)) {
 				// 批量设置库位流程：执行后不关闭窗口，刷新数据
 				setCloseAfterExecutionOfProcess(false);
-			} else {
-				// 其他流程正常关闭窗口
-				setCloseAfterExecutionOfProcess(true);
-            }  
+			}
         }  
 		super.runProcess(processIdObj);
     } 

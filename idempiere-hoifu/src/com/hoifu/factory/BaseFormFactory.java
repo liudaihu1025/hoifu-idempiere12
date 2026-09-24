@@ -7,6 +7,7 @@ import org.adempiere.webui.panel.IFormController;
 import com.hoifu.form.GenerateTreeBOM;
 import com.hoifu.form.HFOneCodeSystemForm;
 import com.hoifu.form.HFPricingSheetSystemForm;
+import com.hoifu.form.UReportForm;
 import com.hoifu.form.WAttachmentViewerForm;
 import com.hoifu.form.WImpositionTool;
 import com.hoifu.form.WPPOrderTrackingDetail;
@@ -47,6 +48,10 @@ public class BaseFormFactory implements IFormFactory {
 		// 打样追踪详情
 		if ("com.hoifu.form.WPPOrderTrackingDetail".equals(formName)) {
 			return new WPPOrderTrackingDetail();
+		}
+		// ureport2报表
+		if ("com.hoifu.form.UReportForm".equals(formName)) {
+			return new UReportForm();
 		}
 		return null;
 	}

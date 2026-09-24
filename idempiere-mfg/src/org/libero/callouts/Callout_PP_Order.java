@@ -50,7 +50,6 @@ public class Callout_PP_Order extends CalloutOrder implements IColumnCallout {
 			// 清空补数字段
 			mTab.setValue("RepairQty", null);
 			mTab.setValue("RepairMethod", null);
-			mTab.setValue("QtyShortage", null);
 			mTab.setValue("Shortage_PP_Order_ID", null);
 			return "";
 		}
@@ -106,12 +105,12 @@ public class Callout_PP_Order extends CalloutOrder implements IColumnCallout {
 			mTab.setValue("RepairQty", allocation.repairQty);
 			mTab.setValue("RepairMethod", allocation.repairMethod);
 			mTab.setValue("Shortage_PP_Order_ID", allocation.shortageOrderId);
-			mTab.setValue("QtyShortage", allocation.qtyShortage);
+
 		} else {
 			mTab.setValue("RepairQty", null);
 			mTab.setValue("RepairMethod", null);
 			mTab.setValue("Shortage_PP_Order_ID", null);
-			mTab.setValue("QtyShortage", null);
+
 		}
 	}
 

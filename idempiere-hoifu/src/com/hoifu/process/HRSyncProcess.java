@@ -2,10 +2,15 @@ package com.hoifu.process;
 
 import java.sql.Timestamp;
 import java.text.SimpleDateFormat;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.logging.Level;
+import java.util.stream.Collectors;
 
 import org.adempiere.exceptions.AdempiereException;
 import org.compiere.model.MActivity;
@@ -22,6 +27,7 @@ import org.compiere.util.DB;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import com.hoifu.enums.HFSysConfigEnum;
 import com.hoifu.utils.HRTokenUtils;
 
 /**
@@ -297,6 +303,15 @@ public class HRSyncProcess extends SvrProcess {
 			log.warning("未找到名称含'集团'的BP组，使用默认BP组: " + defaultGroup.getName());
 		}
 
+		// 加载"部门同步排除"配置，支持逗号分隔多个部门代码
+		String excludeCfg = HFSysConfigEnum.HR_SYNC_EXCLUDE_DEPT_CODES.getValue(clientId);
+		Set<String> excludedDeptCodes = Optional.ofNullable(excludeCfg)
+				.map(String::trim)
+				.filter(s -> !s.isEmpty()).map(s -> Arrays.stream(s.split(","))
+				.map(String::trim)
+				.filter(c -> !c.isEmpty()).collect(Collectors.toSet()))
+				.orElseGet(Collections::emptySet);
+
 		for (int i = 0; i < emps.length(); i++) {
 			JSONObject emp = emps.getJSONObject(i);
 
@@ -320,7 +335,13 @@ public class HRSyncProcess extends SvrProcess {
 
 			if (empCode.isEmpty() || empName.isEmpty())
 				continue;
-
+			
+			// 部门排除：命中排除列表则不同步该员工
+			if (!excludedDeptCodes.isEmpty() && excludedDeptCodes.contains(deptCode)) {
+				log.info("员工[" + empCode + "]所属部门[" + deptCode + "]在排除列表中，跳过同步");
+				continue;
+			}
+			
 			// 编码转 ID
 			Integer actId = actCodeToId.get(deptCode);
 			Integer cJobId = jobCodeToId.get(jobCode);
@@ -391,6 +412,7 @@ public class HRSyncProcess extends SvrProcess {
 
 			MUser user = new MUser(bp); // 基于 MBPartner 构造，自动带出 AD_Client_ID/AD_Org_ID/C_BPartner_ID
 			user.setName(empName);
+			user.setValue(empCode);
 			user.setAD_Org_ID(0); // 设置为所有组织，避免权限问题
 			if (phone != null && !phone.isEmpty())
 				user.setPhone(phone);

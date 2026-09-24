@@ -27,8 +27,11 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Properties;
+import java.util.Set;
+import java.util.logging.Level;
 
 import org.adempiere.exceptions.AdempiereException;
 import org.adempiere.exceptions.DocTypeNotFoundException;
@@ -39,6 +42,7 @@ import org.adempiere.model.engines.IDocumentLine;
 import org.adempiere.model.engines.StorageEngine;
 import org.compiere.model.I_C_UOM;
 import org.compiere.model.MBPartner;
+import org.compiere.model.MClientInfo;
 import org.compiere.model.MCostDetail;
 import org.compiere.model.MDocType;
 import org.compiere.model.MLocator;
@@ -52,6 +56,7 @@ import org.compiere.model.MStorageOnHand;
 import org.compiere.model.MSysConfig;
 import org.compiere.model.MTransaction;
 import org.compiere.model.MUOM;
+import org.compiere.model.MUser;
 import org.compiere.model.MWarehouse;
 import org.compiere.model.ModelValidationEngine;
 import org.compiere.model.ModelValidator;
@@ -65,7 +70,11 @@ import org.compiere.util.Msg;
 import org.compiere.util.TimeUtil;
 import org.libero.exceptions.ActivityProcessedException;
 import org.libero.tables.I_PP_Cost_Collector;
+import org.libero.tables.X_C_WorkTeamMember;
 import org.libero.tables.X_PP_Cost_Collector;
+
+import com.hoifu.enums.HFSysConfigEnum;
+import com.hoifu.utils.WeChatRobotUtils;
 
 /**
  *	PP Cost Collector Model
@@ -359,6 +368,21 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 //	@Override
 	public String prepareIt()
 	{
+
+		// ===== 直接人工成本模块：报工单完成前的业务规则校验 =====
+		// 只限制"生产报工"单据(CostCollectorType=160，即 isActivityControl() 为 true)，
+		// 不能影响生产入库(100)、领料(110)等其它用途的 PP_Cost_Collector 单据
+		if (isActivityControl()) {
+			boolean directLaborCostCheckEnabled = HFSysConfigEnum.HF_ENABLE_DIRECT_LABOR_COST_CHECK
+					.getBooleanValue(getAD_Client_ID());
+			log.warning("PP_Cost_Collector_ID=" + get_ID() + " 直接人工成本校验开关(HF_ENABLE_DIRECT_LABOR_COST_CHECK)读取结果="
+					+ (directLaborCostCheckEnabled ? "开启" : "关闭"));
+			if (directLaborCostCheckEnabled) {
+				checkDirectLaborResourceCost();
+			}
+			checkPPOrderNotClosed();
+			checkMonthlyWorkHours();
+		}
 		m_processMsg = ModelValidationEngine.get().fireDocValidate(this, ModelValidator.TIMING_BEFORE_PREPARE);
 		if (m_processMsg != null)
 		{
@@ -443,6 +467,180 @@ public class MPPCostCollector extends X_PP_Cost_Collector implements DocAction ,
 
 		return DocAction.STATUS_InProgress;
 	}	//	prepareIt
+
+	/**
+	 * 直接人工成本模块：报工单完成前校验—— 班组内每个"直接人工=Y"的成员，必须： 1) 已绑定人力资源 2)
+	 * 该人力资源对应的产品，在"直接资源"成本要素下 已维护 M_Cost.CurrentCostPrice（且 > 0）。
+	 * 任一条件不满足，直接拦截报工单完成，并在提示里汇总列出具体是哪些员工、缺哪一项。
+	 *若班组成员成本未维护，则企微机器人通知财务
+	 */
+	private void checkDirectLaborResourceCost() {
+		int workTeamId = get_ValueAsInt("C_WorkTeam_ID");
+		if (workTeamId <= 0)
+			return; // 没有班组信息，不涉及直接人工，跳过
+
+		String hrResourceTypeValue = HFSysConfigEnum.HF_HR_RESOURCE_TYPE_VALUE.getValue(getAD_Client_ID());
+		int laborCostElementId = HFSysConfigEnum.HF_DIRECT_LABOR_COST_ELEMENT_ID.getIntValue(getAD_Client_ID());
+
+		// 当前报工单实际使用的会计科目表ID，M_Cost 的查询必须限定在这个维度内
+		int acctSchemaId = MClientInfo.get(getCtx(), getAD_Client_ID()).getC_AcctSchema1_ID();
+
+		// 一条SQL: 找出班组内"直接人工=Y"的成员，缺资源 或 缺成本价格(>0) 的
+		final String sql = "SELECT u.Name AS UserName, " + "       p.Value AS ProductValue, "
+				+ "       r.S_Resource_ID, " + "       COALESCE(mc.CurrentCostPrice, 0) AS CurrentCostPrice "
+				+ "FROM C_WorkTeamMember wtm " + "JOIN AD_User u ON u.AD_User_ID = wtm.AD_User_ID "
+				+ "LEFT JOIN S_Resource r ON r.AD_User_ID = u.AD_User_ID " + "     AND r.S_ResourceType_ID IN ( "
+				+ "         SELECT rt.S_ResourceType_ID FROM S_ResourceType rt "
+				+ "         WHERE rt.Value=? AND rt.AD_Client_ID=? " + "     ) "
+				+ "LEFT JOIN M_Product p ON p.S_Resource_ID = r.S_Resource_ID "
+				+ "LEFT JOIN M_Cost mc ON mc.M_Product_ID = p.M_Product_ID " + "     AND mc.M_CostElement_ID = ? "
+				+ "     AND mc.C_AcctSchema_ID = ? " + "WHERE wtm.C_WorkTeam_ID = ? " + "  AND wtm.IsDirectLabor = 'Y' "
+				+ "  AND wtm.IsActive = 'Y'";
+
+		// UI报错：只存姓名；企微通知：存"编码 姓名"。两者分开维护，互不兜底覆盖
+		Set<String> noResourceUsers = new LinkedHashSet<>();
+		Set<String> noCostUserNames = new LinkedHashSet<>(); // 用于UI报错
+		Set<String> noCostUsersForRobot = new LinkedHashSet<>(); // 用于企微通知
+
+		List<List<Object>> rows = DB.getSQLArrayObjectsEx(get_TrxName(), sql, hrResourceTypeValue, getAD_Client_ID(),
+				laborCostElementId, acctSchemaId, workTeamId);
+
+		if (rows != null) {
+			for (List<Object> row : rows) {
+				String userName = (String) row.get(0);
+				Object resourceIdObj = row.get(2);
+				BigDecimal currentCostPrice = (BigDecimal) row.get(3);
+
+				boolean noResource = resourceIdObj == null || ((Number) resourceIdObj).intValue() <= 0;
+				boolean noCost = !noResource
+						&& (currentCostPrice == null || currentCostPrice.compareTo(BigDecimal.ZERO) <= 0);
+
+				if (noResource) {
+					noResourceUsers.add(userName);
+				} else if (noCost) {
+					noCostUserNames.add(userName);
+					noCostUsersForRobot.add(userName);
+				}
+			}
+		}
+
+		StringBuilder errorMsg = new StringBuilder();
+		if (!noResourceUsers.isEmpty()) {
+			errorMsg.append("班组成员（").append(String.join(",", noResourceUsers)).append("）未绑定人力资源，请联系管理员处理；\n");
+		}
+		if (!noCostUserNames.isEmpty()) {
+			errorMsg.append("班组成员（").append(String.join(",", noCostUserNames)).append("）的人工成本数据未维护，请联系财务部门录入；\n");
+		}
+
+		if (errorMsg.length() > 0) {
+			log.warning("checkDirectLaborResourceCost: C_WorkTeam_ID=" + workTeamId + " 校验未通过 - " + errorMsg);
+			// 发送企微机器人通知财务/管理员
+			if (!noCostUsersForRobot.isEmpty()) {
+				String robotContent = "组员:（" + String.join(", ", noCostUsersForRobot) + "）无成本，请前往【直接人工】-【价格】维护人工成本。";
+				notifyWeChatRobot(robotContent);
+			}
+
+			throw new AdempiereException(errorMsg.toString());
+		}
+	}
+
+	/**
+	 * 直接人工成本校验未通过时，发送企微机器人通知（仅通知渠道，不影响主流程）。 Webhook 未配置时跳过；发送异常不应影响报工单校验/拦截的主流程。
+	 */
+	private void notifyWeChatRobot(String content) {
+		try {
+			String webhookUrl = HFSysConfigEnum.HF_WECHAT_ROBOT_LABOR_COST_WEBHOOK_URL.getValue(getAD_Client_ID());
+			if (webhookUrl == null || webhookUrl.isEmpty()) {
+				log.warning(
+						"checkDirectLaborResourceCost: 企微机器人webhook未配置(HF_WECHAT_ROBOT_LABOR_COST_WEBHOOK_URL)，跳过通知，PP_Cost_Collector_ID="
+								+ get_ID());
+				return;
+			}
+
+			String fullContent = "【海富ERP】：" + content;
+
+			log.info("准备发送直接人工成本校验未通过企微通知，PP_Cost_Collector_ID=" + get_ID());
+
+			WeChatRobotUtils.sendText(webhookUrl, fullContent);
+
+			log.info("直接人工成本校验未通过企微通知发送成功，PP_Cost_Collector_ID=" + get_ID());
+		} catch (Exception e) {
+			// 通知失败不应影响报工单被拦截这个主流程行为，只记录日志
+			log.log(Level.WARNING, "直接人工成本校验未通过企微通知发送失败，PP_Cost_Collector_ID=" + get_ID(), e.getMessage());
+		}
+	}
+
+
+	/**
+	 * 直接人工成本校验：生产工单检查。 若报工单对应的生产工单(PP_Order)状态为"关闭"(Orderstatus='Close')，
+	 * 不允许完成该报工单——报错提示财务/生产人员先修改报工日期。
+	 */
+	private void checkPPOrderNotClosed() {
+		if (getPP_Order_ID() <= 0)
+			return; // 非生产工单相关报工（如非生产报工），不受本条校验约束
+
+		MPPOrder ppOrder = getPP_Order();
+		String orderStatus = (String) ppOrder.get_Value("Orderstatus");
+		if ("Close".equals(orderStatus)) {
+			throw new AdempiereException("当前工单已关闭，请修改报工日期");
+		}
+	}
+
+	/**
+	 * 直接人工成本校验：员工月工作时长检查。
+	 * 
+	 * 规则： - 统计本次报工单班组下所有成员本月报工时长不能超过260h
+	 */
+	private void checkMonthlyWorkHours() {
+		int workTeamId = get_ValueAsInt("C_WorkTeam_ID");
+		if (workTeamId <= 0)
+			return; // 没有班组信息，跳过
+
+		Timestamp movementDate = getMovementDate();
+		if (movementDate == null)
+			return;
+
+		BigDecimal monthlyLimit = HFSysConfigEnum.HF_MONTHLY_WORK_HOURS.getBigDecimalValue(getAD_Client_ID());
+
+		BigDecimal currentDuration = getDurationReal();
+		if (currentDuration == null)
+			currentDuration = BigDecimal.ZERO;
+
+		// 查班组下所有激活成员（不区分是否直接人工，超时校验是对"人"的工时上限约束，
+		// 是否生成分录留到后续生成分录阶段再按 IsDirectLabor='Y' 过滤）
+		List<Integer> userIds = new ArrayList<>();
+		List<X_C_WorkTeamMember> members = new Query(getCtx(), org.libero.tables.X_C_WorkTeamMember.Table_Name,
+				"C_WorkTeam_ID=? AND IsActive='Y'", get_TrxName()).setParameters(workTeamId).list();
+		for (X_C_WorkTeamMember m : members) {
+			userIds.add(m.getAD_User_ID());
+		}
+
+		for (Integer userId : userIds) {
+			if (userId == null || userId <= 0)
+				continue;
+
+			// 统计该员工当月（按 MovementDate 所在自然月）、已完成(CO)的历史报工工时，排除本单自身
+			String sql = "SELECT COALESCE(SUM(cc.DurationReal), 0) " + "FROM PP_Cost_Collector cc "
+					+ "JOIN C_WorkTeamMember wtm ON wtm.C_WorkTeam_ID = cc.C_WorkTeam_ID " + "WHERE wtm.AD_User_ID = ? "
+					+ "  AND wtm.IsActive = 'Y' " + "  AND cc.DocStatus = ? " + "  AND cc.PP_Cost_Collector_ID <> ? "
+					+ "  AND cc.MovementDate >= date_trunc('month', ?::timestamp) "
+					+ "  AND cc.MovementDate < date_trunc('month', ?::timestamp) + interval '1 month'";
+
+			BigDecimal reportedHours = DB.getSQLValueBD(get_TrxName(), sql, userId,
+					MPPCostCollector.DOCSTATUS_Completed, get_ID(), movementDate, movementDate);
+			if (reportedHours == null)
+				reportedHours = BigDecimal.ZERO;
+			reportedHours = reportedHours.compareTo(monthlyLimit) > 0 ? monthlyLimit : reportedHours;
+
+			BigDecimal totalAfterThisTime = reportedHours.add(currentDuration);
+			if (totalAfterThisTime.compareTo(monthlyLimit) > 0) {
+				String userName = MUser.getNameOfUser(userId);
+				log.warning("@" + userName + "(AD_User_ID=" + userId + ")（已报工" + reportedHours + "小时，当前报工"
+						+ currentDuration + "小时），员工当月累计报工时间不可超过" + monthlyLimit + "小时，多余"
+						+ (totalAfterThisTime.subtract(monthlyLimit)) + "小时不计入工时");
+			}
+		}
+	}
 
 //	@Override
 	public boolean  approveIt()

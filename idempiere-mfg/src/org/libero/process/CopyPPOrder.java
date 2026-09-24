@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
+import org.compiere.model.MProduct;
 import org.compiere.model.MSequence;
 import org.compiere.model.PO;
 import org.compiere.model.Query;
@@ -39,6 +40,7 @@ public class CopyPPOrder extends SvrProcess {
 	private int nodeProductCount = 0;
 	private int nodeAssetCount = 0;
 	private int nodeNextCount = 0;
+	private int bomLineSkippedInvalidCount = 0;
 
 	@Override
 	protected void prepare() {
@@ -121,6 +123,14 @@ public class CopyPPOrder extends SvrProcess {
 			// Step 5: 复制 PP_Order_BOMLine
 			// =============================================
 			for (MPPOrderBOMLine fromLine : fromBOM.getLines()) {
+				int lineProductId = fromLine.getM_Product_ID();
+				if (lineProductId > 0) {
+					MProduct lineProduct = MProduct.get(ctx, lineProductId);
+					if (lineProduct == null || !lineProduct.isActive()) {
+						bomLineSkippedInvalidCount++;
+						continue;
+					}
+				}
 				MPPOrderBOMLine newLine = new MPPOrderBOMLine(ctx, 0, trxName);
 				PO.copyValues(fromLine, newLine);
 				newLine.setAD_Org_ID(fromLine.getAD_Org_ID());
@@ -250,7 +260,8 @@ public class CopyPPOrder extends SvrProcess {
 			}
 		}
 
-		return "已复制工单: " + fromOrder.getDocumentNo() + " → " + newOrder.getDocumentNo();
+		String skippedInfo = bomLineSkippedInvalidCount > 0 ? "，因物料失效跳过 " + bomLineSkippedInvalidCount + " 条BOM行" : "";
+		return "已复制工单: " + fromOrder.getDocumentNo() + " → " + newOrder.getDocumentNo() + skippedInfo;
 	}
 
 	@Override

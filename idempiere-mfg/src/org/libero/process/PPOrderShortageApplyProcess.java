@@ -133,7 +133,7 @@ public class PPOrderShortageApplyProcess extends SvrProcess {
         getProcessInfo().setRecord_ID(request.get_ID());
 
 		// 生成可点击穿透到《生产补数申请单》记录的日志
-		addLog(request.get_ID(), null, null, "@Created@ " + (docNo != null ? docNo : String.valueOf(request.get_ID())),
+		addLog(request.get_ID(), null, null, "补数申请单：" + (docNo != null ? docNo : String.valueOf(request.get_ID())),
 				tableId, request.get_ID());
 
 		return "@Success@";

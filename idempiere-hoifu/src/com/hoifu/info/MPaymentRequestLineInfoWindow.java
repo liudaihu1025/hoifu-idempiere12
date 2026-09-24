@@ -15,7 +15,7 @@ import org.compiere.util.CLogger;
 import org.compiere.util.DB;  
 import org.compiere.util.Env;  
   
-public class MPaymentRequestLineInfoWindow extends InfoWindow {  
+public class MPaymentRequestLineInfoWindow extends AbstractAllNumericTotalsInfoWindow {  
   
     private static final CLogger log = CLogger.getCLogger(MPaymentRequestLineInfoWindow.class);  
   

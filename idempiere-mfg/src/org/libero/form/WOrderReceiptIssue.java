@@ -572,11 +572,23 @@ public class WOrderReceiptIssue extends OrderReceiptIssue
 		int row = event.getFirstRow();
 		int column = event.getColumn();
 
-		// 2. 处理仓库申请数量列（列7）的变化 → 重算线边仓申请数量（列8）
-		if (column == 7 && row >= 0) {
+		// 2. 处理仓库申请数量列（列8）的变化 → 重算线边仓申请数量（列9）
+		if (column == 8 && row >= 0) {
 			try {
 				Object value = issue.getValueAt(row, column);
 				BigDecimal newValue = convertToBigDecimal(value);
+
+				// 生产退料：校验必须在拆分之前，用原始输入值与已领数量比较
+				if (isProductionReturn() && newValue.compareTo(Env.ZERO) > 0) {
+					BigDecimal deliveredQty = convertToBigDecimal(issue.getValueAt(row, 7));
+					if (newValue.compareTo(deliveredQty) > 0) {
+						isRestoringValue = true;
+						issue.setValueAt(Env.ZERO, row, 8);
+						issue.setValueAt(Env.ZERO, row, 9);
+						isRestoringValue = false;
+						return;
+					}
+				}
 
 				// 生产退料时，输入数量不足最小包装，直接归入线边仓（列8）
 				if (isProductionReturn() && newValue.compareTo(Env.ZERO) > 0) {
@@ -585,8 +597,8 @@ public class WOrderReceiptIssue extends OrderReceiptIssue
 						BigDecimal minPack = getUnitsPerPack(productKey.getKey());
 						if (newValue.compareTo(minPack) < 0) {
 							isRestoringValue = true;
-							issue.setValueAt(Env.ZERO, row, 7);
-							issue.setValueAt(newValue, row, 8);
+							issue.setValueAt(Env.ZERO, row, 8);
+							issue.setValueAt(newValue, row, 9);
 							isRestoringValue = false;
 							return;
 						}
@@ -698,8 +710,8 @@ public class WOrderReceiptIssue extends OrderReceiptIssue
 			for (int i = 0; i < issue.getRowCount(); i++) {
 				IDColumn idColumn = (IDColumn) issue.getValueAt(i, 0);
 				if (idColumn != null && idColumn.isSelected()) {
-					// 获取领取数量（第7列）
-					Object qtyObj = issue.getValueAt(i, 7);
+					// 获取领取数量（第8列）
+					Object qtyObj = issue.getValueAt(i, 8);
 					BigDecimal qtyToDeliver = Env.ZERO;
 
 					if (qtyObj instanceof BigDecimal) {
@@ -721,9 +733,9 @@ public class WOrderReceiptIssue extends OrderReceiptIssue
 						materialCode = materialCodeObj.toString();
 					}
 
-					// 获取线边仓申请数量（第8列）
+					// 获取线边仓申请数量（第9列）
 					BigDecimal lineSideQty_check = Env.ZERO;
-					Object lineSideObj = issue.getValueAt(i, 8);
+					Object lineSideObj = issue.getValueAt(i, 9);
 					if (lineSideObj instanceof BigDecimal) {
 						lineSideQty_check = (BigDecimal) lineSideObj;
 					} else if (lineSideObj instanceof Number) {
@@ -737,8 +749,8 @@ public class WOrderReceiptIssue extends OrderReceiptIssue
 					}
 
 					// 获取需求数量和已领数量
-					Object requiredQtyObj = issue.getValueAt(i, 5);
-					Object deliveredQtyObj = issue.getValueAt(i, 6);
+					Object requiredQtyObj = issue.getValueAt(i, 6);
+					Object deliveredQtyObj = issue.getValueAt(i, 7);
 					BigDecimal requiredQty = Env.ZERO;
 					BigDecimal deliveredQty = Env.ZERO;
 
@@ -769,7 +781,7 @@ public class WOrderReceiptIssue extends OrderReceiptIssue
 			for (int i = 0; i < issue.getRowCount(); i++) {
 				IDColumn idColumn = (IDColumn) issue.getValueAt(i, 0);
 				if (idColumn != null && idColumn.isSelected()) {
-					Object qtyObj = issue.getValueAt(i, 7);
+					Object qtyObj = issue.getValueAt(i, 8);
 					BigDecimal qtyToDeliver = Env.ZERO;
 
 					if (qtyObj instanceof BigDecimal) {
@@ -1587,15 +1599,15 @@ public class WOrderReceiptIssue extends OrderReceiptIssue
 							int row = e.getFirstRow();
 							int col = e.getColumn();
 
-							// 检查是否是已领数量列（第6列）
-							if (col == 6) {
+							// 检查是否是已领数量列（第7列）
+							if (col == 7) {
 								try {
 									BigDecimal newDeliveredQty = (BigDecimal) issue.getValueAt(row, col);
 									if (newDeliveredQty == null) {
 										newDeliveredQty = Env.ZERO;
 									}
 
-									BigDecimal requiredQty = (BigDecimal) issue.getValueAt(row, 5);
+									BigDecimal requiredQty = (BigDecimal) issue.getValueAt(row, 6);
 									if (requiredQty == null) {
 										requiredQty = Env.ZERO;
 									}
@@ -1607,7 +1619,7 @@ public class WOrderReceiptIssue extends OrderReceiptIssue
 									}
 
 									// 更新领取数量列（第7列）
-									issue.setValueAt(newToDeliverQty, row, 7);
+									issue.setValueAt(newToDeliverQty, row, 8);
 								} catch (Exception ex) {
 									log.severe("表格监听器出错: " + ex.getMessage());
 								}
@@ -1680,8 +1692,8 @@ public class WOrderReceiptIssue extends OrderReceiptIssue
 			BigDecimal unitsPerPack = getUnitsPerPack(productId);
 
 			// 获取需求数量和已领数量
-			BigDecimal requiredQty = convertToBigDecimal(issue.getValueAt(row, 5));
-			BigDecimal deliveredQty = convertToBigDecimal(issue.getValueAt(row, 6));
+			BigDecimal requiredQty = convertToBigDecimal(issue.getValueAt(row, 6));
+			BigDecimal deliveredQty = convertToBigDecimal(issue.getValueAt(row, 7));
 
 			// 获取领退类型
 			String selectedType = pickcombo.getSelectedItem() != null ? pickcombo.getSelectedItem().getLabel() : "";
@@ -1698,7 +1710,7 @@ public class WOrderReceiptIssue extends OrderReceiptIssue
 				}
 
 				// 领料：用户输入 - 线边仓库存，再按包装数量向上取整
-				BigDecimal lineSideOnHand = convertToBigDecimal(issue.getValueAt(row, 14));
+				BigDecimal lineSideOnHand = convertToBigDecimal(issue.getValueAt(row, 15));
 				BigDecimal qtyToRound = inputValue.subtract(lineSideOnHand);
 				if (qtyToRound.compareTo(Env.ZERO) < 0)
 					qtyToRound = Env.ZERO;
@@ -1713,7 +1725,7 @@ public class WOrderReceiptIssue extends OrderReceiptIssue
 
 				BigDecimal stockQty = Env.ZERO;
 				try {
-					Object stockObj = issue.getValueAt(row, 9);
+					Object stockObj = issue.getValueAt(row, 10);
 					if (stockObj instanceof BigDecimal) {
 						stockQty = (BigDecimal) stockObj;
 					} else if (stockObj != null) {
@@ -1743,7 +1755,7 @@ public class WOrderReceiptIssue extends OrderReceiptIssue
 				maxQty = deliveredQty;
 			} else if ("生产补领".equals(selectedType)) {
 				// 补领：最大值 = min(向上取整的最大值 - 已领数量, 库存数量)
-				BigDecimal stockQty2 = convertToBigDecimal(issue.getValueAt(row, 9));
+				BigDecimal stockQty2 = convertToBigDecimal(issue.getValueAt(row, 10));
 				maxQty = stockQty2;
 			} else if ("委外发料".equals(selectedType)) {
 				// 委外发料：考虑包装规格的最大值
@@ -1755,7 +1767,7 @@ public class WOrderReceiptIssue extends OrderReceiptIssue
 				}
 			} else if ("委外补领".equals(selectedType)) {
 				// 委外补领：考虑包装规格的最大值
-				BigDecimal stockQty = convertToBigDecimal(issue.getValueAt(row, 9));
+				BigDecimal stockQty = convertToBigDecimal(issue.getValueAt(row, 10));
 				maxQty = stockQty;
 			} else if ("委外退料".equals(selectedType)) {
 				// 退料：最大值 = min(已领数量, 向上取整的最大值)
@@ -2217,57 +2229,58 @@ public class WOrderReceiptIssue extends OrderReceiptIssue
 				// 列2：产品 KeyNamePair（createIssue 从此列读取产品ID）
 				issue.setValueAt(new KeyNamePair(result.substituteProductId, subProduct.getName()), row, 2);
 
-				// 列3：单位（替代料单位可能与主料不同）
+				// 列4：单位（替代料单位可能与主料不同）
 				int subUomId = subProduct.getC_UOM_ID();
 				MUOM subUom = MUOM.get(Env.getCtx(), subUomId);
 				String uomName = subUom != null ? subUom.getName() : "";
-				issue.setValueAt(new KeyNamePair(subUomId, uomName), row, 3);
+				issue.setValueAt(new KeyNamePair(subUomId, uomName), row, 4);
 
-				// 列4：批次/ASI 清空（替代料批次与主料不同，让用户在发料时重新选择）
-				issue.setValueAt(null, row, 4);
+				// 列5：批次/ASI 清空（替代料批次与主料不同，让用户在发料时重新选择）
+				issue.setValueAt(null, row, 5);
 
-				// 列5：需求数量（替代比例≠1时按比例调整）
-				BigDecimal origRequired = convertToBigDecimal(issue.getValueAt(row, 5));
+				// 列6：需求数量（替代比例≠1时按比例调整）
+				BigDecimal origRequired = convertToBigDecimal(issue.getValueAt(row, 6));
 				BigDecimal newRequired = origRequired.multiply(result.ratio);
-				issue.setValueAt(newRequired, row, 5);
+				issue.setValueAt(newRequired, row, 6);
 
-				// 列6：已领数量 — 不改（属于BOM行的历史记录）
+				// 列7：已领数量 — 不改（属于BOM行的历史记录）
 
-				// 列7：仓库申请数量（替代比例≠1时按比例调整）
-				BigDecimal origToDeliver = convertToBigDecimal(issue.getValueAt(row, 7));
+				// 列8：仓库申请数量（替代比例≠1时按比例调整）
+				BigDecimal origToDeliver = convertToBigDecimal(issue.getValueAt(row, 8));
 				BigDecimal newToDeliver = origToDeliver.multiply(result.ratio);
-				issue.setValueAt(newToDeliver, row, 7);
+				issue.setValueAt(newToDeliver, row, 8);
 
-				// 列8：仓库库存（替代料在当前仓库的库存）
+				// 列10：仓库库存（替代料在当前仓库的库存）
 				BigDecimal subOnHand = MStorageOnHand.getQtyOnHand(result.substituteProductId, warehouseId, 0, null);
-				issue.setValueAt(subOnHand, row, 9);
+				issue.setValueAt(subOnHand, row, 10);
 
-				// 列9：预留数量（替代料在当前仓库的预留数量）
+				// 列11：预留数量（替代料在当前仓库的预留数量）
 				// isSOTrx=false 表示查询采购/生产侧预留
 				MStorageReservation reservation = MStorageReservation.get(Env.getCtx(), warehouseId,
 						result.substituteProductId, 0, false, null);
 				BigDecimal subReserved = (reservation != null) ? reservation.getQty() : BigDecimal.ZERO;
 				if (subReserved == null)
 					subReserved = BigDecimal.ZERO;
-				issue.setValueAt(subReserved, row, 10);
+				issue.setValueAt(subReserved, row, 11);
 
-				// 列10：可用数量 = 库存 - 预留
+				// 列12：可用数量 = 库存 - 预留
 				BigDecimal subAvailable = subOnHand.subtract(subReserved);
-				issue.setValueAt(subAvailable, row, 11);
+				issue.setValueAt(subAvailable, row, 12);
 
 				// 列13-14：计算替代料的线边仓库存和申请数量
-				BigDecimal subLineSideOnHand = getLineSideOnHand(result.substituteProductId);
+				MPPOrder order = getPP_Order();
+				BigDecimal subLineSideOnHand = getLineSideOnHand(result.substituteProductId, order != null ? order.getAD_Org_ID() : 0);
 				BigDecimal subLineSideRequestQty = subLineSideOnHand.compareTo(newToDeliver) > 0 ? newToDeliver
 						: subLineSideOnHand;
-				issue.setValueAt(subLineSideRequestQty, row, 8); // 线边仓申请数量
-				issue.setValueAt(subLineSideOnHand, row, 14); // 线边仓库存
+				issue.setValueAt(subLineSideRequestQty, row, 9); // 线边仓申请数量
+				issue.setValueAt(subLineSideOnHand, row, 15); // 线边仓库存
 
 				// 列11：仓库 — 不改（仓库不变）
 
 				// 列12：BOM数量 — 不改（BOM定义的数量不变）
 
-				// 列15：主料信息（新增列，显示被替代的主料）
-				issue.setValueAt(mainProduct.getValue() + " - " + mainProduct.getName(), row, 15);
+				// 列16：主料信息（新增列，显示被替代的主料）
+				issue.setValueAt(mainProduct.getValue() + " - " + mainProduct.getName(), row, 16);
 
 				log.info("替代料应用: 主料[" + mainProduct.getValue() + "] → 替代料[" + subProduct.getValue() + "] 比例="
 						+ result.ratio);
@@ -2417,7 +2430,7 @@ public class WOrderReceiptIssue extends OrderReceiptIssue
 	 * @return 线边仓申请数量
 	 */
 	private BigDecimal getLineSideQty(IMiniTable issue, int row) {
-		Object obj = issue.getValueAt(row, 8);
+		Object obj = issue.getValueAt(row, 9);
 		if (obj instanceof BigDecimal) {
 			return (BigDecimal) obj;
 		}
@@ -2439,12 +2452,12 @@ public class WOrderReceiptIssue extends OrderReceiptIssue
 	 * 用户编辑仓库申请数量（列7）后触发，只更新线边仓申请数量（列8），不修改列7。
 	 */
 	private void recalcLineSideRequestQty(int row) {
-		BigDecimal lineSideOnHand = convertToBigDecimal(issue.getValueAt(row, 14));
+		BigDecimal lineSideOnHand = convertToBigDecimal(issue.getValueAt(row, 15));
 
 		// 生产补领：不计算线边仓，线边仓默认为0
 		if (isProductionReplenishment()) {
 			isRestoringValue = true;
-			issue.setValueAt(Env.ZERO, row, 8);
+			issue.setValueAt(Env.ZERO, row, 9);
 			isRestoringValue = false;
 			return;
 		}
@@ -2454,16 +2467,25 @@ public class WOrderReceiptIssue extends OrderReceiptIssue
 		// 物料分组不启用线边仓时，线边仓为0
 		if (!isLineSideWarehouseProduct(productKey.getKey())) {
 			isRestoringValue = true;
-			issue.setValueAt(Env.ZERO, row, 8);
+			issue.setValueAt(Env.ZERO, row, 9);
 			isRestoringValue = false;
 			return;
 		}
 
-		// 线边仓有库存就全部扣减，能扣多少就多少
-		BigDecimal lineSideQty = lineSideOnHand;
+		BigDecimal warehouseQty = convertToBigDecimal(issue.getValueAt(row, 8));
+		BigDecimal minPack = getUnitsPerPack(productKey.getKey());
+
+		BigDecimal lineSideQty;
+		if (warehouseQty.compareTo(minPack) < 0) {
+			// 用户输入不足最小包装：从线边仓出，但不超过线边仓库存
+			lineSideQty = warehouseQty.min(lineSideOnHand);
+		} else {
+			// 达到最小包装：线边仓全部扣减
+			lineSideQty = lineSideOnHand;
+		}
 
 		isRestoringValue = true;
-		issue.setValueAt(lineSideQty, row, 8); // 线边仓申请数量
+		issue.setValueAt(lineSideQty, row, 9); // 线边仓申请数量
 		isRestoringValue = false;
 
 	}
@@ -2472,9 +2494,9 @@ public class WOrderReceiptIssue extends OrderReceiptIssue
 	 * 生产退料按最小包装拆分：整包装退仓库（列7）、零头入线边仓（列8）。 用户编辑列7后触发。例：输入1.5桶，最小包装=1 → 列7=1，列8=0.5
 	 */
 	private void recalcReturnLineSideQty(int row) {
-		BigDecimal returnQty = convertToBigDecimal(issue.getValueAt(row, 7));
+		BigDecimal returnQty = convertToBigDecimal(issue.getValueAt(row, 8));
 		if (returnQty.compareTo(Env.ZERO) <= 0) {
-			issue.setValueAt(Env.ZERO, row, 8);
+			issue.setValueAt(Env.ZERO, row, 9);
 			return;
 		}
 
@@ -2484,8 +2506,8 @@ public class WOrderReceiptIssue extends OrderReceiptIssue
 		// 物料分组不启用线边仓时，全部退仓库
 		if (!isLineSideWarehouseProduct(productKey.getKey())) {
 			isRestoringValue = true;
-			issue.setValueAt(returnQty, row, 7);
-			issue.setValueAt(Env.ZERO, row, 8);
+			issue.setValueAt(returnQty, row, 8);
+			issue.setValueAt(Env.ZERO, row, 9);
 			isRestoringValue = false;
 			return;
 		}
@@ -2498,8 +2520,8 @@ public class WOrderReceiptIssue extends OrderReceiptIssue
 		BigDecimal lineSideQty = returnQty.subtract(warehouseQty);
 
 		isRestoringValue = true;
-		issue.setValueAt(warehouseQty, row, 7); // 修正：整包装留在仓库
-		issue.setValueAt(lineSideQty, row, 8); // 零头入线边仓
+		issue.setValueAt(warehouseQty, row, 8); // 修正：整包装留在仓库
+		issue.setValueAt(lineSideQty, row, 9); // 零头入线边仓
 		isRestoringValue = false;
 	}
 
@@ -2510,8 +2532,8 @@ public class WOrderReceiptIssue extends OrderReceiptIssue
 		try {
 			if (issue.getListhead() != null) {
 				java.util.List<?> headers = issue.getListhead().getChildren();
-				if (headers != null && headers.size() > 7) {
-					Listheader col7 = (Listheader) headers.get(7);
+				if (headers != null && headers.size() > 8) {
+					Listheader col7 = (Listheader) headers.get(8);
 					col7.setLabel(isProductionReturn ? "退料申请数量" : "仓库申请数量");
 				}
 			}
@@ -2520,15 +2542,17 @@ public class WOrderReceiptIssue extends OrderReceiptIssue
 		}
 	}
 
-	private BigDecimal getLineSideOnHand(int productId) {
+	private BigDecimal getLineSideOnHand(int productId, int orgId) {
 		String sql = "SELECT COALESCE(SUM(soh.QtyOnHand), 0) " + "FROM M_StorageOnHand soh "
 				+ "JOIN M_Locator loc ON soh.M_Locator_ID = loc.M_Locator_ID "
 				+ "JOIN M_LocatorType lt ON loc.M_LocatorType_ID = lt.M_LocatorType_ID "
+				+ "JOIN M_Warehouse wh ON loc.M_Warehouse_ID = wh.M_Warehouse_ID "
 				+ "JOIN M_Product p ON soh.M_Product_ID = p.M_Product_ID "
 				+ "JOIN M_Product_Category pc ON p.M_Product_Category_ID_L2 = pc.M_Product_Category_ID "
 				+ "WHERE soh.M_Product_ID = ? " + "AND lt.Name = '生产线边仓' " + "AND loc.IsActive = 'Y' "
-				+ "AND pc.Is_Line_Side_Warehouse = 'Y'";
-		return DB.getSQLValueBD(null, sql, productId);
+				+ "AND pc.Is_Line_Side_Warehouse = 'Y' "
+				+ "AND wh.AD_Org_ID = ?";
+		return DB.getSQLValueBD(null, sql, productId, orgId);
 	}
 
 	private static class SubstituteResult {

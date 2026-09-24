@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<scr:component xmlns:scr="http://www.osgi.org/xmlns/scr/v1.1.0"
+               immediate="true"
+               name="com.hoifu.listener.AssetUsageChangeParameterListener">
+   <implementation class="com.hoifu.listener.AssetUsageChangeParameterListener"/>
+   <service>
+      <provide interface="org.adempiere.webui.apps.IProcessParameterListener"/>
+   </service>
+   <property name="ProcessClass" value="com.hoifu.process.AssetUsageChangeProcess"/>
+   <property name="ColumnName" value="C_Activity_ID,C_BPartner_ID,AD_User_ID,C_BPartner_Location_ID,M_Locator_ID"/>
+</scr:component>

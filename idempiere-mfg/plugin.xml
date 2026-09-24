@@ -114,6 +114,13 @@
       </process>
    </extension>
    <extension
+         id="org.libero.process.MRPWithFlags"
+         point="org.adempiere.base.Process">
+      <process
+            class="org.libero.process.MRPWithFlags">
+      </process>
+   </extension>
+   <extension
          id="org.libero.process.MRPUpdate"
          point="org.adempiere.base.Process">
       <process
@@ -502,6 +509,13 @@
       </process>
    </extension>
    <extension
+           id="org.libero.process.InOutRequisitionToPPMaterialOrder"
+           point="org.adempiere.base.Process">
+      <process
+              class="org.libero.process.InOutRequisitionToPPMaterialOrder">
+      </process>
+   </extension>
+   <extension
          id="org.libero.process.PPOrderReleaseProcess"
          point="org.adempiere.base.Process">
       <process
@@ -764,6 +778,13 @@
            class="org.libero.process.PPOrderRepairCreateOrderProcess">
    </process>
 </extension>
+   <extension
+           id="org.libero.process.RepairDirectLaborCostDetailProcess"
+           point="org.adempiere.base.Process">
+      <process
+              class="org.libero.process.RepairDirectLaborCostDetailProcess">
+      </process>
+   </extension>
 
 
 </plugin>

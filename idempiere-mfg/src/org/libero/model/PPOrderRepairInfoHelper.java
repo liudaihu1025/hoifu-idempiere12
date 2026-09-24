@@ -107,10 +107,10 @@ public class PPOrderRepairInfoHelper {
             result.allocated = true;
 
             // 5. 查询原工单的欠数数量
-            BigDecimal qtyShortage = DB.getSQLValueBD(trxName,
-                    "SELECT QtyShortage FROM PP_Order WHERE PP_Order_ID=?",
-                    shortageOrderId);
-            result.qtyShortage = qtyShortage != null ? qtyShortage : BigDecimal.ZERO;
+//            BigDecimal qtyShortage = DB.getSQLValueBD(trxName,
+//                    "SELECT QtyShortage FROM PP_Order WHERE PP_Order_ID=?",
+//                    shortageOrderId);
+//            result.qtyShortage = qtyShortage != null ? qtyShortage : BigDecimal.ZERO;
 
         } catch (SQLException e) {
             // 查询失败，不阻断主流程

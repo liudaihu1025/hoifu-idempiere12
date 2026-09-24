@@ -7,6 +7,7 @@ import java.util.logging.Level;
 import org.adempiere.webui.panel.ADForm;
 import org.adempiere.webui.window.Dialog;
 import org.compiere.util.CLogger;
+import org.compiere.util.Env;
 import org.json.JSONObject;
 import org.zkoss.zul.Iframe;
 
@@ -70,10 +71,16 @@ public class HFPricingSheetSystemForm extends ADForm {
 			log.warning("未获取到当前用户的 LDAP 账号，无法进行 SSO 登录");
 			return null;
 		}
+		int adOrgId = Env.getAD_Org_ID(Env.getCtx());
+		if (adOrgId < 0) {
+			log.warning("无法获取当前登录组织 ID");
+			return null;
+		}
 
 		JSONObject requestBody = new JSONObject();
 		requestBody.put("username", ldapUser);
 		requestBody.put("env", env);
+		requestBody.put("companyCode", adOrgId);
 		requestBody.put("redirect_page", redirectPage);
 
 		Map<String, String> headers = new HashMap<>();

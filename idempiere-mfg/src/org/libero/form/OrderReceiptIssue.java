@@ -25,8 +25,10 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.adempiere.exceptions.AdempiereException;
 import org.adempiere.exceptions.DBException;
@@ -166,19 +168,20 @@ public class OrderReceiptIssue extends GenForm {
 		issue.addColumn("关键部件"); // 0 - 复选框列
 		issue.addColumn("物料编码"); // 1
 		issue.addColumn("物料"); // 2
-		issue.addColumn("单位"); // 3
-		issue.addColumn("批次"); // 4
-		issue.addColumn("需求数量"); // 5
-		issue.addColumn("已领数量"); // 6
-		issue.addColumn("仓库申请数量"); // 7 - 可编辑
-		issue.addColumn("线边仓申请数量"); // 8 - 只读，自动回显
-		issue.addColumn("仓库库存"); // 9
-		issue.addColumn("预留数量"); // 10
-		issue.addColumn("可用数量"); // 11
-		issue.addColumn("仓库"); // 12
-		issue.addColumn("bom数量"); // 13
-		issue.addColumn("线边仓库存"); // 14
-		issue.addColumn("主料信息"); // 15
+		issue.addColumn("规格");// 3
+		issue.addColumn("单位"); // 4
+		issue.addColumn("批次"); // 5
+		issue.addColumn("需求数量"); // 6
+		issue.addColumn("已领数量"); // 7
+		issue.addColumn("仓库申请数量"); // 8 - 可编辑
+		issue.addColumn("线边仓申请数量"); // 9 - 只读，自动回显
+		issue.addColumn("仓库库存"); // 10
+		issue.addColumn("预留数量"); // 11
+		issue.addColumn("可用数量"); // 12
+		issue.addColumn("仓库"); // 13
+		issue.addColumn("bom数量"); // 14
+		issue.addColumn("线边仓库存"); // 15
+		issue.addColumn("主料信息"); // 16
 
 		issue.setMultiSelection(true);
 
@@ -186,19 +189,20 @@ public class OrderReceiptIssue extends GenForm {
 		issue.setColumnClass(0, IDColumn.class, true, "关键部件");
 		issue.setColumnClass(1, String.class, true, "物料编码");
 		issue.setColumnClass(2, KeyNamePair.class, true, "物料");
-		issue.setColumnClass(3, KeyNamePair.class, true, "单位");
-		issue.setColumnClass(4, String.class, true, "批次");
-		issue.setColumnClass(5, BigDecimal.class, true, "需求数量");
-		issue.setColumnClass(6, BigDecimal.class, true, "已领数量");
-		issue.setColumnClass(7, BigDecimal.class, false, "仓库申请数量"); // 可编辑
-		issue.setColumnClass(8, BigDecimal.class, true, "线边仓申请数量"); // 只读
-		issue.setColumnClass(9, BigDecimal.class, true, "仓库库存");
-		issue.setColumnClass(10, BigDecimal.class, true, "预留数量");
-		issue.setColumnClass(11, BigDecimal.class, true, "可用数量");
-		issue.setColumnClass(12, KeyNamePair.class, true, "仓库");
-		issue.setColumnClass(13, BigDecimal.class, true, "bom数量");
-		issue.setColumnClass(14, BigDecimal.class, true, "线边仓库存");
-		issue.setColumnClass(15, String.class, true, "主料信息");
+		issue.setColumnClass(3, String.class, true, "规格");
+		issue.setColumnClass(4, KeyNamePair.class, true, "单位");
+		issue.setColumnClass(5, String.class, true, "批次");
+		issue.setColumnClass(6, BigDecimal.class, true, "需求数量");
+		issue.setColumnClass(7, BigDecimal.class, true, "已领数量");
+		issue.setColumnClass(8, BigDecimal.class, false, "仓库申请数量"); // 可编辑
+		issue.setColumnClass(9, BigDecimal.class, true, "线边仓申请数量"); // 只读
+		issue.setColumnClass(10, BigDecimal.class, true, "仓库库存");
+		issue.setColumnClass(11, BigDecimal.class, true, "预留数量");
+		issue.setColumnClass(12, BigDecimal.class, true, "可用数量");
+		issue.setColumnClass(13, KeyNamePair.class, true, "仓库");
+		issue.setColumnClass(14, BigDecimal.class, true, "bom数量");
+		issue.setColumnClass(15, BigDecimal.class, true, "线边仓库存");
+		issue.setColumnClass(16, String.class, true, "主料信息");
 
 		issue.autoSize();
 		issue.setRowCount(0);
@@ -421,10 +425,10 @@ public class OrderReceiptIssue extends GenForm {
 
 			data.add(issue.getValueAt(i, 1)); // 2 - 物料编码
 			data.add(issue.getValueAt(i, 2)); // 3 - KeyNamePair 物料
-			// 纯线边仓时用量来自线边仓申请数量（列8），否则来自仓库申请数量（列7）
-			data.add(isLineSideOnly ? getValueBigDecimal(issue, i, 8) : getValueBigDecimal(issue, i, 7)); // 4 - 领取数量
-			data.add(getValueBigDecimal(issue, i, 4)); // 5 - 批次
-			data.add(getValueBigDecimal(issue, i, 8)); // 6 - 线边仓申请数量
+			// 纯线边仓时用量来自线边仓申请数量（列9），否则来自仓库申请数量（列8）
+			data.add(isLineSideOnly ? getValueBigDecimal(issue, i, 9) : getValueBigDecimal(issue, i, 8)); // 4 - 领取数量
+			data.add(getValueBigDecimal(issue, i, 5)); // 5 - 批次
+			data.add(getValueBigDecimal(issue, i, 9)); // 6 - 线边仓申请数量
 
 			m_issue[row][0] = data;
 			row++;
@@ -523,15 +527,18 @@ public class OrderReceiptIssue extends GenForm {
 				MStorageOnHand[] storages;
 				boolean draftOnly;
 
-				// 判断是否发生了替代（列15有主料信息则说明当前行已被替代）
-				Object mainProductInfo = issue.getValueAt(i, 15);
+				// 判断是否发生了替代（列16有主料信息则说明当前行已被替代）
+				Object mainProductInfo = issue.getValueAt(i, 16);
 				boolean isSubstituted = mainProductInfo != null && !mainProductInfo.toString().isEmpty();
 				int substituteProductId = isSubstituted ? M_Product_ID : 0;
 
 				if (MPPCostCollector.COSTCOLLECTORTYPE_ProductionReturn.equals(costCollectorType)) {
-					// 生产退料：UI已按最小包装拆分，列7=仓库退料，列8=线边仓退料，此处直接读取不再重复计算
-						BigDecimal warehouseQty = qtyToDeliver; // 列7，已是整包装退仓库数量
-						BigDecimal lineSideQty = getValueBigDecimal(issue, i, 8); // 列8，已是零头退线边仓数量
+
+					// 生产退料：UI已按最小包装拆分，列8=仓库退料，列9=线边仓退料，此处直接读取不再重复计算
+					BigDecimal warehouseQty = qtyToDeliver; // 列8，已是整包装退仓库数量
+
+					BigDecimal lineSideQty = getValueBigDecimal(issue, i, 9); // 列9，已是零头退线边仓数量
+
 						// 物料分组不启用线边仓时，零头也归入仓库
 						if (!isLineSideWarehouseProduct(M_Product_ID)) {
 							warehouseQty = warehouseQty.add(lineSideQty);
@@ -569,7 +576,7 @@ public class OrderReceiptIssue extends GenForm {
 								substituteProductId);
 					} else if (isReturnLineSideOnly && lineSideQty.compareTo(Env.ZERO) > 0) {
 							// 纯线边仓退料：全部退到线边仓库位，使用14参方法(退料专用)
-							int lineSideLocatorId = getLineSideLocatorId(order.get_TrxName());
+							int lineSideLocatorId = getLineSideLocatorId(order.get_TrxName(), order.getAD_Org_ID());
 							if (lineSideLocatorId <= 0) {
 								throw new AdempiereException("未找到线边仓库位，无法退料");
 							}
@@ -581,10 +588,24 @@ public class OrderReceiptIssue extends GenForm {
 				} else {
 					// 领料/补领：纯线边仓领料使用线边仓库位，普通领料使用仓库所有库位
 					if (isLineSideOnly) {
-						storages = getLineSideStorages(M_Product_ID, order.get_TrxName());
+						storages = getLineSideStorages(M_Product_ID, order.get_TrxName(), order.getAD_Org_ID());
 					} else {
+
 						storages = MPPOrder.getStorages(Env.getCtx(), M_Product_ID, order.getM_Warehouse_ID(),
 								M_AttributeSetInstance_ID, minGuaranteeDate, order.get_TrxName());
+
+						// 过滤掉待检库位类型的库存，来料检验待检区不允许用于领料
+						storages = filterReservedLocator(storages, order.getM_Warehouse_ID(), order.get_TrxName());
+
+						// 过滤后检查库存是否足够
+						BigDecimal availableQty = Env.ZERO;
+						for (MStorageOnHand soh : storages) {
+							availableQty = availableQty.add(soh.getQtyOnHand());
+						}
+						if (availableQty.compareTo(qtyToDeliver) < 0) {
+                            throw new AdempiereException("物料【" + product.getName() + "】库存不足（已排除待检库位），可用: "
+                                    + availableQty + "，需要: " + qtyToDeliver);
+						}
 					}
 					draftOnly = true; // 仅保存草稿，由MR的processIt统一驱动完成
 					// 调用12参数方法创建明细
@@ -673,7 +694,7 @@ public class OrderReceiptIssue extends GenForm {
 							    oblId = dk.getKey();
 						    }
 
-						    MStorageOnHand[] lsStorages = getLineSideStorages(pid, order.get_TrxName());
+						    MStorageOnHand[] lsStorages = getLineSideStorages(pid, order.get_TrxName(), order.getAD_Org_ID());
 						    MPPOrder.createIssue(order, oblId, movementDate, lsQty, Env.ZERO, Env.ZERO,
 						    	lsStorages, false, costCollectorType, nodeId, resourceId, true, 0);
 			    }
@@ -736,7 +757,7 @@ public class OrderReceiptIssue extends GenForm {
 					BigDecimal lsQty = entry.getValue()[0];
 					int pid = entry.getValue()[1].intValue();
 
-				int lineSideLocatorId = getLineSideLocatorId(order.get_TrxName());
+				int lineSideLocatorId = getLineSideLocatorId(order.get_TrxName(), order.getAD_Org_ID());
 					if (lineSideLocatorId > 0) {
 						MPPOrder.createIssue(order, oblId, movementDate, lsQty, Env.ZERO, Env.ZERO,
 								null, false, costCollectorType, nodeId, resourceId, true, lineSideLocatorId, 0);
@@ -788,10 +809,10 @@ public class OrderReceiptIssue extends GenForm {
 				continue;
 			}
 
-			BigDecimal qtyRequired = getValueBigDecimal(issue, i, 5);
-			BigDecimal qtyDelivered = getValueBigDecimal(issue, i, 6);
-			BigDecimal qtyToDeliver = getValueBigDecimal(issue, i, 7);
-			BigDecimal qtyOnHand = getValueBigDecimal(issue, i, 9);
+			BigDecimal qtyRequired = getValueBigDecimal(issue, i, 6);
+			BigDecimal qtyDelivered = getValueBigDecimal(issue, i, 7);
+			BigDecimal qtyToDeliver = getValueBigDecimal(issue, i, 8);
+			BigDecimal qtyOnHand = getValueBigDecimal(issue, i, 10);
 
 			KeyNamePair productKey = (KeyNamePair) issue.getValueAt(i, 2);
 			String productName = productKey != null ? productKey.getName() : "未知物料";
@@ -847,9 +868,12 @@ public class OrderReceiptIssue extends GenForm {
 				+ "COALESCE((SELECT SUM(soh.QtyOnHand) " // 18 - 线边仓库存
 				+ "FROM M_StorageOnHand soh " + "JOIN M_Locator loc ON soh.M_Locator_ID = loc.M_Locator_ID "
 				+ "JOIN M_LocatorType lt ON loc.M_LocatorType_ID = lt.M_LocatorType_ID "
+				+ "JOIN M_Warehouse wh ON loc.M_Warehouse_ID = wh.M_Warehouse_ID "
 				+ "JOIN M_Product_Category pc ON p.M_Product_Category_ID_L2 = pc.M_Product_Category_ID "
 				+ "WHERE soh.M_Product_ID = obl.M_Product_ID " + "AND lt.Name = '生产线边仓' " + "AND loc.IsActive = 'Y' " + "AND pc.Is_Line_Side_Warehouse = 'Y' "
-				+ "), 0) AS LineSideOnHand" // 线边仓库存
+				+ "AND wh.AD_Org_ID = w.AD_Org_ID "
+				+ "), 0) AS LineSideOnHand," // 线边仓库存
+				+ "p.Specification" // 规格
 				+ " FROM PP_Order_BOMLine obl" + " INNER JOIN M_Product p ON (obl.M_Product_ID = p.M_Product_ID) "
 				+ " INNER JOIN C_UOM u ON (p.C_UOM_ID = u.C_UOM_ID) "
 				+ " INNER JOIN M_Warehouse w ON (w.M_Warehouse_ID = obl.M_Warehouse_ID) "
@@ -914,6 +938,8 @@ public class OrderReceiptIssue extends GenForm {
 				if (lineSideOnHand == null)
 					lineSideOnHand = Env.ZERO;
 
+				String specification = rs.getString(19); // 规格，SQL最后一列
+
 				// 委外工单或OnlyIssue：根据具体类型计算领退数量
 				BigDecimal qtyToDeliver;
 				if (isSubcontractingOrder) {
@@ -946,14 +972,15 @@ public class OrderReceiptIssue extends GenForm {
 				issue.setValueAt(id, row, 0); // 关键部件（复选框）
 				issue.setValueAt(productValue, row, 1); // 物料编码
 				issue.setValueAt(new KeyNamePair(productId, productName), row, 2); // 物料
-				issue.setValueAt(new KeyNamePair(uomId, uomName), row, 3); // 单位
-				issue.setValueAt("", row, 4); // 批次（暂时留空）
-				issue.setValueAt(qtyRequired, row, 5); // 需求数量
-				issue.setValueAt(qtyOnHand, row, 9); // 仓库库存
-				issue.setValueAt(qtyReserved, row, 10); // 预留数量
-				issue.setValueAt(qtyAvailable, row, 11); // 可用数量
-				issue.setValueAt(new KeyNamePair(warehouseId, warehouseName), row, 12); // 仓库
-				issue.setValueAt(qtyBom, row, 13); // bom数量
+				issue.setValueAt(specification, row, 3); // 规格
+				issue.setValueAt(new KeyNamePair(uomId, uomName), row, 4); // 单位
+				issue.setValueAt("", row, 5); // 批次（暂时留空）
+				issue.setValueAt(qtyRequired, row, 6); // 需求数量
+				issue.setValueAt(qtyOnHand, row, 10); // 仓库库存
+				issue.setValueAt(qtyReserved, row, 11); // 预留数量
+				issue.setValueAt(qtyAvailable, row, 12); // 可用数量
+				issue.setValueAt(new KeyNamePair(warehouseId, warehouseName), row, 13); // 仓库
+				issue.setValueAt(qtyBom, row, 14); // bom数量
 				// === 线边仓三段式逻辑 ===
 				BigDecimal lineSideRequestQty = Env.ZERO; // 线边仓申请数量（列13）
 				BigDecimal warehouseRequestQty = qtyToDeliver; // 仓库申请数量（列7），默认保持原值
@@ -961,7 +988,11 @@ public class OrderReceiptIssue extends GenForm {
 				if (remainingQty.compareTo(Env.ZERO) < 0)
 					remainingQty = Env.ZERO;
 
-					if (isProductionReplenishment()) {
+					if (isProductionReturn()) {
+						// 生产退料：不自动计算，等待用户手动输入仓库申请数量
+						warehouseRequestQty = Env.ZERO;
+						lineSideRequestQty = Env.ZERO;
+					} else if (isProductionReplenishment()) {
 						// 生产补领：不计算线边仓，仓库 = 取整(需求 - 已领)
 						warehouseRequestQty = calculateIssueQty(qtyRequired, qtyDelivered, unitsPerPack);
 					} else if (lineSideOnHand.compareTo(Env.ZERO) > 0) {
@@ -981,10 +1012,10 @@ public class OrderReceiptIssue extends GenForm {
 						lineSideRequestQty = Env.ZERO;
 					}
 				// 场景A：线边=0 → lineSideRequestQty=0, warehouseRequestQty保持原值（已按包装取整）
-				issue.setValueAt(lineSideRequestQty, row, 8); // 线边仓申请数量
-				issue.setValueAt(lineSideOnHand, row, 14); // 线边仓库存
-				issue.setValueAt(qtyDelivered, row, 6); // 已领数量 - 可编辑
-				issue.setValueAt(warehouseRequestQty, row, 7); // 仓库申请数量
+				issue.setValueAt(lineSideRequestQty, row, 9); // 线边仓申请数量
+				issue.setValueAt(lineSideOnHand, row, 15); // 线边仓库存
+				issue.setValueAt(qtyDelivered, row, 7); // 已领数量 - 可编辑
+				issue.setValueAt(warehouseRequestQty, row, 8); // 仓库申请数量
 
 				row++;
 			} // while
@@ -1036,9 +1067,9 @@ public class OrderReceiptIssue extends GenForm {
 				if (id != null && id.isSelected()) {
 					KeyNamePair m_productkey = (KeyNamePair) issue.getValueAt(i, 2);
 					int m_M_Product_ID = m_productkey.getKey();
-					KeyNamePair m_uomkey = (KeyNamePair) issue.getValueAt(i, 3);
+					KeyNamePair m_uomkey = (KeyNamePair) issue.getValueAt(i, 4);
 
-					if (issue.getValueAt(i, 4) == null) // 批次为空
+					if (issue.getValueAt(i, 5) == null) // 批次为空
 					{
 						Timestamp m_movementDate = getMovementDate();
 						Timestamp minGuaranteeDate = m_movementDate;
@@ -1065,8 +1096,8 @@ public class OrderReceiptIssue extends GenForm {
 							row[2] = m_uomkey != null ? m_uomkey.toString() : "";
 							row[3] = desc != null ? desc : "";
 							row[4] = issueact.setScale(2, BigDecimal.ROUND_HALF_UP).toString();
-							row[5] = getValueBigDecimal(issue, i, 6).setScale(2, BigDecimal.ROUND_HALF_UP).toString();
-							row[6] = getValueBigDecimal(issue, i, 9).toString(); // 库存数量
+							row[5] = getValueBigDecimal(issue, i, 7).setScale(2, BigDecimal.ROUND_HALF_UP).toString();
+							row[6] = getValueBigDecimal(issue, i, 10).toString(); // 库存数量
 							table.add(row);
 
 							if (toIssue.signum() <= 0)
@@ -1078,10 +1109,10 @@ public class OrderReceiptIssue extends GenForm {
 						row[0] = issue.getValueAt(i, 1) != null ? issue.getValueAt(i, 1).toString() : "";
 						row[1] = m_productkey.toString();
 						row[2] = m_uomkey != null ? m_uomkey.toString() : "";
-						row[3] = issue.getValueAt(i, 4) != null ? issue.getValueAt(i, 4).toString() : "";
-						row[4] = getValueBigDecimal(issue, i, 7).toString(); // 领取数量
-						row[5] = getValueBigDecimal(issue, i, 6).toString(); // 已领数量
-						row[6] = getValueBigDecimal(issue, i, 9).toString(); // 库存数量
+						row[3] = issue.getValueAt(i, 5) != null ? issue.getValueAt(i, 5).toString() : "";
+						row[4] = getValueBigDecimal(issue, i, 8).toString(); // 领取数量
+						row[5] = getValueBigDecimal(issue, i, 7).toString(); // 已领数量
+						row[6] = getValueBigDecimal(issue, i, 10).toString(); // 库存数量
 						table.add(row);
 					}
 				}
@@ -1442,8 +1473,8 @@ public class OrderReceiptIssue extends GenForm {
 		for (int i = 0; i < issue.getRowCount(); i++) {
 			IDColumn id = (IDColumn) issue.getValueAt(i, 0);
 			if (id != null && id.isSelected()) {
-				BigDecimal warehouseQty = getValueBigDecimal(issue, i, 7);
-				BigDecimal lineSideQty = getValueBigDecimal(issue, i, 8);
+				BigDecimal warehouseQty = getValueBigDecimal(issue, i, 8);
+				BigDecimal lineSideQty = getValueBigDecimal(issue, i, 9);
 				if (warehouseQty.compareTo(Env.ZERO) > 0) {
 					return false; // 有仓库需求量，不是纯线边仓
 				}
@@ -1459,7 +1490,7 @@ public class OrderReceiptIssue extends GenForm {
 		for (int i = 0; i < issue.getRowCount(); i++) {
 			IDColumn id = (IDColumn) issue.getValueAt(i, 0);
 			if (id != null && id.isSelected()) {
-				BigDecimal qty = getValueBigDecimal(issue, i, 8);
+				BigDecimal qty = getValueBigDecimal(issue, i, 9);
 				if (qty.compareTo(Env.ZERO) > 0)
 					return true;
 			}
@@ -1474,7 +1505,7 @@ public class OrderReceiptIssue extends GenForm {
 		for (int i = 0; i < issue.getRowCount(); i++) {
 			IDColumn id = (IDColumn) issue.getValueAt(i, 0);
 			if (id != null && id.isSelected()) {
-				BigDecimal warehouseQty = getValueBigDecimal(issue, i, 7);
+				BigDecimal warehouseQty = getValueBigDecimal(issue, i, 8);
 				if (warehouseQty.compareTo(Env.ZERO) > 0) return true;
 			}
 		}
@@ -1497,13 +1528,14 @@ public class OrderReceiptIssue extends GenForm {
 	}
 
 	/**
-	 * 获取线边仓库位ID（退料时只需库位，不要求有库存），跨所有仓库查找
+	 * 获取线边仓库位ID（退料时只需库位，不要求有库存），按组织过滤
 	 */
-	private int getLineSideLocatorId(String trxName) {
+	private int getLineSideLocatorId(String trxName, int adOrgId) {
 		String sql = "SELECT M_Locator_ID FROM M_Locator WHERE IsActive='Y' "
 				+ "AND M_LocatorType_ID IN (SELECT M_LocatorType_ID FROM M_LocatorType WHERE Name='生产线边仓') "
+				+ "AND M_Warehouse_ID IN (SELECT M_Warehouse_ID FROM M_Warehouse WHERE AD_Org_ID=?) "
 				+ "FETCH FIRST 1 ROWS ONLY";
-		int locatorId = DB.getSQLValue(trxName, sql);
+		int locatorId = DB.getSQLValue(trxName, sql, adOrgId);
 		return locatorId > 0 ? locatorId : 0;
 	}
 
@@ -1518,17 +1550,19 @@ public class OrderReceiptIssue extends GenForm {
 	}
 
 	/**
-	 * 获取线边仓库位的库存记录（M_LocatorType.Name='生产线边仓'），跨所有仓库查找
+	 * 获取线边仓库位的库存记录（M_LocatorType.Name='生产线边仓'），按组织过滤
 	 */
-	private MStorageOnHand[] getLineSideStorages(int productId, String trxName) {
+	private MStorageOnHand[] getLineSideStorages(int productId, String trxName, int adOrgId) {
 		List<MStorageOnHand> result = new ArrayList<MStorageOnHand>();
 		String sql = "SELECT M_Locator_ID FROM M_Locator WHERE IsActive='Y' "
 				+ "AND M_LocatorType_ID IN (SELECT M_LocatorType_ID FROM M_LocatorType WHERE Name='生产线边仓') "
+				+ "AND M_Warehouse_ID IN (SELECT M_Warehouse_ID FROM M_Warehouse WHERE AD_Org_ID=?) "
 				+ "FETCH FIRST 1 ROWS ONLY";
 		PreparedStatement pstmt = null;
 		ResultSet rs = null;
 		try {
 			pstmt = DB.prepareStatement(sql, trxName);
+			pstmt.setInt(1, adOrgId);
 			rs = pstmt.executeQuery();
 			List<Integer> locIds = new ArrayList<Integer>();
 			while (rs.next())
@@ -1559,6 +1593,57 @@ public class OrderReceiptIssue extends GenForm {
 	 */
 	protected boolean isSubcontractingReplenishment() {
 		return false; // 基类默认返回false，子类重写
+	}
+
+	/**
+	 * 过滤掉"待检库位"类型库位的库存记录
+	 * 根据 M_LocatorType.Name='待检库位' 判断，来料检验待检区的库存不允许用于生产领料
+	 *
+	 * @param storages      原始库存数组
+	 * @param warehouseId   仓库 ID
+	 * @param trxName       事务
+	 * @return 过滤后的库存数组
+	 */
+	private MStorageOnHand[] filterReservedLocator(MStorageOnHand[] storages, int warehouseId, String trxName) {
+		if (storages == null || storages.length == 0) {
+			return storages;
+		}
+		// 查找"待检库位"类型的 M_LocatorType_ID
+		int locatorTypeId = DB.getSQLValueEx(trxName,
+				"SELECT M_LocatorType_ID FROM M_LocatorType WHERE Name=? AND IsActive='Y'", "待检库位");
+		if (locatorTypeId <= 0) {
+			// 未配置待检库位类型，无需过滤
+			return storages;
+		}
+		// 收集该仓库下属于待检类型的库位 ID
+		Set<Integer> reservedLocatorIds = new HashSet<>();
+		String sql = "SELECT M_Locator_ID FROM M_Locator WHERE M_Warehouse_ID=? AND M_LocatorType_ID=? AND IsActive='Y'";
+		PreparedStatement pstmt = null;
+		ResultSet rs = null;
+		try {
+			pstmt = DB.prepareStatement(sql, trxName);
+			pstmt.setInt(1, warehouseId);
+			pstmt.setInt(2, locatorTypeId);
+			rs = pstmt.executeQuery();
+			while (rs.next()) {
+				reservedLocatorIds.add(rs.getInt(1));
+			}
+		} catch (SQLException e) {
+			log.severe("查找待检库位失败: " + e.getMessage());
+		} finally {
+			DB.close(rs, pstmt);
+		}
+		if (reservedLocatorIds.isEmpty()) {
+			return storages;
+		}
+		// 过滤掉待检库位的库存记录
+		ArrayList<MStorageOnHand> filtered = new ArrayList<>();
+		for (MStorageOnHand soh : storages) {
+			if (!reservedLocatorIds.contains(soh.getM_Locator_ID())) {
+				filtered.add(soh);
+			}
+		}
+		return filtered.toArray(new MStorageOnHand[0]);
 	}
 
 }

@@ -55,20 +55,10 @@ public class PPOrderRepairReminderValidator implements WindowValidator {
     /**
      * 判断是否需要提醒：
      * 1. 工单有待发布状态（Orderstatus='Ready'）
-     * 2. 工单数量 ≤ 关联订单数量（未额外增加补数数量）
-     * 3. 该订单行存在符合条件的随销单补数申请单
+     * 2. 工单关联了新销售订单行（C_OrderLine_ID）
+     * 3. 工单数量 ≤ 新销售订单数量（未额外增加补数数量）
      */
     private boolean checkNeedRemind(GridTab gridTab) {
-        // 获取关联订单行
-        int orderLineId = 0;
-        Object orderLineObj = gridTab.getValue("C_OrderLine_ID");
-        if (orderLineObj instanceof Number) {
-            orderLineId = ((Number) orderLineObj).intValue();
-        }
-        if (orderLineId <= 0) {
-            return false;
-        }
-
         // 检查工单状态：待发布(Ready)
         String orderStatus = "";
         Object statusObj = gridTab.getValue("Orderstatus");
@@ -79,29 +69,44 @@ public class PPOrderRepairReminderValidator implements WindowValidator {
             return false;
         }
 
-        // 获取工单数量和订单行数量
+		// 获取工单关联的订单明细（即新销售订单行）
+		int orderLineId = 0;
+		Object orderLineObj = gridTab.getValue("C_OrderLine_ID");
+
+        // 检查是否存在已完成的随销单补数申请单，没有则不提醒
+        int requestId = DB.getSQLValue(null,
+                "SELECT PP_Order_Repair_Request_ID FROM PP_Order_Repair_Request "
+                        + "WHERE C_OrderLine_New_ID=? AND RepairMethod='SO' AND DocStatus='CO' "
+                        + "AND AD_Client_ID=? AND IsActive='Y'",
+				orderLineObj, Env.getAD_Client_ID(Env.getCtx()));
+        if (requestId <= 0) {
+            return false;
+        }
+
+        if (orderLineObj instanceof Number) {
+            orderLineId = ((Number) orderLineObj).intValue();
+        }
+        if (orderLineId <= 0) {
+            return false;
+        }
+
+        // 获取工单数量
         BigDecimal qtyEntered = BigDecimal.ZERO;
         Object qtyObj = gridTab.getValue("QtyEntered");
         if (qtyObj instanceof BigDecimal) {
             qtyEntered = (BigDecimal) qtyObj;
         }
 
+        // 获取新销售订单行数量
         BigDecimal orderQty = DB.getSQLValueBD(null,
-                "SELECT QtyEntered FROM C_OrderLine WHERE C_OrderLine_ID=?", orderLineId);
+                "SELECT QtyOrdered FROM C_OrderLine WHERE C_OrderLine_ID=?", orderLineId);
         if (orderQty == null) orderQty = BigDecimal.ZERO;
 
-        // 工单数量 > 订单数量，说明已增加补数数量，不需要提醒
+        // 工单数量 > 新销售订单数量，说明已增加补数数量，不需要提醒
         if (qtyEntered.compareTo(orderQty) > 0) {
             return false;
         }
 
-        // 检查是否存在符合条件的随销单补数申请单
-        int requestId = DB.getSQLValue(null,
-                "SELECT PP_Order_Repair_Request_ID FROM PP_Order_Repair_Request "
-                        + "WHERE C_OrderLine_ID=? AND repairmethod='SO' AND DocStatus='CO' "
-                        + "AND AD_Client_ID=? AND IsActive='Y'",
-                orderLineId, Env.getAD_Client_ID(Env.getCtx()));
-
-        return requestId > 0;
+        return true;
     }
 }

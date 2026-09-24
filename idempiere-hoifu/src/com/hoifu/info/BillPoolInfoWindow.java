@@ -12,7 +12,7 @@ import org.compiere.util.Env;
 
 import com.hoifu.model.MBillPool;
 
-public class BillPoolInfoWindow extends InfoWindow {  
+public class BillPoolInfoWindow extends AbstractAllNumericTotalsInfoWindow {  
 	// 贴现流程类名常量
 	private static final String DISCOUNT_PROCESS_CLASSNAME = "com.hoifu.process.BillDiscountProcess";
 	// 传递给贴现参数监听器的 Env context key

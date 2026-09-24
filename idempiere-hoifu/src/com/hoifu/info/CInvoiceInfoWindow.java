@@ -14,7 +14,7 @@ import org.compiere.model.MProcess;
 import org.compiere.util.DB;
 import org.compiere.util.Env;
 
-public class CInvoiceInfoWindow extends InfoWindow {
+public class CInvoiceInfoWindow extends AbstractAllNumericTotalsInfoWindow {
 
 	// 完整构造函数 - 10个参数
 	public CInvoiceInfoWindow(int WindowNo, String tableName, String keyColumn, String queryValue,

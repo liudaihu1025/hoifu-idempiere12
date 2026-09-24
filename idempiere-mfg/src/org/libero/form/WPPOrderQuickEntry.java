@@ -126,6 +126,7 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 	private Decimalbox fImpositionCount = new Decimalbox();
 	private Decimalbox fBOMRatio = new Decimalbox();
 	private Textbox txtDescription = new Textbox();
+	private Textbox txtQtyOnHand = new Textbox(); // 产品存货数量（只读）
 
 	// ── BOM列表 ──────────────────────────────────────────────────────────────
 	private Listbox bomListbox = new Listbox();
@@ -249,6 +250,7 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 		txtProductName.setReadonly(true);
 		txtDocStatus.setReadonly(true);
 		txtDocStatus.setValue(getOrderstatusName("Ready"));
+		txtQtyOnHand.setReadonly(true);
 		
 		// 计划开工/交货日期不再展示于界面，程序赋默认值：开工=当前时间，交货=当前时间+7天
 		fDateStart.setValue(new Timestamp(System.currentTimeMillis()));
@@ -268,12 +270,13 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 	private void loadRoutingNodeData() {
 		allRoutingNodeMap.clear();
 		String sql = "SELECT AD_Routing_Node_ID, Name FROM AD_Routing_Node "
-				+ "WHERE IsActive='Y' AND AD_Client_ID=? ORDER BY Value";
+				+ "WHERE IsActive='Y' AND AD_Client_ID=? AND AD_Org_ID=? ORDER BY Value";
 		java.sql.PreparedStatement pstmt = null;
 		java.sql.ResultSet rs = null;
 		try {
 			pstmt = DB.prepareStatement(sql, null);
 			pstmt.setInt(1, Env.getAD_Client_ID(Env.getCtx()));
+			pstmt.setInt(2, getEffectiveRoutingOrgId());
 			rs = pstmt.executeQuery();
 			while (rs.next()) {
 				allRoutingNodeMap.put(rs.getInt(1), rs.getString(2));
@@ -311,9 +314,10 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 		java.sql.ResultSet rs = null;
 		try {
 			ps = DB.prepareStatement("SELECT AD_Routing_Node_ID, Name FROM AD_Routing_Node "
-					+ "WHERE operationclass_ID=? AND IsActive='Y' AND AD_Client_ID=? ORDER BY Value", null);
+					+ "WHERE operationclass_ID=? AND IsActive='Y' AND AD_Client_ID=? AND AD_Org_ID=? ORDER BY Value", null);
 			ps.setInt(1, operationClassId);
 			ps.setInt(2, Env.getAD_Client_ID(Env.getCtx()));
+			ps.setInt(3, getEffectiveRoutingOrgId());
 			rs = ps.executeQuery();
 			while (rs.next())
 				map.put(rs.getInt(1), rs.getString(2));
@@ -467,9 +471,9 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 		r4.appendCellChild(lbl("BOM比例 *"));
 		ZKUpdateUtil.setHflex(fBOMRatio, "true");
 		r4.appendCellChild(fBOMRatio);
-		r4.appendCellChild(lbl("优先级"));
-		ZKUpdateUtil.setHflex(fPriority.getComponent(), "true");
-		r4.appendCellChild(fPriority.getComponent());
+		r4.appendCellChild(lbl("产品存货数量"));
+		ZKUpdateUtil.setHflex(txtQtyOnHand, "true");
+		r4.appendCellChild(txtQtyOnHand);
 
 		return grid;
 	}
@@ -1324,6 +1328,7 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 		fBOMRatio.setValue(BigDecimal.valueOf(10000));
 		txtPrintingBiteEdge.setValue("");
 		txtPaperCutting.setValue("");
+		txtQtyOnHand.setValue("");
 
 		bomLines.clear();
 		routingNodes.clear();
@@ -1357,6 +1362,7 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 	private void onProductChange(Object newValue) {
 		if (newValue == null) {
 			txtProductValue.setValue("");
+			txtQtyOnHand.setValue("");
 			currentProductId = 0;
 			return;
 		}
@@ -1370,6 +1376,7 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 			txtProductName.setValue(p.getName());
 			fUOM.setValue(p.getC_UOM_ID());
 		}
+		txtQtyOnHand.setValue(getQtyOnHand(currentProductId).toPlainString());
 	}
 
 	private void onOrderLineChange(Object newValue) {
@@ -1415,6 +1422,7 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 			txtProductValue.setValue(p.getValue());
 			txtProductName.setValue(p.getName());
 		}
+		txtQtyOnHand.setValue(getQtyOnHand(currentProductId).toPlainString());
 
 		// 工单类型
 		fDocType.setValue(order.getC_DocTypeTarget_ID());
@@ -1606,8 +1614,8 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 	}
 
 	private void onCopy() {
-		doCopyInternal(0);
-		Dialog.info(m_WindowNo, "", "已复制工单，请填写生产数量和日期后提交");
+		List<String> skippedInvalid = doCopyInternal(0);
+		Dialog.info(m_WindowNo, "", appendSkippedInvalidInfo("已复制工单，请填写生产数量等信息后提交！", skippedInvalid));
 	}
 
 	/**
@@ -1620,9 +1628,23 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 			return;
 		}
 		int sourceOrderId = currentOrder.getPP_Order_ID();
-		String sourceDocNo = currentOrder.getDocumentNo();
-		doCopyInternal(sourceOrderId);
-		Dialog.info(m_WindowNo, "", "已翻单，原工单号：" + sourceDocNo + "，请填写生产数量和日期后提交");
+		String sourceDocumentNo = currentOrder.getDocumentNo();
+		List<String> skippedInvalid = doCopyInternal(sourceOrderId);
+		Dialog.info(m_WindowNo, "", appendSkippedInvalidInfo("已翻单，原工单号：" + sourceDocumentNo + "，请填写生产数量等信息后提交！", skippedInvalid));
+	}
+	
+	/**
+	 * 添加跳过的物料失效信息提示
+	 * @Title: appendSkippedInvalidInfo
+	 * @param baseInfo
+	 * @param skippedInvalid
+	 * @return
+	 * @return String
+	 */
+	private String appendSkippedInvalidInfo(String baseInfo, List<String> skippedInvalid) {  
+	    if (skippedInvalid.isEmpty())  
+	        return baseInfo;  
+	    return baseInfo + "\n\n以下物料已失效，未被复制：\n" + String.join("\n", skippedInvalid);  
 	}
 
 	/**
@@ -1630,11 +1652,20 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 	 * 
 	 * @param refOrderId 0=普通复制（不记录来源）；>0=翻单来源工单ID
 	 */
-	private void doCopyInternal(int refOrderId) {
+	private List<String> doCopyInternal(int refOrderId) {
 		List<BOMLineVO> newBOM = new ArrayList<>();
+		List<String> skippedInvalid = new ArrayList<>();
 		for (BOMLineVO vo : bomLines) {
 			if (vo.isDeleted)
 				continue;
+			// 物料有效性校验：无效（已停用/查不到）的物料不复制到新工单
+			if (vo.productId > 0) {
+				MProduct product = MProduct.get(Env.getCtx(), vo.productId);
+				if (product == null || !product.isActive()) {
+					skippedInvalid.add("[" + vo.productValue + "] " + vo.productName);
+					continue;
+				}
+			}
 			BOMLineVO c = new BOMLineVO();
 			c.productId = vo.productId;
 			c.productValue = vo.productValue;
@@ -1689,6 +1720,7 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 //			refreshRoutingList();  
 		setHeaderReadOnly(false);
 		updateButtonState();
+		return skippedInvalid;
 	}
 
 	private void onZoom() {
@@ -2005,6 +2037,12 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 				Dialog.error(m_WindowNo, "", "BOM物料不能为空");
 				return false;
 			}
+			// 物料有效性校验：保存前的最后一道关，防止已停用物料被提交
+			MProduct product = MProduct.get(Env.getCtx(), vo.productId);
+			if (product == null || !product.isActive()) {
+				Dialog.error(m_WindowNo, "", "物料[" + vo.productName + "]已失效，请重新选择有效物料");
+				return false;
+			}
 			// 所属工序必填
 			if (vo.routingNodeId <= 0) {
 				Dialog.error(m_WindowNo, "", "物料[" + vo.productName + "]的所属工序不能为空");
@@ -2140,6 +2178,28 @@ public class WPPOrderQuickEntry extends ADForm implements EventListener<Event>, 
 		} finally {
 			DB.close(rs, ps);
 		}
+	}
+
+	// 组织常量
+	private final String YANBAO_MAIN = "0411"; // 烟包主数据
+	private final String JS_HAIFU = "0211"; // 江苏海富烟包
+	private final String GD_HAIFU = "0110"; // 广东海富智能环保科技有限公司
+
+	/**
+	 * 若当前登录组织属于 江苏海富烟包 / 广东海富智能环保科技有限公司， 工序名称下拉数据改从 烟包主数据 组织取数；否则用当前登录组织。
+	 */
+	private int getEffectiveRoutingOrgId() {
+		int loginOrgId = Env.getAD_Org_ID(Env.getCtx());
+		String loginOrgValue = DB.getSQLValueString(null, "SELECT Value FROM AD_Org WHERE AD_Org_ID=?", loginOrgId);
+
+		if (JS_HAIFU.equals(loginOrgValue) || GD_HAIFU.equals(loginOrgValue)) {
+			Integer yanbaoOrgId = DB.getSQLValue(null, "SELECT AD_Org_ID FROM AD_Org WHERE Value=? AND AD_Client_ID=?",
+					YANBAO_MAIN, Env.getAD_Client_ID(Env.getCtx()));
+			if (yanbaoOrgId != null && yanbaoOrgId > 0) {
+				return yanbaoOrgId;
+			}
+		}
+		return loginOrgId;
 	}
 
 }

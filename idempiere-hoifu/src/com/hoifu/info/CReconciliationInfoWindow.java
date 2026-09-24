@@ -1,0 +1,19 @@
+package com.hoifu.info;
+
+import org.compiere.model.GridField;
+
+/**
+ * C_Reconciliation 信息窗口：在 AbstractAllNumericTotalsInfoWindow 基础上增加全表合计行。
+ */
+public class CReconciliationInfoWindow extends AbstractAllNumericTotalsInfoWindow {
+
+	private static final long serialVersionUID = 1L;
+
+	public CReconciliationInfoWindow(int WindowNo, String tableName, String keyColumn, String queryValue,
+			boolean multipleSelection, String whereClause, int AD_InfoWindow_ID, boolean lookup, GridField field,
+			String predefinedContextVariables) {
+		super(WindowNo, tableName, keyColumn, queryValue, multipleSelection, whereClause, AD_InfoWindow_ID, lookup,
+				field, predefinedContextVariables);
+	}
+	
+}

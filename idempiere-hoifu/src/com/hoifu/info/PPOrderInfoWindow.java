@@ -180,7 +180,7 @@ public class PPOrderInfoWindow extends InfoWindow {
 
 	/**  
 	 * 所有选中工单必须同时满足：  
-	 * 1) OrderStatus = 'Started'（已开工）  
+	 * 1) PP_Order.DocStatus !='DR'（已开工）  
 	 * 2) 在 PP_Process_Card 中尚无对应记录（未打印过流程卡）  
 	 * 才可执行"流程卡打印"  
 	 */  
@@ -196,13 +196,13 @@ public class PPOrderInfoWindow extends InfoWindow {
 	            sql.append(",");  
 	        sql.append("?");  
 	    }  
-	    sql.append(") AND (o.OrderStatus != ? " +  
+	    sql.append(") AND (o.DocStatus = ? " +
 	               "OR EXISTS (SELECT 1 FROM PP_Process_Card pc WHERE pc.PP_Order_ID = o.PP_Order_ID))");  
 	  
 	    Object[] params = new Object[keys.size() + 1];  
 	    for (int i = 0; i < keys.size(); i++)  
 	        params[i] = keys.get(i);  
-	    params[keys.size()] = "Started";  
+	    params[keys.size()] = "DR";
 	  
 	    // 返回 0 表示所有选中工单都是"已开工 且 尚未打印流程卡"  
 	    return DB.getSQLValueEx(null, sql.toString(), params) == 0;  

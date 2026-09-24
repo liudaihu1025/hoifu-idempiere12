@@ -1064,6 +1064,9 @@ public class ProcessCardScanner implements IFormController, EventListener<Event>
 	  
 	    m_pageNo = 0;  
 	    loadRecordTable();  
+	    // 开工成功后清空卡号框并重新聚焦，方便扫码枪连续扫描下一张卡    
+	    cardNoField.setValue("");    
+	    cardNoField.focus(); 
 	}
 	
 	/**  
@@ -1246,6 +1249,13 @@ public class ProcessCardScanner implements IFormController, EventListener<Event>
 	  
 	                if (saved && onSuccess != null)  
 	                    onSuccess.run();  
+	                
+	                // 完工保存成功后清空卡号框并重新聚焦，方便扫码枪连续扫描下一张卡    
+	                if (saved)    
+	                {    
+	                    cardNoField.setValue("");    
+	                    cardNoField.focus();    
+	                }
 	            }  
 	            else  
 	            {  

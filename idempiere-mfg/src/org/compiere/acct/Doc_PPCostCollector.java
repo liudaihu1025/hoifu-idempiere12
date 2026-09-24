@@ -22,7 +22,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Properties;
-import java.util.logging.Level;
 
 import org.compiere.model.MAccount;
 import org.compiere.model.MAcctSchema;
@@ -317,23 +316,56 @@ public class Doc_PPCostCollector extends Doc
 		final ArrayList<Fact> facts = new ArrayList<Fact>();
 		final Fact fact = new Fact(this, as, Fact.POST_Actual);
 		facts.add(fact);
-		
-		final MProduct product = m_cc.getM_Product();
 
 		MAccount debit = m_line.getAccount(ProductCost.ACCTTYPE_P_WorkInProcess, as);
-		
-		for (MCostDetail cd : getCostDetails(as))
-		{
-			BigDecimal costs = cd.getAmt();
-			
+
+		for (MCostDetail cd : getCostDetails(as)) {
+			BigDecimal costs = cd.getAmt().negate();
+			if (costs.scale() > as.getStdPrecision())
+				costs = costs.setScale(as.getStdPrecision(), RoundingMode.HALF_UP);
 			if (costs.signum() == 0)
 				continue;
+
+			BigDecimal qty = cd.getQty().negate();
+
+			MProduct product = MProduct.get(getCtx(), cd.getM_Product_ID());
+
 			MCostElement element = MCostElement.get(getCtx(), cd.getM_CostElement_ID());
 			MAccount credit = m_line.getAccount(as, element);
-			createLines(element, as, fact, product, debit, credit, costs, cd.getQty());
+			if (credit == null) {
+				log.warning("createActivityControl: 贷方账户为null，跳过 - element=" + element + ", cd=" + cd);
+				continue;
+			}
+
+			log.info("createActivityControl: Product=" + (product == null ? "null" : product.getName())
+					+ " CostElement=" + element.getName() + " Debit=" + debit.getDescription() + " Credit="
+					+ credit.getDescription() + " Cost=" + costs + " Qty=" + qty);
+
+			// 借方：Work in Process
+			FactLine dr = fact.createLine(m_line, debit, as.getC_Currency_ID(), costs, null);
+			if (dr != null) {
+				dr.setQty(qty);
+				dr.setM_Product_ID(cd.getM_Product_ID());
+				dr.addDescription(element.getName());
+				dr.setC_Project_ID(m_cc.getC_Project_ID());
+				dr.setC_Activity_ID(m_cc.getC_Activity_ID());
+				dr.setC_Campaign_ID(m_cc.getC_Campaign_ID());
+				dr.setM_Locator_ID(m_cc.getM_Locator_ID());
+			}
+
+			// 贷方：对应成本要素的 Absorbed 账户，用完全相同的 costs 值
+			FactLine cr = fact.createLine(m_line, credit, as.getC_Currency_ID(), null, costs);
+			if (cr != null) {
+				cr.setQty(qty);
+				cr.setM_Product_ID(cd.getM_Product_ID());
+				cr.addDescription(element.getName());
+				cr.setC_Project_ID(m_cc.getC_Project_ID());
+				cr.setC_Activity_ID(m_cc.getC_Activity_ID());
+				cr.setC_Campaign_ID(m_cc.getC_Campaign_ID());
+				cr.setM_Locator_ID(m_cc.getM_Locator_ID());
+			}
 		}
-		//
-		
+
 		return facts;
 	}
 	

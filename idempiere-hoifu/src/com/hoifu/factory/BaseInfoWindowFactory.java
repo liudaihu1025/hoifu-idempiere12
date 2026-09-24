@@ -1,4 +1,4 @@
-package com.hoifu.factory;  
+﻿package com.hoifu.factory;  
   
 import org.adempiere.webui.factory.IInfoFactory;
 import org.adempiere.webui.info.InfoWindow;
@@ -10,16 +10,20 @@ import org.compiere.model.MRequisitionLine;
 import org.compiere.model.MTable;
 import org.osgi.service.component.annotations.Component;
 
+import com.hoifu.info.AssetChangeInfoWindow;
 import com.hoifu.info.BillPoolInfoWindow;
 import com.hoifu.info.CInvoiceInfoWindow;
 import com.hoifu.info.COfficeRequisitionInfoWindow;
+import com.hoifu.info.COrderInfoWindow;
+import com.hoifu.info.COrderLineInfoWindow;
+import com.hoifu.info.CPaymentInfoWindow;
+import com.hoifu.info.CReconciliationInfoWindow;
 import com.hoifu.info.CreateFromInOutInfoWindow;
 import com.hoifu.info.DYGraphicDesignReviewInfoWindow;
 import com.hoifu.info.DYGraphicDesignTaskInfoWindow;
 import com.hoifu.info.DYProcessDesignInfoWindow;
 import com.hoifu.info.DYSampleReviewInfoWindow;
-import com.hoifu.info.InfoOrderWindowWithTotal;
-import com.hoifu.info.InfoPurchaseLineWindow;
+import com.hoifu.info.IQCInspectListInfoWindow;
 import com.hoifu.info.MInOutLineInfoWindow;
 import com.hoifu.info.MInventoryInfoWindow;
 import com.hoifu.info.MPaymentRequestLineInfoWindow;
@@ -27,6 +31,7 @@ import com.hoifu.info.MRequisitionLineInfoWindow;
 import com.hoifu.info.PPOrderInfoWindow;
 import com.hoifu.info.PPOrderNodeInfoWindow;
 import com.hoifu.info.PPOrderShortageInfoWindow;
+import com.hoifu.info.ProductInspectionTypeInfoWindow;
 import com.hoifu.info.PurchaseRequisitionMaterialInfoWindow;
 import com.hoifu.info.RVMTransactionDetailInfo;
 import com.hoifu.info.RVProductInfoWindow;
@@ -75,19 +80,19 @@ public class BaseInfoWindowFactory implements IInfoFactory {
             return new MRequisitionLineInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,  
                     whereClause, AD_InfoWindow_ID, true, field, null);  
         }  
-        if ("RV_M_Product".equals(tableName)) {  
-            return new RVProductInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,  
-                    whereClause, AD_InfoWindow_ID, true, field);  
-        }  
-        if ("C_OrderLine".equals(tableName)) {  
-            return new InfoPurchaseLineWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,  
-                    whereClause, AD_InfoWindow_ID, true, field, null);  
-		}
-		// 添加 C_Order 支持
-		if ("C_Order".equals(tableName)) {
-			return new InfoOrderWindowWithTotal(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,
-					whereClause, AD_InfoWindow_ID, true, field, null);
-		}
+        if ("RV_M_Product".equals(tableName)) {
+            return new RVProductInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,
+                    whereClause, AD_InfoWindow_ID, true, field);
+        }
+        // 来料检验物料信息窗口
+		if ("m_product_iqc_v".equals(tableName)) {
+            return new ProductInspectionTypeInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,
+                    whereClause, AD_InfoWindow_ID, true, field);
+        }
+        if ("qc_iqcinspect_list_v".equals(tableName)) {
+            return new IQCInspectListInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value,
+                    multiSelection, whereClause, AD_InfoWindow_ID, true, field, null);
+        }
 		if ("C_Bill_Pool".equals(tableName)) {
 			return new BillPoolInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,
 					whereClause, AD_InfoWindow_ID, true, field, null);
@@ -140,6 +145,31 @@ public class BaseInfoWindowFactory implements IInfoFactory {
 		if ("PP_Order_BOMLine".equals(tableName)) {
 			return new PurchaseRequisitionMaterialInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value,
 					multiSelection, whereClause, AD_InfoWindow_ID, true, field, null);
+		}
+		// 资产信息窗口
+		if ("A_Asset".equals(tableName)) {
+			return new AssetChangeInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,
+					whereClause, AD_InfoWindow_ID, true, field, null);
+		}
+		// 支付信息窗口
+		if ("C_Payment".equals(tableName)) {
+			return new CPaymentInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,
+					whereClause, AD_InfoWindow_ID, true, field, null);
+		}
+		// 对账单信息窗口
+		if ("C_Reconciliation".equals(tableName)) {
+			return new CReconciliationInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,
+					whereClause, AD_InfoWindow_ID, true, field, null);
+		}
+		// 订单信息窗口
+		if ("C_Order".equals(tableName)) {
+			return new COrderInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,
+					whereClause, AD_InfoWindow_ID, true, field, null);
+		}
+		// 订单明细信息窗口
+		if ("C_OrderLine".equals(tableName)) {
+			return new COrderLineInfoWindow(lookup.getWindowNo(), tableName, keyColumn, value, multiSelection,
+					whereClause, AD_InfoWindow_ID, true, field, null);
 		}
 		return null;
     }  
@@ -195,26 +225,25 @@ public class BaseInfoWindowFactory implements IInfoFactory {
                 String keyColumn = tableName + "_ID";  
                 if (table.isUUIDKeyTable())  
                     keyColumn = tableName + "_UU";  
-                return new RVProductInfoWindow(windowNo, tableName, keyColumn, null, true, null, AD_InfoWindow_ID, false,  
-                        null, predefinedContextVariables);  
-            }  
-            if ("C_OrderLine".equals(tableName)) {  
-                MTable table = (MTable) infoWindow.getAD_Table();  
-                String keyColumn = tableName + "_ID";  
-                if (table.isUUIDKeyTable())  
-                    keyColumn = tableName + "_UU";  
-                return new InfoPurchaseLineWindow(windowNo, tableName, keyColumn, null, true, null, AD_InfoWindow_ID, false,  
-                        null, predefinedContextVariables);  
-			}
-			// 添加 C_Order 支持
-			if ("C_Order".equals(tableName)) {
-				MTable table = (MTable) infoWindow.getAD_Table();
-				String keyColumn = tableName + "_ID";
-				if (table.isUUIDKeyTable())
-					keyColumn = tableName + "_UU";
-				return new InfoOrderWindowWithTotal(windowNo, tableName, keyColumn, null, true, null, AD_InfoWindow_ID,
-						false, null, predefinedContextVariables);
-            }  
+                return new RVProductInfoWindow(windowNo, tableName, keyColumn, null, true, null, AD_InfoWindow_ID, false,
+                        null, predefinedContextVariables);
+            }
+            // 来料检验物料信息窗口
+			if ("m_product_iqc_v".equals(tableName)) {
+                MTable table = (MTable) infoWindow.getAD_Table();
+                String keyColumn = tableName + "_ID";
+                if (table.isUUIDKeyTable())
+                    keyColumn = tableName + "_UU";
+                return new ProductInspectionTypeInfoWindow(windowNo, tableName, keyColumn, null, true, null,
+                        AD_InfoWindow_ID, false, null, predefinedContextVariables);
+            }
+
+            // 来料检验任务列表信息窗口
+            if ("qc_iqcinspect_list_v".equals(tableName)) {
+                String keyColumn = tableName + "_ID";
+                return new IQCInspectListInfoWindow(windowNo, tableName, keyColumn, null, true, null,
+                        AD_InfoWindow_ID, false, null, predefinedContextVariables);
+            }
 			if ("C_Bill_Pool".equals(tableName)) {
 				MTable table = (MTable) infoWindow.getAD_Table();
 				String keyColumn = tableName + "_ID";
@@ -306,6 +335,51 @@ public class BaseInfoWindowFactory implements IInfoFactory {
 				return new PurchaseRequisitionMaterialInfoWindow(windowNo, tableName, keyColumn, null, false, null,
 						AD_InfoWindow_ID, false, null, predefinedContextVariables);
 			}
+			// 资产信息窗口
+			if ("A_Asset".equals(tableName)) {
+				MTable table = (MTable) infoWindow.getAD_Table();
+				String keyColumn = tableName + "_ID";
+				if (table.isUUIDKeyTable())
+					keyColumn = tableName + "_UU";
+				return new AssetChangeInfoWindow(windowNo, tableName, keyColumn, null, false, null,
+						AD_InfoWindow_ID, false, null, predefinedContextVariables);
+			}
+			// 支付信息窗口
+			if ("C_Payment".equals(tableName)) {
+				MTable table = (MTable) infoWindow.getAD_Table();
+				String keyColumn = tableName + "_ID";
+				if (table.isUUIDKeyTable())
+					keyColumn = tableName + "_UU";
+				return new CPaymentInfoWindow(windowNo, tableName, keyColumn, null, true, null, AD_InfoWindow_ID,
+						false, null, predefinedContextVariables);
+			}
+			// 对账单信息窗口
+			if ("C_Reconciliation".equals(tableName)) {
+				MTable table = (MTable) infoWindow.getAD_Table();
+				String keyColumn = tableName + "_ID";
+				if (table.isUUIDKeyTable())
+					keyColumn = tableName + "_UU";
+				return new CReconciliationInfoWindow(windowNo, tableName, keyColumn, null, true, null, AD_InfoWindow_ID,
+						false, null, predefinedContextVariables);
+			}
+			// 订单信息窗口
+			if ("C_Order".equals(tableName)) {
+				MTable table = (MTable) infoWindow.getAD_Table();
+				String keyColumn = tableName + "_ID";
+				if (table.isUUIDKeyTable())
+					keyColumn = tableName + "_UU";
+				return new COrderInfoWindow(windowNo, tableName, keyColumn, null, true, null, AD_InfoWindow_ID,
+						false, null, predefinedContextVariables);
+			}
+			// 订单明细信息窗口
+			if ("C_OrderLine".equals(tableName)) {
+				MTable table = (MTable) infoWindow.getAD_Table();
+				String keyColumn = tableName + "_ID";
+				if (table.isUUIDKeyTable())
+					keyColumn = tableName + "_UU";
+				return new COrderLineInfoWindow(windowNo, tableName, keyColumn, null, true, null, AD_InfoWindow_ID,
+						false, null, predefinedContextVariables);
+			}
 		}
         return null;  
     }  
@@ -343,19 +417,20 @@ public class BaseInfoWindowFactory implements IInfoFactory {
             return new MInOutLineInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,  
                     AD_InfoWindow_ID, lookup, field, null);  
         }  
-        if ("RV_M_Product".equals(tableName)) {  
-            return new RVProductInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,  
-                    AD_InfoWindow_ID, lookup, field, null);  
-        }  
-        if ("C_OrderLine".equals(tableName)) {  
-            return new InfoPurchaseLineWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,  
-                    AD_InfoWindow_ID, lookup, field, null);  
-		}
-		// 添加 C_Order 支持
-		if ("C_Order".equals(tableName)) {
-			return new InfoOrderWindowWithTotal(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,
-					AD_InfoWindow_ID, lookup, field, null);
-        }  
+        if ("RV_M_Product".equals(tableName)) {
+            return new RVProductInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,
+                    AD_InfoWindow_ID, lookup, field, null);
+        }
+        // 来料检验物料信息窗口
+		if ("m_product_iqc_v".equals(tableName)) {
+            return new ProductInspectionTypeInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,
+                    AD_InfoWindow_ID, lookup, field, null);
+        }
+        // 来料检验任务列表信息窗口
+        if ("qc_iqcinspect_list_v".equals(tableName)) {
+            return new IQCInspectListInfoWindow(WindowNo, tableName, keyColumn, value,
+                    multiSelection, whereClause, AD_InfoWindow_ID, lookup, field, null);
+        } 
 		if ("C_Bill_Pool".equals(tableName)) {
 			return new BillPoolInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,
 					AD_InfoWindow_ID, lookup, field, null);
@@ -409,6 +484,31 @@ public class BaseInfoWindowFactory implements IInfoFactory {
 		if ("PP_Order_BOMLine".equals(tableName)) {
 			return new PurchaseRequisitionMaterialInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection,
 					whereClause, AD_InfoWindow_ID, lookup, field, null);
+		}
+		// 资产信息窗口
+		if ("A_Asset".equals(tableName)) {
+			return new AssetChangeInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,
+					AD_InfoWindow_ID, lookup, field, null);
+		}
+		// 支付信息窗口
+		if ("C_Payment".equals(tableName)) {
+			return new CPaymentInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,
+					AD_InfoWindow_ID, lookup, field, null);
+		}
+		// 对账单信息窗口
+		if ("C_Reconciliation".equals(tableName)) {
+			return new CReconciliationInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,
+					AD_InfoWindow_ID, lookup, field, null);
+		}
+		// 订单信息窗口
+		if ("C_Order".equals(tableName)) {
+			return new COrderInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,
+					AD_InfoWindow_ID, lookup, field, null);
+		}
+		// 订单明细信息窗口
+		if ("C_OrderLine".equals(tableName)) {
+			return new COrderLineInfoWindow(WindowNo, tableName, keyColumn, value, multiSelection, whereClause,
+					AD_InfoWindow_ID, lookup, field, null);
 		}
 		return null;  
     }  
